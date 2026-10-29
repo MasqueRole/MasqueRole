@@ -1,8 +1,8 @@
 # ♾️ InfiniteRoleplay
 
-**A native desktop app, written in Rust, for roleplaying with Grok (xAI): endless, consistent, and persistent sessions.**
+**A native desktop app, written in Rust, for roleplaying with the AI model of your choice: endless, consistent, and persistent sessions.**
 
-InfiniteRoleplay sits between you and the Grok API. It handles character cards, world knowledge, long-term memory, and a branching story tree, so stories don't fall apart when they hit context limits or the model forgets what happened.
+InfiniteRoleplay sits between you and the language model provider you choose (xAI, OpenAI, Anthropic, OpenRouter, or a local model via Ollama or LM Studio). It handles character cards, world knowledge, long-term memory, and a branching story tree, so stories don't fall apart when they hit context limits or the model forgets what happened.
 
 > 🚧 **Status: early development.** The repository currently contains only this README. Everything below describes the planned design and is not yet implemented. Installation steps, commands, and the project layout will work as described once the first release lands.
 
@@ -51,7 +51,7 @@ The goal is a **lightweight native desktop app in pure Rust** with as little com
 | Language         | Rust                                                      | Fast, memory-safe, and everything (UI and logic) in one language.   |
 | GUI              | [egui](https://github.com/emilk/egui) / `eframe`          | Simple immediate-mode UI with no web stack. Custom drawing makes the skill-tree view easy. |
 | Async runtime    | `tokio`                                                   | Runs API calls and streaming in the background without freezing the UI. |
-| HTTP / streaming | `reqwest`                                                 | Calls the xAI API and reads streamed (SSE) responses.               |
+| HTTP / streaming | `reqwest`                                                 | Calls the provider's API and reads streamed (SSE) responses.               |
 | Storage          | SQLite via `rusqlite` (bundled)                           | One local file, reliable, trivial to back up.                       |
 | Serialization    | `serde` with JSON/TOML/YAML                               | Settings, character cards, and lorebooks.                           |
 | Secrets          | `keyring`                                                 | Stores the API key in the OS keychain, never in plain text.         |
@@ -67,7 +67,7 @@ The code is split into a UI-independent **core library** and a thin **GUI app**.
 
 ## Requirements
 
-**To use the app:** Just an xAI API key ([console.x.ai](https://console.x.ai)) and an internet connection.
+**To use the app:** An API key for any supported provider and an internet connection, or a locally running model (e.g. Ollama or LM Studio) that needs no key and no internet.
 
 **To build from source:**
 
@@ -93,11 +93,11 @@ cargo build --release -p ir-app   # optimized binary in target/release/
 ## Quick Start
 
 1. Launch InfiniteRoleplay.
-2. Open **Settings → API** and paste your xAI API key.
+2. Open **Settings → API** and choose a **provider** and paste your API key (not needed for local models).
 3. Create or import a **character** and, optionally, a **world**.
 4. Press **New Session** and start writing.
 
-For development, you can also provide the key through the `XAI_API_KEY` environment variable.
+For development, you can also provide the key through the `IR_API_KEY` environment variable.
 
 ## Configuration
 
@@ -105,8 +105,9 @@ Most options are available in the **Settings** screen. They are stored in `setti
 
 ```toml
 [api]
-base_url = "https://api.x.ai/v1"
-model = "grok-4"          # check the xAI docs for current model names
+provider = "openai-compatible"   # or a built-in preset, e.g. "xai", "openai", "anthropic", "ollama"
+base_url = "https://api.x.ai/v1" # endpoint of your provider
+model = "grok-4"                 # check your provider's docs for current model names
 temperature = 0.9
 max_tokens = 800
 stream = true
@@ -132,6 +133,8 @@ show_tree_on_branch = true
 
 | Setting                    | Description                                                    |
 |----------------------------|----------------------------------------------------------------|
+| `api.provider`             | Provider preset or `openai-compatible` for any compatible endpoint |
+| `api.base_url`             | API endpoint (e.g. a local server at `http://localhost:11434/v1`) |
 | `context.max_context_tokens` | Upper limit for the context sent to the API                  |
 | `context.recent_messages`  | Number of messages kept verbatim                               |
 | `context.summarize_after`  | Older messages are condensed beyond this point                 |
@@ -270,7 +273,7 @@ InfiniteRoleplay/
 │   ├── ir-core/                # Core logic, no UI code
 │   │   └── src/
 │   │       ├── lib.rs
-│   │       ├── client.rs       # Grok/xAI API client (streaming)
+│   │       ├── client.rs       # Provider-agnostic LLM client (streaming)
 │   │       ├── context.rs      # Context building & token budget
 │   │       ├── memory.rs       # Summaries & fact store
 │   │       ├── lorebook.rs     # Keyword-triggered injection
@@ -301,6 +304,7 @@ InfiniteRoleplay/
 - [ ] Vector-based memory search
 - [ ] Import of character cards from common formats
 - [ ] Image support for scenes
+- [ ] Additional native provider adapters beyond OpenAI-compatible APIs
 - [ ] Plugin system for custom commands
 - [ ] Optional encrypted backup and export
 - [ ] Voice output
@@ -319,9 +323,9 @@ Please describe your changes clearly, run `cargo fmt` and `cargo clippy` before 
 ## Usage Notes
 
 - InfiniteRoleplay is a tool for **creative writing and entertainment**. All content is generated by the underlying model.
-- xAI's usage policies apply. This app does not bypass or alter their safeguards.
-- Sessions are stored locally, but conversation content is sent to the xAI API for processing. Do not enter sensitive personal data.
-- This project is not affiliated with xAI.
+- The usage policies of your chosen provider apply. This app does not bypass or alter their safeguards.
+- Sessions are stored locally, but conversation content is sent to your chosen provider's API for processing (unless you use a local model). Do not enter sensitive personal data.
+- This project is not affiliated with any model provider.
 
 ## License
 
