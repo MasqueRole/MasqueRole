@@ -106,8 +106,8 @@ Most options are available in the **Settings** screen. They are stored in `setti
 ```toml
 [api]
 provider = "openai-compatible"   # or a built-in preset, e.g. "xai", "openai", "anthropic", "ollama"
-base_url = "https://api.x.ai/v1" # endpoint of your provider
-model = "grok-4"                 # check your provider's docs for current model names
+base_url = "https://api.example.com/v1" # endpoint of your provider
+model = "your-model-name"         # check your provider's docs for current model names
 temperature = 0.9
 max_tokens = 800
 stream = true
