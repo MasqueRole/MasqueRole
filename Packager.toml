@@ -2,6 +2,8 @@
 #   cargo build --release -p ir-app
 #   cargo packager --release --formats nsis        # Windows
 #   cargo packager --release --formats deb,appimage # Linux
+# cargo-packager silently ignores a root-level config without a package name.
+name = "ir-app"
 product-name = "InfiniteRoleplay"
 identifier = "io.github.baicore.infiniteroleplay"
 version = "0.1.0"
