@@ -1,4 +1,8 @@
-# ♾️ InfiniteRoleplay
+<p align="center">
+  <img src="assets/icon.png" alt="InfiniteRoleplay logo" width="128">
+</p>
+
+<h1 align="center">InfiniteRoleplay</h1>
 
 **A native desktop app, written in Rust, for roleplaying with the AI model of your choice: endless, consistent, and persistent sessions.**
 
@@ -102,9 +106,9 @@ cargo packager --release --formats deb,appimage  # Linux
 ## Quick Start
 
 1. Launch InfiniteRoleplay.
-2. Open **Settings → API** and choose a **provider** and paste your API key (not needed for local models).
-3. Create or import a **character** and, optionally, a **world**.
-4. Press **New Session** and start writing.
+2. Click **Settings** (top right) and choose a **provider** and paste your API key (not needed for local models).
+3. Open **Characters** (and, optionally, **Worlds**) in the top navigation to create or edit them. Each section has its own list in the sidebar.
+4. Go to **Stories**, press **New session**, and start writing. **Tree** shows the branches of the open story.
 
 For development, you can also provide the key through the `IR_API_KEY` environment variable.
 

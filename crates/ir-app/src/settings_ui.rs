@@ -4,8 +4,7 @@ use eframe::egui::Ui;
 use ir_core::client::PRESETS;
 use ir_core::settings::{NodeLabel, Settings};
 use ir_ui::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, FormField, Input, Label, Select, Slider,
-    Switch,
+    Badge, BadgeVariant, Button, ButtonVariant, Card, FormField, Input, Select, Slider, Switch,
 };
 use ir_ui::spacing;
 
@@ -98,7 +97,6 @@ impl SettingsForm {
     /// Draw the form. Returns an action if a button other than save or cancel was pressed.
     pub fn show(&mut self, key_available: bool, ui: &mut Ui) -> Option<SettingsAction> {
         let mut action = None;
-        ui.add(Label::new("Settings").heading());
 
         Card::new()
             .header(|ui| {

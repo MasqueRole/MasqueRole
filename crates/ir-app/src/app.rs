@@ -1,21 +1,23 @@
-//! The application: window layout, screens, and the event loop.
+//! The application: window layout, sections, and the event loop.
+//!
+//! The top navigation picks a section (stories, characters, worlds, or the story tree).
+//! Each section has its own sidebar list and main area. Settings open as an overlay.
 
 use std::path::PathBuf;
 use std::sync::mpsc;
 
-use eframe::egui::{Align, Context, Layout, Ui};
+use eframe::egui::{Align, Context, Layout, TextureHandle, Ui};
 use ir_core::cards::Card as _;
 use ir_core::character::Character;
 use ir_core::commands;
 use ir_core::db::{NodeId, Session, SessionId};
 use ir_core::lorebook::Lorebook;
 use ir_core::settings::Settings;
-use ir_core::APP_NAME;
 use ir_ui::components::{
-    Button, ButtonSize, ButtonVariant, Dialog, FormField, Input, Label, Panel, ScrollArea, Select,
-    Toast, Toasts,
+    Button, ButtonSize, ButtonVariant, Card, Dialog, FormField, Icon, Input, Panel, ScrollArea,
+    Select, Tabs, Toast, Toasts,
 };
-use ir_ui::{Theme, ThemeMode};
+use ir_ui::{spacing, Theme, ThemeMode};
 
 use crate::backend::{Backend, Event, Request, Transcript, TreeData};
 use crate::characters::{CharacterForm, WorldForm};
@@ -23,26 +25,54 @@ use crate::format::Notice;
 use crate::library::Entry;
 use crate::settings_ui::{SettingsAction, SettingsForm};
 use crate::tree_view::TreeView;
-use crate::{chat, sidebar};
+use crate::{branding, chat, sidebar};
 
 /// Width of the sidebar.
 const SIDEBAR_WIDTH: f32 = 260.0;
 
+/// Width of the logo in the top bar.
+const LOGO_WIDTH: f32 = 44.0;
+
+/// Width of the settings overlay.
+const SETTINGS_WIDTH: f32 = 600.0;
+
+/// The settings overlay never grows beyond this share of the window height.
+const SETTINGS_MAX_HEIGHT_SHARE: f32 = 0.75;
+
 /// The name a new session starts with.
 const DEFAULT_SESSION_NAME: &str = "New story";
 
-/// The screen shown in the main area.
-pub enum Screen {
-    /// The story.
-    Chat,
-    /// The settings.
-    Settings(SettingsForm),
-    /// A character being edited.
-    Character(CharacterForm),
-    /// A world being edited.
-    World(WorldForm),
-    /// The story tree.
-    Tree(TreeView),
+/// A part of the app, chosen in the top navigation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Section {
+    /// Sessions and the story being told.
+    Stories,
+    /// The character library and its editor.
+    Characters,
+    /// The world library and its editor.
+    Worlds,
+    /// The tree of the open story.
+    Tree,
+}
+
+impl Section {
+    /// Every section, in navigation order.
+    pub const ALL: [Section; 4] = [
+        Section::Stories,
+        Section::Characters,
+        Section::Worlds,
+        Section::Tree,
+    ];
+
+    /// The label in the top navigation.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Stories => "Stories",
+            Self::Characters => "Characters",
+            Self::Worlds => "Worlds",
+            Self::Tree => "Tree",
+        }
+    }
 }
 
 /// Something the user must confirm before it happens.
@@ -107,12 +137,28 @@ pub struct NewSessionForm {
     world: usize,
 }
 
-/// What a form's footer buttons asked for.
+/// What an editor's footer buttons asked for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FormAction {
     Save,
     Cancel,
     Delete,
+}
+
+/// A card telling the user what to do next in an empty main area. Returns whether its
+/// button, if it has one, was clicked.
+fn empty_state(ui: &mut Ui, title: &str, description: &str, button: Option<&str>) -> bool {
+    let mut clicked = false;
+    let mut card = Card::new().header(|ui| {
+        Card::title(ui, title);
+        Card::description(ui, description);
+    });
+    if let Some(label) = button {
+        let clicked = &mut clicked;
+        card = card.footer(move |ui| *clicked = ui.add(Button::new(label)).clicked());
+    }
+    card.show(ui);
+    clicked
 }
 
 /// The whole application.
@@ -124,13 +170,15 @@ pub struct App {
     _runtime: Option<tokio::runtime::Runtime>,
     /// Pending notifications.
     pub toasts: Toasts,
-    /// The screen in the main area.
-    pub screen: Screen,
+    /// The section chosen in the top navigation.
+    pub section: Section,
     theme_mode: ThemeMode,
     /// The current settings.
     pub settings: Settings,
     /// Whether an API key is available for the current provider.
     pub key_available: bool,
+    /// The settings overlay, when open.
+    pub settings_form: Option<SettingsForm>,
     /// All sessions.
     pub sessions: Vec<Session>,
     /// The open story, if any.
@@ -141,18 +189,26 @@ pub struct App {
     pub characters: Vec<Entry<Character>>,
     /// The world library.
     pub worlds: Vec<Entry<Lorebook>>,
+    /// The character being edited, if any.
+    pub character_form: Option<CharacterForm>,
+    /// The world being edited, if any.
+    pub world_form: Option<WorldForm>,
     /// The chat input state.
     pub chat: ChatState,
     /// The new-session dialog, when open.
     pub new_session: Option<NewSessionForm>,
     /// A pending confirmation.
     pub confirm: Option<Confirm>,
-    /// The whole story tree, sent by the backend while the tree screen is open.
+    /// The whole story tree, sent by the backend while the tree section is open.
     pub tree: Option<TreeData>,
+    /// View state of the tree section.
+    tree_view: TreeView,
     /// Counts the tree updates, so the tree view knows when to rebuild its layout.
     tree_version: u64,
     /// Whether the backend has been told to send the tree.
     tree_watching: bool,
+    logo: Option<TextureHandle>,
+    logo_tried: bool,
 }
 
 impl App {
@@ -168,21 +224,27 @@ impl App {
             events,
             _runtime: runtime,
             toasts: Toasts::new(),
-            screen: Screen::Chat,
+            section: Section::Stories,
             theme_mode: ThemeMode::System,
             settings: Settings::default(),
             key_available: false,
+            settings_form: None,
             sessions: Vec::new(),
             transcript: None,
             notices: Vec::new(),
             characters: Vec::new(),
             worlds: Vec::new(),
+            character_form: None,
+            world_form: None,
             chat: ChatState::default(),
             new_session: None,
             confirm: None,
             tree: None,
+            tree_view: TreeView::new(),
             tree_version: 0,
             tree_watching: false,
+            logo: None,
+            logo_tried: false,
         }
     }
 
@@ -252,8 +314,17 @@ impl App {
         });
     }
 
-    fn open_settings(&mut self) {
-        self.screen = Screen::Settings(SettingsForm::new(&self.settings));
+    /// Open the settings overlay.
+    pub fn open_settings(&mut self) {
+        self.settings_form = Some(SettingsForm::new(&self.settings));
+    }
+
+    /// Switch to `section`. The tree starts with a fresh view every time it is opened.
+    pub fn show_section(&mut self, section: Section) {
+        if section == Section::Tree && self.section != Section::Tree {
+            self.tree_view = TreeView::new();
+        }
+        self.section = section;
     }
 
     /// Send what is typed in the chat input. Commands that delete data wait for confirmation.
@@ -273,24 +344,32 @@ impl App {
         }
     }
 
-    /// Move the story to a node chosen in the tree, and go back to the chat to continue from it.
+    /// Move the story to a node chosen in the tree, and go back to the story to continue from it.
     fn jump_to(&mut self, node: NodeId) {
         self.backend.send(Request::JumpTo(node));
-        self.screen = Screen::Chat;
+        self.show_section(Section::Stories);
     }
 
     fn apply_confirm(&mut self, confirm: Confirm) {
         match confirm {
             Confirm::DeleteSession { id, .. } => self.backend.send(Request::DeleteSession(id)),
             Confirm::DeleteCharacter { path, .. } => {
-                if matches!(&self.screen, Screen::Character(f) if f.path.as_ref() == Some(&path)) {
-                    self.screen = Screen::Chat;
+                if self
+                    .character_form
+                    .as_ref()
+                    .is_some_and(|f| f.path.as_ref() == Some(&path))
+                {
+                    self.character_form = None;
                 }
                 self.backend.send(Request::DeleteCharacter(path));
             }
             Confirm::DeleteWorld { path, .. } => {
-                if matches!(&self.screen, Screen::World(f) if f.path.as_ref() == Some(&path)) {
-                    self.screen = Screen::Chat;
+                if self
+                    .world_form
+                    .as_ref()
+                    .is_some_and(|f| f.path.as_ref() == Some(&path))
+                {
+                    self.world_form = None;
                 }
                 self.backend.send(Request::DeleteWorld(path));
             }
@@ -298,18 +377,25 @@ impl App {
         }
     }
 
+    /// Send the settings being edited, with a newly typed key, and close the overlay.
+    fn save_settings(&mut self) {
+        if let Some(form) = self.settings_form.take() {
+            self.backend.send(Request::SaveSettings {
+                settings: form.to_settings(),
+                api_key: form.new_api_key(),
+            });
+        }
+    }
+
+    /// Act on the footer buttons of the editor in the current section.
     fn form_action(&mut self, action: FormAction) {
-        match (action, &mut self.screen) {
-            (FormAction::Cancel, _) => self.screen = Screen::Chat,
-            (FormAction::Save, Screen::Settings(form)) => {
-                let request = Request::SaveSettings {
-                    settings: form.to_settings(),
-                    api_key: form.new_api_key(),
+        match (self.section, action) {
+            (Section::Characters, FormAction::Cancel) => self.character_form = None,
+            (Section::Worlds, FormAction::Cancel) => self.world_form = None,
+            (Section::Characters, FormAction::Save) => {
+                let Some(form) = &mut self.character_form else {
+                    return;
                 };
-                self.backend.send(request);
-                self.screen = Screen::Chat;
-            }
-            (FormAction::Save, Screen::Character(form)) => {
                 let character = form.to_character();
                 match character.validate() {
                     Err(e) => form.error = Some(e.to_string()),
@@ -318,11 +404,14 @@ impl App {
                             path: form.path.clone(),
                             character,
                         });
-                        self.screen = Screen::Chat;
+                        self.character_form = None;
                     }
                 }
             }
-            (FormAction::Save, Screen::World(form)) => {
+            (Section::Worlds, FormAction::Save) => {
+                let Some(form) = &mut self.world_form else {
+                    return;
+                };
                 let world = form.to_lorebook();
                 match world.validate() {
                     Err(e) => form.error = Some(e.to_string()),
@@ -331,30 +420,31 @@ impl App {
                             path: form.path.clone(),
                             world,
                         });
-                        self.screen = Screen::Chat;
+                        self.world_form = None;
                     }
                 }
             }
-            (FormAction::Delete, Screen::Character(form)) => {
-                if let Some(path) = form.path.clone() {
-                    self.confirm = Some(Confirm::DeleteCharacter {
-                        path,
-                        name: form.name.clone(),
-                    });
+            (Section::Characters, FormAction::Delete) => {
+                if let Some(form) = &self.character_form {
+                    if let Some(path) = form.path.clone() {
+                        self.confirm = Some(Confirm::DeleteCharacter {
+                            path,
+                            name: form.name.clone(),
+                        });
+                    }
                 }
             }
-            (FormAction::Delete, Screen::World(form)) => {
-                if let Some(path) = form.path.clone() {
-                    self.confirm = Some(Confirm::DeleteWorld {
-                        path,
-                        name: form.name.clone(),
-                    });
+            (Section::Worlds, FormAction::Delete) => {
+                if let Some(form) = &self.world_form {
+                    if let Some(path) = form.path.clone() {
+                        self.confirm = Some(Confirm::DeleteWorld {
+                            path,
+                            name: form.name.clone(),
+                        });
+                    }
                 }
             }
-            (
-                FormAction::Save | FormAction::Delete,
-                Screen::Chat | Screen::Settings(_) | Screen::Tree(_),
-            ) => {}
+            (Section::Stories | Section::Tree, _) => {}
         }
     }
 
@@ -363,15 +453,19 @@ impl App {
     /// Draw one frame. Everything the backend has sent since the last frame is applied first.
     pub fn ui(&mut self, ctx: &Context) {
         self.poll();
+        if self.logo.is_none() && !self.logo_tried {
+            self.logo_tried = true;
+            self.logo = branding::load_logo(ctx);
+        }
 
-        // The backend only sends the whole tree while the tree screen is open.
-        let wants_tree = matches!(self.screen, Screen::Tree(_));
+        // The backend only sends the whole tree while the tree section is open.
+        let wants_tree = self.section == Section::Tree;
         if wants_tree != self.tree_watching {
             self.tree_watching = wants_tree;
             self.backend.send(Request::WatchTree(wants_tree));
         }
-        if let Screen::Tree(view) = &mut self.screen {
-            view.sync(self.tree.as_ref(), self.tree_version);
+        if wants_tree {
+            self.tree_view.sync(self.tree.as_ref(), self.tree_version);
         }
 
         Panel::top("top-bar").show(ctx, |ui| self.top_bar(ui, ctx));
@@ -387,7 +481,19 @@ impl App {
 
     fn top_bar(&mut self, ui: &mut Ui, ctx: &Context) {
         ui.horizontal(|ui| {
-            ui.add(Label::new(APP_NAME).heading());
+            if let Some(logo) = &self.logo {
+                ui.add(Icon::new(logo).width(LOGO_WIDTH));
+                ui.add_space(spacing::SM);
+            }
+            let mut selected = Section::ALL
+                .iter()
+                .position(|s| *s == self.section)
+                .unwrap_or(0);
+            let labels = Section::ALL.iter().map(|s| s.label());
+            if ui.add(Tabs::new(&mut selected, labels)).changed() {
+                self.show_section(Section::ALL[selected]);
+            }
+
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if ui
                     .add(
@@ -398,17 +504,6 @@ impl App {
                     .clicked()
                 {
                     self.open_settings();
-                }
-                if self.transcript.is_some()
-                    && ui
-                        .add(
-                            Button::new("Tree")
-                                .variant(ButtonVariant::Secondary)
-                                .size(ButtonSize::Sm),
-                        )
-                        .clicked()
-                {
-                    self.screen = Screen::Tree(TreeView::new());
                 }
                 // Added right to left, so the order here is the reverse of how it reads.
                 for (label, mode) in [
@@ -434,27 +529,33 @@ impl App {
     }
 
     fn has_footer(&self) -> bool {
-        match self.screen {
-            Screen::Chat => self.transcript.is_some(),
-            _ => true,
+        match self.section {
+            Section::Stories | Section::Tree => self.transcript.is_some(),
+            Section::Characters => self.character_form.is_some(),
+            Section::Worlds => self.world_form.is_some(),
         }
     }
 
     fn footer(&mut self, ui: &mut Ui) {
-        if matches!(self.screen, Screen::Chat) {
-            chat::composer(self, ui);
-            return;
-        }
-        if let Screen::Tree(view) = &mut self.screen {
-            if let Some(node) = view.footer(ui, self.tree.as_ref()) {
-                self.jump_to(node);
+        match self.section {
+            Section::Stories => chat::composer(self, ui),
+            Section::Tree => {
+                if let Some(node) = self.tree_view.footer(ui, self.tree.as_ref()) {
+                    self.jump_to(node);
+                }
             }
-            return;
+            Section::Characters | Section::Worlds => self.editor_footer(ui),
         }
-        let can_delete = match &self.screen {
-            Screen::Character(f) => f.path.is_some(),
-            Screen::World(f) => f.path.is_some(),
-            _ => false,
+    }
+
+    fn editor_footer(&mut self, ui: &mut Ui) {
+        let can_delete = match self.section {
+            Section::Characters => self
+                .character_form
+                .as_ref()
+                .is_some_and(|f| f.path.is_some()),
+            Section::Worlds => self.world_form.as_ref().is_some_and(|f| f.path.is_some()),
+            Section::Stories | Section::Tree => false,
         };
         let mut action = None;
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -481,33 +582,94 @@ impl App {
     }
 
     fn body(&mut self, ui: &mut Ui) {
-        if matches!(self.screen, Screen::Chat) {
-            chat::body(self, ui);
-            return;
+        match self.section {
+            Section::Stories => chat::body(self, ui),
+            Section::Tree => self.tree_body(ui),
+            Section::Characters => {
+                if let Some(form) = &mut self.character_form {
+                    ScrollArea::vertical()
+                        .id_salt("character-form")
+                        .show(ui, |ui| form.show(ui));
+                } else if empty_state(
+                    ui,
+                    "Characters",
+                    "Pick a character in the list to edit it, or create a new one.",
+                    Some("New character"),
+                ) {
+                    self.character_form = Some(CharacterForm::new());
+                }
+            }
+            Section::Worlds => {
+                if let Some(form) = &mut self.world_form {
+                    ScrollArea::vertical()
+                        .id_salt("world-form")
+                        .show(ui, |ui| form.show(ui));
+                } else if empty_state(
+                    ui,
+                    "Worlds",
+                    "Pick a world in the list to edit it, or create a new one.",
+                    Some("New world"),
+                ) {
+                    self.world_form = Some(WorldForm::new());
+                }
+            }
         }
-        if let Screen::Tree(view) = &mut self.screen {
-            if let Some(node) = view.body(ui, self.tree.as_ref()) {
-                self.jump_to(node);
+    }
+
+    fn tree_body(&mut self, ui: &mut Ui) {
+        if self.transcript.is_none() {
+            if empty_state(
+                ui,
+                "No story open",
+                "Open a story in the list to see its tree, or start a new one.",
+                Some("New session"),
+            ) {
+                self.open_new_session();
             }
             return;
         }
-        let mut settings_action = None;
-        ScrollArea::vertical().id_salt("form").show(ui, |ui| {
-            match &mut self.screen {
-                Screen::Settings(form) => settings_action = form.show(self.key_available, ui),
-                Screen::Character(form) => form.show(ui),
-                Screen::World(form) => form.show(ui),
-                Screen::Chat | Screen::Tree(_) => {}
-            };
-        });
-        if settings_action == Some(SettingsAction::RemoveKey) {
-            self.backend.send(Request::DeleteApiKey);
+        if let Some(node) = self.tree_view.body(ui, self.tree.as_ref()) {
+            self.jump_to(node);
         }
     }
 
     fn dialogs(&mut self, ctx: &Context) {
+        self.settings_dialog(ctx);
         self.new_session_dialog(ctx);
         self.confirm_dialog(ctx);
+    }
+
+    fn settings_dialog(&mut self, ctx: &Context) {
+        let Some(form) = &mut self.settings_form else {
+            return;
+        };
+        let key_available = self.key_available;
+        let max_height = ctx.screen_rect().height() * SETTINGS_MAX_HEIGHT_SHARE;
+        let (mut open, mut save, mut cancel, mut action) = (true, false, false, None);
+        Dialog::new("settings", "Settings")
+            .width(SETTINGS_WIDTH)
+            .show(ctx, &mut open, |ui| {
+                ScrollArea::vertical()
+                    .id_salt("settings")
+                    .auto_shrink(true)
+                    .max_height(max_height)
+                    .show(ui, |ui| action = form.show(key_available, ui));
+                Dialog::actions(ui, |ui| {
+                    save = ui.add(Button::new("Save")).clicked();
+                    cancel = ui
+                        .add(Button::new("Cancel").variant(ButtonVariant::Outline))
+                        .clicked();
+                });
+            });
+
+        if action == Some(SettingsAction::RemoveKey) {
+            self.backend.send(Request::DeleteApiKey);
+        }
+        if save {
+            self.save_settings();
+        } else if cancel || !open {
+            self.settings_form = None;
+        }
     }
 
     fn new_session_dialog(&mut self, ctx: &Context) {
@@ -564,7 +726,7 @@ impl App {
                     .and_then(|i| worlds.get(i + 1))
                     .cloned(),
             };
-            self.screen = Screen::Chat;
+            self.show_section(Section::Stories);
             self.backend.send(request);
             self.new_session = None;
         } else if cancel || !open {
@@ -740,11 +902,16 @@ mod tests {
 
             rig.app.open_settings();
             rig.frame();
-            rig.app.screen = Screen::Character(CharacterForm::new());
+            rig.app.settings_form = None;
+            rig.app.show_section(Section::Characters);
+            rig.frame(); // the empty state
+            rig.app.character_form = Some(CharacterForm::new());
             rig.frame();
-            rig.app.screen = Screen::World(WorldForm::new());
+            rig.app.show_section(Section::Worlds);
             rig.frame();
-            rig.app.screen = Screen::Chat;
+            rig.app.world_form = Some(WorldForm::new());
+            rig.frame();
+            rig.app.show_section(Section::Stories);
             rig.app.open_new_session();
             rig.frame();
             rig.app.new_session = None;
@@ -875,7 +1042,7 @@ mod tests {
     #[test]
     fn confirming_deletions_sends_requests_and_closes_open_editors() {
         let mut rig = Rig::new();
-        rig.app.screen = Screen::Character(CharacterForm {
+        rig.app.character_form = Some(CharacterForm {
             path: Some(PathBuf::from("mira.yaml")),
             ..CharacterForm::new()
         });
@@ -883,7 +1050,7 @@ mod tests {
             path: PathBuf::from("mira.yaml"),
             name: "Mira".into(),
         });
-        assert!(matches!(rig.app.screen, Screen::Chat));
+        assert!(rig.app.character_form.is_none());
         rig.app.apply_confirm(Confirm::DeleteSession {
             id: SessionId(4),
             name: "x".into(),
@@ -901,33 +1068,32 @@ mod tests {
     }
 
     #[test]
-    fn saving_settings_sends_them_with_a_typed_key_and_returns_to_chat() {
+    fn saving_settings_sends_them_with_a_typed_key_and_closes_the_overlay() {
         let mut rig = Rig::new();
         rig.app.open_settings();
-        if let Screen::Settings(form) = &mut rig.app.screen {
+        if let Some(form) = &mut rig.app.settings_form {
             form.api_key = " sk-1 ".into();
         }
-        rig.app.form_action(FormAction::Save);
+        rig.app.save_settings();
         let sent = rig.sent();
         assert_eq!(sent.len(), 1);
         assert!(
             sent[0].starts_with("SaveSettings") && sent[0].contains(r#"api_key: Some("sk-1")"#),
             "{sent:?}"
         );
-        assert!(matches!(rig.app.screen, Screen::Chat));
+        assert!(rig.app.settings_form.is_none());
     }
 
     #[test]
     fn an_invalid_character_stays_open_with_an_error_and_sends_nothing() {
         let mut rig = Rig::new();
-        rig.app.screen = Screen::Character(CharacterForm::new());
+        rig.app.show_section(Section::Characters);
+        rig.app.character_form = Some(CharacterForm::new());
         rig.app.form_action(FormAction::Save);
         assert!(rig.sent().is_empty());
-        match &rig.app.screen {
-            Screen::Character(form) => {
-                assert!(form.error.as_deref().is_some_and(|e| e.contains("name")))
-            }
-            _ => panic!("the editor should stay open"),
+        match &rig.app.character_form {
+            Some(form) => assert!(form.error.as_deref().is_some_and(|e| e.contains("name"))),
+            None => panic!("the editor should stay open"),
         }
         rig.frame(); // the error is drawn
     }
@@ -935,13 +1101,15 @@ mod tests {
     #[test]
     fn a_valid_character_or_world_is_saved_to_its_file() {
         let mut rig = Rig::new();
-        rig.app.screen = Screen::Character(CharacterForm {
+        rig.app.show_section(Section::Characters);
+        rig.app.character_form = Some(CharacterForm {
             path: Some(PathBuf::from("bo.yaml")),
             name: "Bo".into(),
             ..CharacterForm::new()
         });
         rig.app.form_action(FormAction::Save);
-        rig.app.screen = Screen::World(WorldForm {
+        rig.app.show_section(Section::Worlds);
+        rig.app.world_form = Some(WorldForm {
             name: "Reef".into(),
             ..WorldForm::new()
         });
@@ -949,20 +1117,21 @@ mod tests {
         let sent = rig.sent();
         assert!(sent[0].starts_with("SaveCharacter") && sent[0].contains("bo.yaml"));
         assert!(sent[1].starts_with("SaveWorld") && sent[1].contains("path: None"));
-        assert!(matches!(rig.app.screen, Screen::Chat));
+        assert!(rig.app.character_form.is_none() && rig.app.world_form.is_none());
     }
 
     #[test]
     fn deleting_from_an_editor_asks_first_and_new_items_cannot_be_deleted() {
         let mut rig = Rig::new();
-        rig.app.screen = Screen::World(WorldForm::new());
+        rig.app.show_section(Section::Worlds);
+        rig.app.world_form = Some(WorldForm::new());
         rig.app.form_action(FormAction::Delete);
         assert!(
             rig.app.confirm.is_none(),
             "an unsaved world has no file to delete"
         );
 
-        rig.app.screen = Screen::World(WorldForm {
+        rig.app.world_form = Some(WorldForm {
             path: Some(PathBuf::from("coast.yaml")),
             name: "Coast".into(),
             ..WorldForm::new()
@@ -973,12 +1142,72 @@ mod tests {
     }
 
     #[test]
-    fn cancel_returns_to_the_chat() {
+    fn cancelling_an_editor_closes_it_without_sending() {
         let mut rig = Rig::new();
-        rig.app.open_settings();
+        rig.app.show_section(Section::Characters);
+        rig.app.character_form = Some(CharacterForm::new());
         rig.app.form_action(FormAction::Cancel);
-        assert!(matches!(rig.app.screen, Screen::Chat));
+        assert!(rig.app.character_form.is_none());
         assert!(rig.sent().is_empty());
+    }
+
+    #[test]
+    fn settings_open_as_an_overlay_over_the_current_section() {
+        let mut rig = Rig::new();
+        rig.app.show_section(Section::Worlds);
+        rig.app.open_settings();
+        rig.frame();
+        assert_eq!(rig.app.section, Section::Worlds, "the section stays put");
+        assert!(rig.app.settings_form.is_some());
+        rig.app.settings_form = None;
+        rig.frame();
+        assert!(rig.sent().is_empty());
+    }
+
+    // ---- sections ----
+
+    #[test]
+    fn every_section_draws_with_and_without_content_in_both_themes() {
+        for mode in [ThemeMode::Light, ThemeMode::Dark] {
+            let mut rig = Rig::new();
+            Theme::set_mode(&rig.ctx, mode);
+            for section in Section::ALL {
+                rig.app.show_section(section);
+                rig.frame();
+            }
+            library(&mut rig);
+            rig.push(Event::Sessions(vec![session(1, "Harbor")]));
+            rig.push(Event::Transcript(transcript(1, "Harbor")));
+            for section in Section::ALL {
+                rig.app.show_section(section);
+                rig.frame();
+            }
+        }
+    }
+
+    #[test]
+    fn the_logo_is_loaded_on_the_first_frame_and_the_nav_lists_every_section() {
+        let mut rig = Rig::new();
+        assert!(rig.app.logo.is_none());
+        rig.frame();
+        assert!(rig.app.logo.is_some());
+        let labels: Vec<_> = Section::ALL.iter().map(|s| s.label()).collect();
+        assert_eq!(labels, ["Stories", "Characters", "Worlds", "Tree"]);
+    }
+
+    #[test]
+    fn each_section_keeps_its_own_editor() {
+        let mut rig = Rig::new();
+        rig.app.show_section(Section::Characters);
+        rig.app.character_form = Some(CharacterForm::new());
+        rig.app.show_section(Section::Worlds);
+        rig.frame();
+        assert!(
+            rig.app.world_form.is_none(),
+            "worlds start without an editor"
+        );
+        rig.app.show_section(Section::Characters);
+        assert!(rig.app.character_form.is_some());
     }
 
     // ---- the tree screen ----
@@ -1011,7 +1240,7 @@ mod tests {
         rig.frame();
         assert!(rig.sent().is_empty(), "the chat does not need the tree");
 
-        rig.app.screen = Screen::Tree(TreeView::new());
+        rig.app.show_section(Section::Tree);
         rig.frame();
         rig.frame();
         assert_eq!(
@@ -1020,7 +1249,7 @@ mod tests {
             "asked once, not every frame"
         );
 
-        rig.app.screen = Screen::Chat;
+        rig.app.show_section(Section::Stories);
         rig.frame();
         rig.frame();
         assert_eq!(rig.sent(), ["WatchTree(false)"]);
@@ -1032,7 +1261,7 @@ mod tests {
             let mut rig = Rig::new();
             Theme::set_mode(&rig.ctx, mode);
             rig.push(Event::Transcript(transcript(1, "Harbor")));
-            rig.app.screen = Screen::Tree(TreeView::new());
+            rig.app.show_section(Section::Tree);
             rig.frame();
             rig.push(Event::Tree(Some(tree_data())));
             assert_eq!(rig.app.tree.as_ref().map(|t| t.nodes.len()), Some(5));
@@ -1046,19 +1275,9 @@ mod tests {
     #[test]
     fn jumping_from_the_tree_sends_the_request_and_returns_to_the_chat() {
         let mut rig = Rig::new();
-        rig.app.screen = Screen::Tree(TreeView::new());
+        rig.app.show_section(Section::Tree);
         rig.app.jump_to(NodeId(3));
-        assert!(matches!(rig.app.screen, Screen::Chat));
+        assert_eq!(rig.app.section, Section::Stories);
         assert_eq!(rig.sent(), ["JumpTo(NodeId(3))"]);
-    }
-
-    #[test]
-    fn the_tree_button_only_exists_with_an_open_story() {
-        let mut rig = Rig::new();
-        rig.frame();
-        assert!(rig.app.transcript.is_none());
-        rig.push(Event::Transcript(transcript(1, "Harbor")));
-        rig.frame(); // the button is drawn without panicking
-        assert!(rig.app.transcript.is_some());
     }
 }

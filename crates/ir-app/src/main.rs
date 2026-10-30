@@ -2,6 +2,7 @@
 
 mod app;
 mod backend;
+mod branding;
 mod characters;
 mod chat;
 mod fatal;
@@ -50,10 +51,16 @@ fn run() -> anyhow::Result<()> {
     let db = Db::open(&data_dir.join(DB_FILE)).context("could not open the database")?;
 
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title(APP_NAME)
-            .with_inner_size([1100.0, 720.0])
-            .with_min_inner_size([760.0, 480.0]),
+        viewport: {
+            let viewport = egui::ViewportBuilder::default()
+                .with_title(APP_NAME)
+                .with_inner_size([1100.0, 720.0])
+                .with_min_inner_size([760.0, 480.0]);
+            match branding::window_icon() {
+                Some(icon) => viewport.with_icon(icon),
+                None => viewport,
+            }
+        },
         ..Default::default()
     };
     eframe::run_native(
