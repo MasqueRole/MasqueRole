@@ -2,8 +2,10 @@
 //!
 //! This crate must not depend on any UI crate.
 
+pub mod client;
 pub mod settings;
 
+pub use client::{LlmError, LlmProvider};
 pub use settings::{Settings, SettingsError};
 
 /// Application name shown in window titles and data directories.
