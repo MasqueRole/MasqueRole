@@ -56,6 +56,17 @@ pub struct Transcript {
     pub characters: Vec<String>,
 }
 
+/// Every node of a story, for the tree view.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TreeData {
+    /// The session the nodes belong to.
+    pub session_id: SessionId,
+    /// All nodes, oldest first.
+    pub nodes: Vec<Node>,
+    /// The node the story is at.
+    pub current: Option<NodeId>,
+}
+
 /// What the UI can ask for, plus the messages the backend's own tasks send back to it.
 #[derive(Debug)]
 pub enum Request {
@@ -87,6 +98,11 @@ pub enum Request {
     },
     /// Remove the stored API key of the current provider.
     DeleteApiKey,
+    /// Start or stop sending the whole story tree with every change. The tree view turns
+    /// this on while it is open, so the cost is only paid when the tree is visible.
+    WatchTree(bool),
+    /// Move the story to a node of the story tree.
+    JumpTo(NodeId),
     /// Save a character, to `path` if given, else to a new file.
     SaveCharacter {
         /// The file to overwrite.
@@ -159,6 +175,8 @@ pub enum Event {
     },
     /// The active story changed.
     Transcript(Transcript),
+    /// The whole story tree, sent while the tree view is open. `None` without a session.
+    Tree(Option<TreeData>),
     /// There is no active session.
     NoSession,
     /// A message from a command.
@@ -229,6 +247,7 @@ pub fn spawn(
         characters: Vec::new(),
         worlds: Vec::new(),
         cancel: None,
+        watch_tree: false,
         requests: tx.clone(),
         events: events_tx,
     };
@@ -249,6 +268,8 @@ struct Actor {
     worlds: Vec<Entry<Lorebook>>,
     /// Set while a response is being generated.
     cancel: Option<Arc<Notify>>,
+    /// Whether the tree view is open and wants every change.
+    watch_tree: bool,
     requests: UnboundedSender<Request>,
     events: mpsc::Sender<Event>,
 }
@@ -292,6 +313,13 @@ impl Actor {
             Request::Send(text) => self.send(&text),
             Request::Stop => self.stop(),
             Request::SaveSettings { settings, api_key } => self.save_settings(settings, api_key),
+            Request::WatchTree(on) => {
+                self.watch_tree = on;
+                if on {
+                    self.emit_tree();
+                }
+            }
+            Request::JumpTo(node) => self.jump_to(node),
             Request::DeleteApiKey => {
                 match self.secrets.delete(&self.settings.api.provider) {
                     Ok(()) => self.emit(Event::Info("API key removed.".into())),
@@ -445,6 +473,9 @@ impl Actor {
     fn emit_transcript(&self) {
         let Some(id) = self.session else {
             self.emit(Event::NoSession);
+            if self.watch_tree {
+                self.emit(Event::Tree(None));
+            }
             return;
         };
         let result = (|| -> Result<Transcript, ir_core::db::DbError> {
@@ -466,7 +497,48 @@ impl Actor {
             })
         })();
         match result {
-            Ok(transcript) => self.emit(Event::Transcript(transcript)),
+            Ok(transcript) => {
+                self.emit(Event::Transcript(transcript));
+                if self.watch_tree {
+                    self.emit_tree();
+                }
+            }
+            Err(e) => self.error(e),
+        }
+    }
+
+    fn emit_tree(&self) {
+        let Some(id) = self.session else {
+            self.emit(Event::Tree(None));
+            return;
+        };
+        let result = (|| -> Result<TreeData, ir_core::db::DbError> {
+            let current = self.db.session(id)?.current_node_id;
+            Ok(TreeData {
+                session_id: id,
+                nodes: self.db.list_nodes(id)?,
+                current,
+            })
+        })();
+        match result {
+            Ok(data) => self.emit(Event::Tree(Some(data))),
+            Err(e) => self.error(e),
+        }
+    }
+
+    /// Move the story to `node`, as `/goto` does. Refused while a response is coming in,
+    /// since the response would land in the wrong place.
+    fn jump_to(&mut self, node: NodeId) {
+        let Some(session) = self.session else { return };
+        if self.cancel.is_some() {
+            self.error("Wait for the response to finish, or stop it first.");
+            return;
+        }
+        match StoryTree::new(&self.db, session).jump(node) {
+            Ok(_) => {
+                self.emit_transcript();
+                self.emit_sessions();
+            }
             Err(e) => self.error(e),
         }
     }
@@ -1401,5 +1473,120 @@ mod tests {
         assert_eq!(after.session.id, second.session.id);
         rig.backend.send(Request::DeleteSession(second.session.id));
         rig.wait_for(|e| matches!(e, Event::NoSession).then_some(()));
+    }
+
+    /// The next tree event, skipping everything else.
+    fn next_tree(rig: &Rig) -> Option<TreeData> {
+        rig.wait_for(|e| match e {
+            Event::Tree(data) => Some(data.clone()),
+            _ => None,
+        })
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_tree_is_sent_only_while_watched_and_includes_every_branch() {
+        let rig = Rig::start("watch", Mock::new(&["Reply."]), true, false);
+        rig.start_story();
+
+        // Not watching: a whole conversation passes without a tree event.
+        rig.chat("Hello.");
+        while let Ok(event) = rig.events.try_recv() {
+            assert!(
+                !matches!(event, Event::Tree(_)),
+                "the tree was not requested"
+            );
+        }
+
+        rig.backend.send(Request::WatchTree(true));
+        let data = next_tree(&rig).expect("a session is open");
+        assert_eq!(data.nodes.len(), 3);
+        assert_eq!(data.current, Some(data.nodes[2].id));
+
+        // A retry adds a second branch, and the tree arrives with the story's changes.
+        // (The tree is sent right after the transcript, before generation is reported done.)
+        rig.backend.send(Request::Send("/retry".into()));
+        let data = rig.wait_for(|e| match e {
+            Event::Tree(Some(d)) if d.nodes.len() == 4 => Some(d.clone()),
+            _ => None,
+        });
+        rig.wait_for(|e| matches!(e, Event::Generating(false)).then_some(()));
+        assert_eq!(
+            data.nodes
+                .iter()
+                .filter(|n| n.parent_id == Some(data.nodes[1].id))
+                .count(),
+            2
+        );
+
+        rig.backend.send(Request::WatchTree(false));
+        rig.backend.send(Request::Send("/tree".into()));
+        rig.wait_for(|e| matches!(e, Event::Notice(_)).then_some(()));
+        while let Ok(event) = rig.events.try_recv() {
+            assert!(!matches!(event, Event::Tree(_)), "watching stopped");
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn watching_without_a_session_sends_an_empty_tree() {
+        let rig = Rig::start("watch-empty", Mock::new(&["x"]), true, false);
+        rig.wait_for(|e| matches!(e, Event::NoSession).then_some(()));
+        rig.backend.send(Request::WatchTree(true));
+        assert_eq!(next_tree(&rig), None);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn jumping_moves_the_story_and_refreshes_the_transcript_and_tree() {
+        let rig = Rig::start("jump", Mock::new(&["Reply."]), true, false);
+        rig.start_story();
+        rig.chat("Hello.");
+        rig.backend.send(Request::WatchTree(true));
+        let data = next_tree(&rig).unwrap();
+        let first = data.nodes[0].id;
+
+        rig.backend.send(Request::JumpTo(first));
+        let t = rig.wait_for_transcript(|t| t.nodes.len() == 1);
+        assert_eq!(t.nodes[0].id, first);
+        let data = rig.wait_for(|e| match e {
+            Event::Tree(Some(d)) if d.current == Some(first) => Some(d.clone()),
+            _ => None,
+        });
+        assert_eq!(data.nodes.len(), 3, "nothing was deleted by jumping back");
+
+        // Writing from there starts a new storyline next to the old one.
+        rig.backend.send(Request::Send("Another path.".into()));
+        let data = rig.wait_for(|e| match e {
+            Event::Tree(Some(d)) if d.nodes.len() == 5 => Some(d.clone()),
+            _ => None,
+        });
+        assert_eq!(
+            data.nodes
+                .iter()
+                .filter(|n| n.parent_id == Some(first))
+                .count(),
+            2
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn jumping_is_refused_while_generating_and_for_foreign_nodes() {
+        let mock = Mock::slow(&["a ", "b ", "c"], Duration::from_millis(100));
+        let rig = Rig::start("jump-busy", mock, true, false);
+        let first = rig.start_story().nodes[0].id;
+        rig.backend.send(Request::Send("Go.".into()));
+        rig.wait_for(|e| matches!(e, Event::Generating(true)).then_some(()));
+        rig.backend.send(Request::JumpTo(first));
+        let error = rig.wait_for(|e| match e {
+            Event::Error(m) => Some(m.clone()),
+            _ => None,
+        });
+        assert!(error.contains("Wait"), "{error}");
+        rig.wait_for(|e| matches!(e, Event::Generating(false)).then_some(()));
+
+        rig.backend.send(Request::JumpTo(NodeId(9999)));
+        let error = rig.wait_for(|e| match e {
+            Event::Error(m) => Some(m.clone()),
+            _ => None,
+        });
+        assert!(error.contains("#9999"), "{error}");
     }
 }

@@ -9,6 +9,8 @@ mod library;
 mod prompts;
 mod settings_ui;
 mod sidebar;
+mod tree_layout;
+mod tree_view;
 
 use std::sync::Arc;
 

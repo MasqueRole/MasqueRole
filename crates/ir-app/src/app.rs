@@ -7,7 +7,7 @@ use eframe::egui::{Align, Context, Layout, Ui};
 use ir_core::cards::Card as _;
 use ir_core::character::Character;
 use ir_core::commands;
-use ir_core::db::{Session, SessionId};
+use ir_core::db::{NodeId, Session, SessionId};
 use ir_core::lorebook::Lorebook;
 use ir_core::settings::Settings;
 use ir_core::APP_NAME;
@@ -17,11 +17,12 @@ use ir_ui::components::{
 };
 use ir_ui::{Theme, ThemeMode};
 
-use crate::backend::{Backend, Event, Request, Transcript};
+use crate::backend::{Backend, Event, Request, Transcript, TreeData};
 use crate::characters::{CharacterForm, WorldForm};
 use crate::format::Notice;
 use crate::library::Entry;
 use crate::settings_ui::{SettingsAction, SettingsForm};
+use crate::tree_view::TreeView;
 use crate::{chat, sidebar};
 
 /// Width of the sidebar.
@@ -40,6 +41,8 @@ pub enum Screen {
     Character(CharacterForm),
     /// A world being edited.
     World(WorldForm),
+    /// The story tree.
+    Tree(TreeView),
 }
 
 /// Something the user must confirm before it happens.
@@ -144,6 +147,12 @@ pub struct App {
     pub new_session: Option<NewSessionForm>,
     /// A pending confirmation.
     pub confirm: Option<Confirm>,
+    /// The whole story tree, sent by the backend while the tree screen is open.
+    pub tree: Option<TreeData>,
+    /// Counts the tree updates, so the tree view knows when to rebuild its layout.
+    tree_version: u64,
+    /// Whether the backend has been told to send the tree.
+    tree_watching: bool,
 }
 
 impl App {
@@ -171,6 +180,9 @@ impl App {
             chat: ChatState::default(),
             new_session: None,
             confirm: None,
+            tree: None,
+            tree_version: 0,
+            tree_watching: false,
         }
     }
 
@@ -193,6 +205,10 @@ impl App {
                 self.key_available = key_available;
             }
             Event::Sessions(sessions) => self.sessions = sessions,
+            Event::Tree(data) => {
+                self.tree = data;
+                self.tree_version += 1;
+            }
             Event::Library { characters, worlds } => {
                 self.characters = characters;
                 self.worlds = worlds;
@@ -255,6 +271,12 @@ impl App {
         } else {
             self.backend.send(Request::Send(text));
         }
+    }
+
+    /// Move the story to a node chosen in the tree, and go back to the chat to continue from it.
+    fn jump_to(&mut self, node: NodeId) {
+        self.backend.send(Request::JumpTo(node));
+        self.screen = Screen::Chat;
     }
 
     fn apply_confirm(&mut self, confirm: Confirm) {
@@ -329,7 +351,10 @@ impl App {
                     });
                 }
             }
-            (FormAction::Save | FormAction::Delete, Screen::Chat | Screen::Settings(_)) => {}
+            (
+                FormAction::Save | FormAction::Delete,
+                Screen::Chat | Screen::Settings(_) | Screen::Tree(_),
+            ) => {}
         }
     }
 
@@ -338,6 +363,16 @@ impl App {
     /// Draw one frame. Everything the backend has sent since the last frame is applied first.
     pub fn ui(&mut self, ctx: &Context) {
         self.poll();
+
+        // The backend only sends the whole tree while the tree screen is open.
+        let wants_tree = matches!(self.screen, Screen::Tree(_));
+        if wants_tree != self.tree_watching {
+            self.tree_watching = wants_tree;
+            self.backend.send(Request::WatchTree(wants_tree));
+        }
+        if let Screen::Tree(view) = &mut self.screen {
+            view.sync(self.tree.as_ref(), self.tree_version);
+        }
 
         Panel::top("top-bar").show(ctx, |ui| self.top_bar(ui, ctx));
         Panel::side("sidebar", SIDEBAR_WIDTH).show(ctx, |ui| sidebar::show(self, ui));
@@ -363,6 +398,17 @@ impl App {
                     .clicked()
                 {
                     self.open_settings();
+                }
+                if self.transcript.is_some()
+                    && ui
+                        .add(
+                            Button::new("Tree")
+                                .variant(ButtonVariant::Secondary)
+                                .size(ButtonSize::Sm),
+                        )
+                        .clicked()
+                {
+                    self.screen = Screen::Tree(TreeView::new());
                 }
                 // Added right to left, so the order here is the reverse of how it reads.
                 for (label, mode) in [
@@ -399,6 +445,12 @@ impl App {
             chat::composer(self, ui);
             return;
         }
+        if let Screen::Tree(view) = &mut self.screen {
+            if let Some(node) = view.footer(ui, self.tree.as_ref()) {
+                self.jump_to(node);
+            }
+            return;
+        }
         let can_delete = match &self.screen {
             Screen::Character(f) => f.path.is_some(),
             Screen::World(f) => f.path.is_some(),
@@ -433,13 +485,19 @@ impl App {
             chat::body(self, ui);
             return;
         }
+        if let Screen::Tree(view) = &mut self.screen {
+            if let Some(node) = view.body(ui, self.tree.as_ref()) {
+                self.jump_to(node);
+            }
+            return;
+        }
         let mut settings_action = None;
         ScrollArea::vertical().id_salt("form").show(ui, |ui| {
             match &mut self.screen {
                 Screen::Settings(form) => settings_action = form.show(self.key_available, ui),
                 Screen::Character(form) => form.show(ui),
                 Screen::World(form) => form.show(ui),
-                Screen::Chat => {}
+                Screen::Chat | Screen::Tree(_) => {}
             };
         });
         if settings_action == Some(SettingsAction::RemoveKey) {
@@ -921,5 +979,86 @@ mod tests {
         rig.app.form_action(FormAction::Cancel);
         assert!(matches!(rig.app.screen, Screen::Chat));
         assert!(rig.sent().is_empty());
+    }
+
+    // ---- the tree screen ----
+
+    fn tree_data() -> TreeData {
+        let shape = [
+            (1, None),
+            (2, Some(1)),
+            (3, Some(2)),
+            (4, Some(2)),
+            (5, Some(3)),
+        ];
+        TreeData {
+            session_id: SessionId(1),
+            nodes: shape
+                .into_iter()
+                .map(|(id, parent)| {
+                    let mut n = node(id, NodeKind::User, None, &format!("message {id}"));
+                    n.parent_id = parent.map(NodeId);
+                    n
+                })
+                .collect(),
+            current: Some(NodeId(5)),
+        }
+    }
+
+    #[test]
+    fn the_backend_is_asked_for_the_tree_only_while_the_tree_screen_is_open() {
+        let mut rig = Rig::new();
+        rig.frame();
+        assert!(rig.sent().is_empty(), "the chat does not need the tree");
+
+        rig.app.screen = Screen::Tree(TreeView::new());
+        rig.frame();
+        rig.frame();
+        assert_eq!(
+            rig.sent(),
+            ["WatchTree(true)"],
+            "asked once, not every frame"
+        );
+
+        rig.app.screen = Screen::Chat;
+        rig.frame();
+        rig.frame();
+        assert_eq!(rig.sent(), ["WatchTree(false)"]);
+    }
+
+    #[test]
+    fn the_tree_screen_draws_the_data_it_receives_in_both_themes() {
+        for mode in [ThemeMode::Light, ThemeMode::Dark] {
+            let mut rig = Rig::new();
+            Theme::set_mode(&rig.ctx, mode);
+            rig.push(Event::Transcript(transcript(1, "Harbor")));
+            rig.app.screen = Screen::Tree(TreeView::new());
+            rig.frame();
+            rig.push(Event::Tree(Some(tree_data())));
+            assert_eq!(rig.app.tree.as_ref().map(|t| t.nodes.len()), Some(5));
+            rig.frame();
+            rig.push(Event::Tree(None));
+            assert!(rig.app.tree.is_none());
+            rig.frame();
+        }
+    }
+
+    #[test]
+    fn jumping_from_the_tree_sends_the_request_and_returns_to_the_chat() {
+        let mut rig = Rig::new();
+        rig.app.screen = Screen::Tree(TreeView::new());
+        rig.app.jump_to(NodeId(3));
+        assert!(matches!(rig.app.screen, Screen::Chat));
+        assert_eq!(rig.sent(), ["JumpTo(NodeId(3))"]);
+    }
+
+    #[test]
+    fn the_tree_button_only_exists_with_an_open_story() {
+        let mut rig = Rig::new();
+        rig.frame();
+        assert!(rig.app.transcript.is_none());
+        rig.push(Event::Transcript(transcript(1, "Harbor")));
+        rig.frame(); // the button is drawn without panicking
+        assert!(rig.app.transcript.is_some());
     }
 }

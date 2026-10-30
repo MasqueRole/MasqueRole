@@ -6,4 +6,4 @@ pub mod components;
 pub mod fonts;
 pub mod theme;
 
-pub use theme::{spacing, Theme, ThemeExt, ThemeMode};
+pub use theme::{spacing, Theme, ThemeExt, ThemeMode, BORDER_WIDTH, RING_WIDTH};
