@@ -10,6 +10,7 @@ pub mod db;
 pub mod lorebook;
 pub mod memory;
 pub mod settings;
+pub mod tree;
 
 pub use client::{LlmError, LlmProvider};
 pub use settings::{Settings, SettingsError};
