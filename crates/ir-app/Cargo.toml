@@ -16,3 +16,5 @@ futures-util = "0.3.34"
 serde_yaml_ng = "0.10.0"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", default-features = false, features = ["fmt", "std", "registry"] }
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp"] }
+rfd = "0.17.2"

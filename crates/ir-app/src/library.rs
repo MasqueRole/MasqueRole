@@ -6,6 +6,19 @@ use ir_core::cards::{Card, LoadError};
 use ir_core::character::Character;
 use ir_core::lorebook::Lorebook;
 
+/// Name of the folder holding the pictures of characters and worlds.
+const IMAGES_DIR: &str = "images";
+
+/// Whether `name` is a plain file name, so joining it onto the images folder cannot escape it.
+pub fn is_plain_file_name(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+}
+
 /// A library item and the file it lives in.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Entry<T> {
@@ -25,6 +38,57 @@ impl Library {
     /// A library stored under `root`. Nothing is created until it is used.
     pub fn new(root: impl Into<PathBuf>) -> Self {
         Self { root: root.into() }
+    }
+
+    /// The folder holding the pictures. It is created when the first picture is stored.
+    pub fn images_dir(&self) -> PathBuf {
+        self.root.join(IMAGES_DIR)
+    }
+
+    /// Store a PNG picture and return the file name to put in a card.
+    pub fn save_image(&self, png: &[u8]) -> Result<String, String> {
+        static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let dir = self.images_dir();
+        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        let count = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let name = format!("{nanos:x}-{count:x}.png");
+        let path = dir.join(&name);
+        std::fs::write(&path, png).map_err(|e| format!("{}: {e}", path.display()))?;
+        Ok(name)
+    }
+
+    /// The path of a stored picture, or `None` if `name` is not a plain file name.
+    pub fn image_path(&self, name: &str) -> Option<PathBuf> {
+        is_plain_file_name(name).then(|| self.images_dir().join(name))
+    }
+
+    /// Delete a stored picture. A missing file or an unsafe name is ignored.
+    pub fn delete_image(&self, name: &str) {
+        if let Some(path) = self.image_path(name) {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    /// Delete every stored picture that no card refers to, for example one chosen in an
+    /// editor that was then cancelled. Returns how many were removed.
+    pub fn remove_unused_images(&self, used: &std::collections::HashSet<String>) -> usize {
+        let Ok(read) = std::fs::read_dir(self.images_dir()) else {
+            return 0;
+        };
+        let mut removed = 0;
+        for entry in read.filter_map(Result::ok) {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if entry.path().is_file()
+                && !used.contains(&name)
+                && std::fs::remove_file(entry.path()).is_ok()
+            {
+                removed += 1;
+            }
+        }
+        removed
     }
 
     fn characters_dir(&self) -> PathBuf {
@@ -188,6 +252,51 @@ mod tests {
         assert_eq!(slug("Caf\u{e9}"), "caf\u{e9}");
         assert_eq!(slug("!!!"), "untitled");
         assert_eq!(slug(""), "untitled");
+    }
+
+    #[test]
+    fn pictures_are_stored_under_unique_plain_names() {
+        let tmp = TempLibrary::new("images");
+        let lib = tmp.library();
+        let a = lib.save_image(b"one").unwrap();
+        let b = lib.save_image(b"two").unwrap();
+        assert_ne!(a, b);
+        assert!(a.ends_with(".png") && is_plain_file_name(&a));
+        assert_eq!(std::fs::read(lib.image_path(&a).unwrap()).unwrap(), b"one");
+
+        lib.delete_image(&a);
+        assert!(!lib.image_path(&a).unwrap().exists());
+        assert!(lib.image_path(&b).unwrap().exists(), "other pictures stay");
+        lib.delete_image("does-not-exist.png"); // harmless
+    }
+
+    #[test]
+    fn picture_names_cannot_escape_the_images_folder() {
+        let tmp = TempLibrary::new("image-names");
+        let lib = tmp.library();
+        for bad in [
+            "", ".", "..", "../x.png", "a/b.png", "a\\b.png", "C:x.png", "x y.png",
+        ] {
+            assert_eq!(lib.image_path(bad), None, "{bad:?}");
+        }
+        let outside = tmp.0.join("keep.txt");
+        std::fs::create_dir_all(&tmp.0).unwrap();
+        std::fs::write(&outside, "keep").unwrap();
+        lib.delete_image("../keep.txt");
+        assert!(outside.exists(), "a path-like name deletes nothing");
+    }
+
+    #[test]
+    fn unused_pictures_are_removed_and_used_ones_kept() {
+        let tmp = TempLibrary::new("image-gc");
+        let lib = tmp.library();
+        let keep = lib.save_image(b"keep").unwrap();
+        let drop_one = lib.save_image(b"drop").unwrap();
+        let used = std::collections::HashSet::from([keep.clone()]);
+        assert_eq!(lib.remove_unused_images(&used), 1);
+        assert!(lib.image_path(&keep).unwrap().exists());
+        assert!(!lib.image_path(&drop_one).unwrap().exists());
+        assert_eq!(lib.remove_unused_images(&used), 0);
     }
 
     #[test]

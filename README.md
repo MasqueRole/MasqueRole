@@ -114,7 +114,7 @@ For development, you can also provide the key through the `IR_API_KEY` environme
 
 ## Configuration
 
-Most options are available in the **Settings** screen. They are stored in `settings.toml` in the app's data directory:
+Most options are available in the **Settings** overlay (the gear at the top right), which has tabs for General, Provider, Generation, Memory, Story, and Limits. They are stored in `settings.toml` in the app's data directory:
 
 ```toml
 [api]
@@ -143,6 +143,10 @@ auto_checkpoint = true
 node_label = "auto"       # "auto" = short AI-generated label, "manual" = ask
 show_tree_on_branch = true
 
+[limits]
+token_limit_enabled = false   # stop a story once it has used about token_limit tokens
+token_limit = 200000          # estimated tokens per story
+
 [debug]
 logging = false           # write infiniteroleplay.log next to settings.toml (after a restart)
 ```
@@ -158,6 +162,8 @@ logging = false           # write infiniteroleplay.log next to settings.toml (af
 | `tree.auto_checkpoint`     | Create a story-tree node after every turn                      |
 | `tree.node_label`          | `auto` = short AI-generated label, `manual` = ask every time   |
 | `debug.logging`            | Write a debug log for bug reports. API keys are removed from it |
+| `limits.token_limit_enabled` | Stop a story from generating once it reaches the limit        |
+| `limits.token_limit`       | Estimated tokens one story may use (prompts, responses, summaries) |
 
 > ⚠️ The API key is stored in your operating system's keychain, never in `settings.toml`. Don't commit keys to version control.
 
@@ -180,7 +186,10 @@ greeting: "Ah, another one who got lost?"
 example_dialogue:
   - user: "Where to next?"
     character: "Wherever the map runs out. That's where it gets interesting."
+image: "1a2b3c.png"   # optional; set with "Add picture" in the editor
 ```
+
+Pictures (PNG, JPEG, or WebP) are shrunk to at most 512 pixels, stored as PNG in the library's `images` folder, and removed again when the character is deleted.
 
 ## Worlds & Scenarios
 
@@ -194,6 +203,7 @@ entries:
     content: "The Karrow lighthouse has been guarded by an order for centuries."
   - keys: ["fogglass"]
     content: "Fogglass is a rare mineral that briefly clears fog."
+image: "4d5e6f.png"   # optional, like for characters
 ```
 
 ## Memory System

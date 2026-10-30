@@ -40,6 +40,9 @@ pub struct Character {
     /// Example exchanges.
     #[serde(default)]
     pub example_dialogue: Vec<ExampleDialogue>,
+    /// File name of the character's picture in the library's images folder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
 }
 
 impl Card for Character {
@@ -94,6 +97,22 @@ example_dialogue:
   - user: "Where to next?"
     character: "Wherever the map runs out. That's where it gets interesting."
 "#;
+
+    #[test]
+    fn the_image_is_optional_and_only_written_when_set() {
+        let plain = Character::from_yaml("name: Bo").unwrap();
+        assert_eq!(plain.image, None);
+        assert!(!serde_yaml_ng::to_string(&plain).unwrap().contains("image"));
+
+        let pictured = Character::from_yaml(
+            "name: Bo
+image: bo.png",
+        )
+        .unwrap();
+        assert_eq!(pictured.image.as_deref(), Some("bo.png"));
+        let again = Character::from_yaml(&serde_yaml_ng::to_string(&pictured).unwrap()).unwrap();
+        assert_eq!(again, pictured);
+    }
 
     #[test]
     fn parses_the_readme_example() {

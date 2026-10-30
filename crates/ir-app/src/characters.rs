@@ -5,11 +5,63 @@ use std::path::PathBuf;
 use ir_core::character::{Character, ExampleDialogue};
 use ir_core::lorebook::{LoreEntry, Lorebook};
 use ir_ui::components::{
-    Button, ButtonSize, ButtonVariant, Card, FormField, Input, Label, LabelTone, Textarea,
+    Button, ButtonSize, ButtonVariant, Card, FormField, IconKind, Input, Label, LabelTone, Picture,
+    Textarea,
 };
 use ir_ui::spacing;
 
-use eframe::egui::Ui;
+use eframe::egui::{TextureHandle, Ui};
+
+/// The picture row at the top of an editor: the current picture (or a placeholder) with
+/// buttons to choose or remove it. Returns whether the user asked to choose a picture; the
+/// caller opens the file dialog. Removing clears `image` right here.
+fn picture_row(
+    ui: &mut Ui,
+    image: &mut Option<String>,
+    texture: Option<&TextureHandle>,
+    fallback: IconKind,
+) -> bool {
+    let mut choose = false;
+    ui.horizontal(|ui| {
+        ui.add(Picture::new(texture, fallback));
+        ui.vertical(|ui| {
+            ui.add(Label::new("Picture").tone(LabelTone::Default));
+            ui.add(
+                Label::new("Shown in the editor. PNG, JPEG, or WebP.")
+                    .small()
+                    .muted(),
+            );
+            ui.horizontal(|ui| {
+                let text = if image.is_some() {
+                    "Change"
+                } else {
+                    "Add picture"
+                };
+                choose = ui
+                    .add(
+                        Button::new(text)
+                            .icon(IconKind::Image)
+                            .variant(ButtonVariant::Outline)
+                            .size(ButtonSize::Sm),
+                    )
+                    .clicked();
+                if image.is_some()
+                    && ui
+                        .add(
+                            Button::new("Remove")
+                                .variant(ButtonVariant::Ghost)
+                                .size(ButtonSize::Sm),
+                        )
+                        .clicked()
+                {
+                    *image = None;
+                }
+            });
+        });
+    });
+    ui.add_space(spacing::SM);
+    choose
+}
 
 /// The editable text of a character card.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -25,6 +77,8 @@ pub struct CharacterForm {
     pub greeting: String,
     /// Pairs of what the user says and how the character answers.
     pub examples: Vec<(String, String)>,
+    /// File name of the picture in the library, if any.
+    pub image: Option<String>,
     /// Why the last save was refused.
     pub error: Option<String>,
 }
@@ -50,6 +104,7 @@ impl CharacterForm {
                 .iter()
                 .map(|e| (e.user.clone(), e.character.clone()))
                 .collect(),
+            image: character.image.clone(),
             error: None,
         }
     }
@@ -78,11 +133,12 @@ impl CharacterForm {
                     character: character.trim().to_string(),
                 })
                 .collect(),
+            image: self.image.clone(),
         }
     }
 
-    /// Draw the form.
-    pub fn show(&mut self, ui: &mut Ui) {
+    /// Draw the form. Returns whether the user asked to choose a picture.
+    pub fn show(&mut self, ui: &mut Ui, picture: Option<&TextureHandle>) -> bool {
         ui.add(
             Label::new(if self.path.is_some() {
                 "Edit character"
@@ -91,6 +147,7 @@ impl CharacterForm {
             })
             .heading(),
         );
+        let choose = picture_row(ui, &mut self.image, picture, IconKind::User);
         let name_error = self.error.clone();
         FormField::new("Name")
             .required(true)
@@ -172,6 +229,7 @@ impl CharacterForm {
             self.examples.push((String::new(), String::new()));
         }
         ui.add_space(spacing::LG);
+        choose
     }
 }
 
@@ -184,6 +242,8 @@ pub struct WorldForm {
     pub setting: String,
     /// Pairs of comma-separated keywords and the text they trigger.
     pub entries: Vec<(String, String)>,
+    /// File name of the picture in the library, if any.
+    pub image: Option<String>,
     /// Why the last save was refused.
     pub error: Option<String>,
 }
@@ -205,6 +265,7 @@ impl WorldForm {
                 .iter()
                 .map(|e| (e.keys.join(", "), e.content.clone()))
                 .collect(),
+            image: world.image.clone(),
             error: None,
         }
     }
@@ -228,11 +289,12 @@ impl WorldForm {
                     content: content.trim().to_string(),
                 })
                 .collect(),
+            image: self.image.clone(),
         }
     }
 
-    /// Draw the form.
-    pub fn show(&mut self, ui: &mut Ui) {
+    /// Draw the form. Returns whether the user asked to choose a picture.
+    pub fn show(&mut self, ui: &mut Ui, picture: Option<&TextureHandle>) -> bool {
         ui.add(
             Label::new(if self.path.is_some() {
                 "Edit world"
@@ -241,6 +303,7 @@ impl WorldForm {
             })
             .heading(),
         );
+        let choose = picture_row(ui, &mut self.image, picture, IconKind::Globe);
         let name_error = self.error.clone();
         FormField::new("Name")
             .required(true)
@@ -301,6 +364,7 @@ impl WorldForm {
             self.entries.push((String::new(), String::new()));
         }
         ui.add_space(spacing::LG);
+        choose
     }
 }
 

@@ -277,6 +277,7 @@ mod tests {
                 user: "Where to?".into(),
                 character: "Past the map.".into(),
             }],
+            image: None,
         }
     }
 

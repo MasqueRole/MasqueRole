@@ -3,10 +3,11 @@
 //! The top navigation picks a section (stories, characters, worlds, or the story tree).
 //! Each section has its own sidebar list and main area. Settings open as an overlay.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc;
 
-use eframe::egui::{Align, Context, Layout, TextureHandle, Ui};
+use eframe::egui::{Align, ColorImage, Context, Layout, TextureHandle, TextureOptions, Ui};
 use ir_core::cards::Card as _;
 use ir_core::character::Character;
 use ir_core::commands;
@@ -19,7 +20,7 @@ use ir_ui::components::{
 };
 use ir_ui::{Theme, ThemeMode};
 
-use crate::backend::{Backend, Event, Request, Transcript, TreeData};
+use crate::backend::{Backend, Event, ImageTarget, Request, Transcript, TreeData};
 use crate::characters::{CharacterForm, WorldForm};
 use crate::format::Notice;
 use crate::library::Entry;
@@ -35,6 +36,9 @@ const LOGO_WIDTH: f32 = 44.0;
 
 /// Width of the settings overlay.
 const SETTINGS_WIDTH: f32 = 600.0;
+
+/// The settings overlay is at least this tall, so switching tabs does not make it jump.
+const SETTINGS_MIN_HEIGHT: f32 = 380.0;
 
 /// The settings overlay never grows beyond this share of the window height.
 const SETTINGS_MAX_HEIGHT_SHARE: f32 = 0.75;
@@ -203,6 +207,11 @@ pub struct App {
     pub characters: Vec<Entry<Character>>,
     /// The world library.
     pub worlds: Vec<Entry<Lorebook>>,
+    /// The folder holding the pictures of characters and worlds.
+    images_dir: Option<PathBuf>,
+    /// Pictures already loaded as textures, by file name. `None` marks one that could not be read,
+    /// so it is not retried every frame.
+    pictures: HashMap<String, Option<TextureHandle>>,
     /// The character being edited, if any.
     pub character_form: Option<CharacterForm>,
     /// The world being edited, if any.
@@ -248,6 +257,8 @@ impl App {
             notices: Vec::new(),
             characters: Vec::new(),
             worlds: Vec::new(),
+            images_dir: None,
+            pictures: HashMap::new(),
             character_form: None,
             world_form: None,
             chat: ChatState::default(),
@@ -285,10 +296,29 @@ impl App {
                 self.tree = data;
                 self.tree_version += 1;
             }
-            Event::Library { characters, worlds } => {
+            Event::Library {
+                characters,
+                worlds,
+                images_dir,
+            } => {
                 self.characters = characters;
                 self.worlds = worlds;
+                self.images_dir = Some(images_dir);
+                // A saved or deleted card may have changed its picture; reload lazily.
+                self.pictures.clear();
             }
+            Event::ImagePicked { target, name } => match target {
+                ImageTarget::Character => {
+                    if let Some(form) = &mut self.character_form {
+                        form.image = Some(name);
+                    }
+                }
+                ImageTarget::World => {
+                    if let Some(form) = &mut self.world_form {
+                        form.image = Some(name);
+                    }
+                }
+            },
             Event::Transcript(transcript) => {
                 let same = self
                     .transcript
@@ -326,6 +356,29 @@ impl App {
             character: usize::from(!self.characters.is_empty()),
             world: 0,
         });
+    }
+
+    /// The texture of a stored picture, loaded on first use. `None` when there is no such
+    /// picture or it cannot be read.
+    fn picture(&mut self, ctx: &Context, name: &str) -> Option<TextureHandle> {
+        if let Some(cached) = self.pictures.get(name) {
+            return cached.clone();
+        }
+        let loaded = self.load_picture(ctx, name);
+        self.pictures.insert(name.to_string(), loaded.clone());
+        loaded
+    }
+
+    fn load_picture(&self, ctx: &Context, name: &str) -> Option<TextureHandle> {
+        // The name comes from a card file the user can edit, so it must not leave the folder.
+        if !crate::library::is_plain_file_name(name) {
+            return None;
+        }
+        let bytes = std::fs::read(self.images_dir.as_ref()?.join(name)).ok()?;
+        let picture = eframe::icon_data::from_png_bytes(&bytes).ok()?;
+        let size = [picture.width as usize, picture.height as usize];
+        let image = ColorImage::from_rgba_unmultiplied(size, &picture.rgba);
+        Some(ctx.load_texture(format!("picture-{name}"), image, TextureOptions::LINEAR))
     }
 
     /// Open the settings overlay.
@@ -591,10 +644,20 @@ impl App {
             Section::Stories => chat::body(self, ui),
             Section::Tree => self.tree_body(ui),
             Section::Characters => {
+                let texture = self
+                    .character_form
+                    .as_ref()
+                    .and_then(|f| f.image.clone())
+                    .and_then(|name| self.picture(ui.ctx(), &name));
                 if let Some(form) = &mut self.character_form {
-                    ScrollArea::vertical()
+                    let choose = ScrollArea::vertical()
                         .id_salt("character-form")
-                        .show(ui, |ui| form.show(ui));
+                        .show(ui, |ui| form.show(ui, texture.as_ref()))
+                        .inner;
+                    if choose {
+                        self.backend
+                            .send(Request::PickImage(ImageTarget::Character));
+                    }
                 } else if empty_state(
                     ui,
                     "Characters",
@@ -605,10 +668,19 @@ impl App {
                 }
             }
             Section::Worlds => {
+                let texture = self
+                    .world_form
+                    .as_ref()
+                    .and_then(|f| f.image.clone())
+                    .and_then(|name| self.picture(ui.ctx(), &name));
                 if let Some(form) = &mut self.world_form {
-                    ScrollArea::vertical()
+                    let choose = ScrollArea::vertical()
                         .id_salt("world-form")
-                        .show(ui, |ui| form.show(ui));
+                        .show(ui, |ui| form.show(ui, texture.as_ref()))
+                        .inner;
+                    if choose {
+                        self.backend.send(Request::PickImage(ImageTarget::World));
+                    }
                 } else if empty_state(
                     ui,
                     "Worlds",
@@ -650,6 +722,7 @@ impl App {
         };
         let key_available = self.key_available;
         let max_height = ctx.screen_rect().height() * SETTINGS_MAX_HEIGHT_SHARE;
+        let min_height = SETTINGS_MIN_HEIGHT.min(max_height);
         let (mut open, mut save, mut cancel, mut action) = (true, false, false, None);
         Dialog::new("settings", "Settings")
             .width(SETTINGS_WIDTH)
@@ -658,7 +731,11 @@ impl App {
                     .id_salt("settings")
                     .auto_shrink(true)
                     .max_height(max_height)
-                    .show(ui, |ui| action = form.show(key_available, ui));
+                    .show(ui, |ui| {
+                        // Keep the overlay the same height on every tab.
+                        ui.set_min_height(min_height);
+                        action = form.show(key_available, ui);
+                    });
                 Dialog::actions(ui, |ui| {
                     save = ui.add(Button::new("Save")).clicked();
                     cancel = ui
@@ -904,6 +981,7 @@ mod tests {
         rig.push(Event::Library {
             characters: vec![entry("mira", mira)],
             worlds: vec![entry("coast", world)],
+            images_dir: std::env::temp_dir().join("ir-app-test-images"),
         });
     }
 
@@ -1272,6 +1350,107 @@ mod tests {
             Some(ThemeMode::Dark),
             "the form starts from the current theme"
         );
+    }
+
+    // ---- pictures ----
+
+    fn png_bytes() -> Vec<u8> {
+        let image = image::RgbaImage::from_pixel(6, 4, image::Rgba([20, 120, 220, 255]));
+        let mut out = Vec::new();
+        image::DynamicImage::ImageRgba8(image)
+            .write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)
+            .unwrap();
+        out
+    }
+
+    /// A folder with one valid picture, announced to the app like the backend would.
+    fn rig_with_a_picture() -> (Rig, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("ir-app-pictures-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("ok.png"), png_bytes()).unwrap();
+        std::fs::write(dir.join("broken.png"), b"not a png").unwrap();
+        let mut rig = Rig::new();
+        rig.push(Event::Library {
+            characters: Vec::new(),
+            worlds: Vec::new(),
+            images_dir: dir.clone(),
+        });
+        (rig, dir)
+    }
+
+    #[test]
+    fn a_picked_picture_goes_to_the_matching_editor_only() {
+        let mut rig = Rig::new();
+        rig.app.character_form = Some(CharacterForm::new());
+        rig.app.world_form = Some(WorldForm::new());
+        rig.push(Event::ImagePicked {
+            target: ImageTarget::Character,
+            name: "a.png".into(),
+        });
+        assert_eq!(
+            rig.app
+                .character_form
+                .as_ref()
+                .and_then(|f| f.image.as_deref()),
+            Some("a.png")
+        );
+        assert_eq!(
+            rig.app.world_form.as_ref().and_then(|f| f.image.clone()),
+            None
+        );
+        rig.push(Event::ImagePicked {
+            target: ImageTarget::World,
+            name: "b.png".into(),
+        });
+        assert_eq!(
+            rig.app.world_form.as_ref().and_then(|f| f.image.as_deref()),
+            Some("b.png")
+        );
+        // With no editor open the picture is simply dropped (and cleaned up at the next start).
+        rig.app.world_form = None;
+        rig.push(Event::ImagePicked {
+            target: ImageTarget::World,
+            name: "c.png".into(),
+        });
+    }
+
+    #[test]
+    fn pictures_load_from_the_images_folder_and_bad_or_unsafe_names_do_not() {
+        let (mut rig, dir) = rig_with_a_picture();
+        let ctx = rig.ctx.clone();
+        let loaded = rig
+            .app
+            .picture(&ctx, "ok.png")
+            .expect("a valid picture loads");
+        assert!(loaded.aspect_ratio() > 1.0);
+        assert!(rig.app.picture(&ctx, "broken.png").is_none(), "not a PNG");
+        assert!(rig.app.picture(&ctx, "missing.png").is_none());
+        assert!(
+            rig.app.picture(&ctx, "../ok.png").is_none(),
+            "no leaving the folder"
+        );
+        assert!(rig.app.picture(&ctx, "").is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn editors_draw_with_a_picture_a_missing_one_and_none() {
+        let (mut rig, dir) = rig_with_a_picture();
+        for name in [Some("ok.png"), Some("gone.png"), None] {
+            rig.app.show_section(Section::Characters);
+            rig.app.character_form = Some(CharacterForm {
+                image: name.map(String::from),
+                ..CharacterForm::new()
+            });
+            rig.frame();
+            rig.app.show_section(Section::Worlds);
+            rig.app.world_form = Some(WorldForm {
+                image: name.map(String::from),
+                ..WorldForm::new()
+            });
+            rig.frame();
+        }
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     // ---- sections ----

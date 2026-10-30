@@ -8,6 +8,7 @@
 use std::path::PathBuf;
 use std::sync::{mpsc, Arc};
 
+use futures_util::future::BoxFuture;
 use futures_util::StreamExt;
 use ir_core::character::Character;
 use ir_core::client::{
@@ -36,6 +37,33 @@ pub type Wake = Arc<dyn Fn() + Send + Sync>;
 
 /// Where API keys are kept.
 pub type Secrets = Arc<dyn SecretStore + Send + Sync>;
+
+/// Lets the user choose a picture and returns its bytes, or `None` if they cancelled. Real
+/// use opens a file dialog; tests supply their own.
+pub type ImagePicker = Arc<dyn Fn() -> BoxFuture<'static, Option<Vec<u8>>> + Send + Sync>;
+
+/// The picker for real use: the system file dialog. It runs off the UI thread.
+pub fn default_image_picker() -> ImagePicker {
+    Arc::new(|| {
+        Box::pin(async {
+            let file = rfd::AsyncFileDialog::new()
+                .set_title("Choose a picture")
+                .add_filter("Pictures", &["png", "jpg", "jpeg", "webp"])
+                .pick_file()
+                .await?;
+            Some(file.read().await)
+        })
+    })
+}
+
+/// What a picked picture is for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ImageTarget {
+    /// The character being edited.
+    Character,
+    /// The world being edited.
+    World,
+}
 
 /// The provider factory for real use: an OpenAI-compatible client.
 pub fn default_provider_factory() -> ProviderFactory {
@@ -122,6 +150,10 @@ pub enum Request {
     /// Delete a world file.
     DeleteWorld(PathBuf),
 
+    /// Let the user choose a picture for the editor `target`. The result arrives as
+    /// [`Event::ImagePicked`].
+    PickImage(ImageTarget),
+
     // Sent by the backend's own tasks.
     /// Tokens used by a background job, to add to the session's usage.
     Usage {
@@ -179,6 +211,15 @@ pub enum Event {
         characters: Vec<Entry<Character>>,
         /// The worlds.
         worlds: Vec<Entry<Lorebook>>,
+        /// The folder holding their pictures.
+        images_dir: PathBuf,
+    },
+    /// A picture was chosen and stored.
+    ImagePicked {
+        /// What it is for.
+        target: ImageTarget,
+        /// The stored file name, to put in the card.
+        name: String,
     },
     /// The active story changed.
     Transcript(Transcript),
@@ -231,6 +272,8 @@ pub struct Services {
     pub secrets: Secrets,
     /// Builds the model provider.
     pub provider: ProviderFactory,
+    /// Lets the user choose a picture.
+    pub picker: ImagePicker,
     /// Redraws the UI.
     pub wake: Wake,
 }
@@ -248,6 +291,7 @@ pub fn spawn(
         settings_path: services.settings_path,
         secrets: services.secrets,
         provider: services.provider,
+        picker: services.picker,
         wake: services.wake,
         settings: Settings::default(),
         session: None,
@@ -268,6 +312,7 @@ struct Actor {
     settings_path: Option<PathBuf>,
     secrets: Secrets,
     provider: ProviderFactory,
+    picker: ImagePicker,
     wake: Wake,
     settings: Settings,
     session: Option<SessionId>,
@@ -337,23 +382,36 @@ impl Actor {
                 self.emit_settings();
             }
             Request::SaveCharacter { path, character } => {
+                let old = path
+                    .as_ref()
+                    .and_then(|p| Character::load(p).ok())
+                    .and_then(|c| c.image);
                 match self.library.save_character(path.as_deref(), &character) {
                     Ok(_) => {
+                        self.drop_replaced_image(old, character.image.as_deref());
                         self.emit(Event::Info(format!("Saved {}.", character.name)));
                         self.reload_library();
                     }
                     Err(e) => self.error(e),
                 }
             }
-            Request::DeleteCharacter(path) | Request::DeleteWorld(path) => {
-                match self.library.delete(&path) {
-                    Ok(()) => self.reload_library(),
-                    Err(e) => self.error(e),
-                }
+            Request::DeleteCharacter(path) => {
+                let image = Character::load(&path).ok().and_then(|c| c.image);
+                self.delete_item(&path, image);
             }
+            Request::DeleteWorld(path) => {
+                let image = Lorebook::load(&path).ok().and_then(|w| w.image);
+                self.delete_item(&path, image);
+            }
+            Request::PickImage(target) => self.pick_image(target),
             Request::SaveWorld { path, world } => {
+                let old = path
+                    .as_ref()
+                    .and_then(|p| Lorebook::load(p).ok())
+                    .and_then(|w| w.image);
                 match self.library.save_world(path.as_deref(), &world) {
                     Ok(_) => {
+                        self.drop_replaced_image(old, world.image.as_deref());
                         self.emit(Event::Info(format!("Saved {}.", world.name)));
                         self.reload_library();
                     }
@@ -398,6 +456,7 @@ impl Actor {
             }
         }
         self.reload_library();
+        self.remove_unused_images();
         self.emit_settings();
         self.emit_sessions();
         let latest = self
@@ -443,6 +502,68 @@ impl Actor {
         self.emit(Event::Info("Settings saved.".into()));
     }
 
+    fn delete_item(&mut self, path: &std::path::Path, image: Option<String>) {
+        match self.library.delete(path) {
+            Ok(()) => {
+                if let Some(image) = image {
+                    self.library.delete_image(&image);
+                }
+                self.reload_library();
+            }
+            Err(e) => self.error(e),
+        }
+    }
+
+    /// After a card was saved: delete its old picture if the card now has a different one.
+    fn drop_replaced_image(&self, old: Option<String>, new: Option<&str>) {
+        if let Some(old) = old {
+            if new != Some(old.as_str()) {
+                self.library.delete_image(&old);
+            }
+        }
+    }
+
+    /// Delete pictures no card refers to, such as one chosen in an editor that was cancelled.
+    fn remove_unused_images(&self) {
+        let used = self
+            .characters
+            .iter()
+            .filter_map(|c| c.item.image.clone())
+            .chain(self.worlds.iter().filter_map(|w| w.item.image.clone()))
+            .collect();
+        let removed = self.library.remove_unused_images(&used);
+        if removed > 0 {
+            tracing::debug!(removed, "removed unused pictures");
+        }
+    }
+
+    /// Open the picture chooser without blocking the backend, then store the result.
+    fn pick_image(&self, target: ImageTarget) {
+        let (picker, library, events, wake) = (
+            self.picker.clone(),
+            self.library.clone(),
+            self.events.clone(),
+            self.wake.clone(),
+        );
+        tokio::spawn(async move {
+            let Some(bytes) = picker().await else {
+                return; // cancelled
+            };
+            let stored = tokio::task::spawn_blocking(move || {
+                let png = crate::images::prepare(&bytes)?;
+                library.save_image(&png)
+            })
+            .await
+            .unwrap_or_else(|e| Err(e.to_string()));
+            let event = match stored {
+                Ok(name) => Event::ImagePicked { target, name },
+                Err(message) => Event::Error(message),
+            };
+            let _ = events.send(event);
+            wake();
+        });
+    }
+
     fn reload_library(&mut self) {
         let (characters, mut errors) = self.library.characters();
         let (worlds, world_errors) = self.library.worlds();
@@ -452,6 +573,7 @@ impl Actor {
         self.emit(Event::Library {
             characters: self.characters.clone(),
             worlds: self.worlds.clone(),
+            images_dir: self.library.images_dir(),
         });
         if !errors.is_empty() {
             self.error(errors.join("\n"));
@@ -1150,8 +1272,42 @@ entries:
     content: "Fogglass is a rare mineral that briefly clears fog."
 "#;
 
+    /// A small valid PNG, as the picker would return a chosen file.
+    fn small_png() -> Vec<u8> {
+        let image = image::RgbaImage::from_pixel(8, 8, image::Rgba([10, 200, 90, 255]));
+        let mut out = Vec::new();
+        image::DynamicImage::ImageRgba8(image)
+            .write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)
+            .unwrap();
+        out
+    }
+
+    /// A picker that always "chooses" these bytes.
+    fn picks(bytes: &[u8]) -> ImagePicker {
+        let bytes = bytes.to_vec();
+        Arc::new(move || {
+            let bytes = bytes.clone();
+            Box::pin(async move { Some(bytes) })
+        })
+    }
+
+    /// A picker whose user always cancels.
+    fn cancels() -> ImagePicker {
+        Arc::new(|| Box::pin(async { None }))
+    }
+
     impl Rig {
         fn start(name: &str, mock: Arc<Mock>, with_key: bool, settings_file: bool) -> Self {
+            Self::start_with_picker(name, mock, with_key, settings_file, picks(&small_png()))
+        }
+
+        fn start_with_picker(
+            name: &str,
+            mock: Arc<Mock>,
+            with_key: bool,
+            settings_file: bool,
+            picker: ImagePicker,
+        ) -> Self {
             let dir = TempDir::new(name);
             let library = Library::new(dir.0.join("library"));
             library
@@ -1171,6 +1327,7 @@ entries:
                 settings_path: settings_file.then(|| dir.0.join("settings.toml")),
                 secrets: secrets.clone(),
                 provider: Arc::new(move |_, _| Ok(provider_mock.clone() as Arc<dyn LlmProvider>)),
+                picker,
                 wake: Arc::new(|| {}),
             };
             let (backend, events) = spawn(&tokio::runtime::Handle::current(), services);
@@ -1242,7 +1399,9 @@ entries:
     async fn init_reports_the_library_settings_and_no_sessions() {
         let rig = Rig::start("init", Mock::new(&["x"]), true, false);
         let (characters, worlds) = rig.wait_for(|e| match e {
-            Event::Library { characters, worlds } => Some((characters.len(), worlds.len())),
+            Event::Library {
+                characters, worlds, ..
+            } => Some((characters.len(), worlds.len())),
             _ => None,
         });
         assert_eq!(
@@ -1437,6 +1596,108 @@ entries:
         rig.chat("One.");
         let t = rig.chat("Two.");
         assert_eq!(t.nodes.len(), 5, "the limit is off, so both turns ran");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn pictures_are_stored_with_their_card_replaced_and_deleted_with_it() {
+        let rig = Rig::start("pictures", Mock::new(&["x"]), true, false);
+        let images = rig.dir.0.join("library").join("images");
+
+        rig.backend.send(Request::PickImage(ImageTarget::Character));
+        let first = rig.wait_for(|e| match e {
+            Event::ImagePicked { name, .. } => Some(name.clone()),
+            _ => None,
+        });
+        assert!(images.join(&first).exists(), "the picture is stored");
+
+        let card = |image: &str| Character {
+            image: Some(image.to_string()),
+            ..Character::from_yaml("name: Bo").unwrap()
+        };
+        rig.backend.send(Request::SaveCharacter {
+            path: None,
+            character: card(&first),
+        });
+        let characters = rig.wait_for(|e| match e {
+            Event::Library { characters, .. } if characters.len() == 2 => Some(characters.clone()),
+            _ => None,
+        });
+        let bo = characters.iter().find(|c| c.item.name == "Bo").unwrap();
+        assert_eq!(bo.item.image.as_deref(), Some(first.as_str()));
+        let path = bo.path.clone();
+
+        rig.backend.send(Request::PickImage(ImageTarget::Character));
+        let second = rig.wait_for(|e| match e {
+            Event::ImagePicked { name, .. } => Some(name.clone()),
+            _ => None,
+        });
+        rig.backend.send(Request::SaveCharacter {
+            path: Some(path.clone()),
+            character: card(&second),
+        });
+        rig.wait_for(|e| matches!(e, Event::Info(m) if m.contains("Saved")).then_some(()));
+        rig.wait_for(|e| matches!(e, Event::Library { .. }).then_some(()));
+        assert!(
+            !images.join(&first).exists(),
+            "the replaced picture is deleted"
+        );
+        assert!(images.join(&second).exists());
+
+        rig.backend.send(Request::DeleteCharacter(path));
+        rig.wait_for(|e| {
+            matches!(e, Event::Library { characters, .. } if characters.len() == 1).then_some(())
+        });
+        assert!(
+            !images.join(&second).exists(),
+            "deleting the card deletes its picture"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn pictures_no_card_uses_are_cleaned_up_at_start() {
+        let rig = Rig::start("orphans", Mock::new(&["x"]), true, false);
+        rig.wait_for(|e| matches!(e, Event::NoSession).then_some(()));
+        let images = rig.dir.0.join("library").join("images");
+        std::fs::create_dir_all(&images).unwrap();
+        std::fs::write(images.join("orphan.png"), b"x").unwrap();
+
+        rig.backend.send(Request::Init);
+        rig.wait_for(|e| matches!(e, Event::NoSession).then_some(()));
+        assert!(!images.join("orphan.png").exists());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_file_that_is_not_an_image_is_reported() {
+        let rig = Rig::start_with_picker(
+            "not-image",
+            Mock::new(&["x"]),
+            true,
+            false,
+            picks(b"definitely not an image"),
+        );
+        rig.backend.send(Request::PickImage(ImageTarget::World));
+        let error = rig.wait_for(|e| match e {
+            Event::Error(m) => Some(m.clone()),
+            _ => None,
+        });
+        assert!(error.contains("not a supported image"), "{error}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn cancelling_the_picture_dialog_does_nothing() {
+        let rig = Rig::start_with_picker("cancel", Mock::new(&["x"]), true, false, cancels());
+        rig.backend.send(Request::PickImage(ImageTarget::Character));
+        rig.backend.send(Request::DeleteApiKey);
+        let mut picked = false;
+        rig.wait_for(|e| {
+            picked |= matches!(e, Event::ImagePicked { .. });
+            matches!(e, Event::Info(m) if m.contains("removed")).then_some(())
+        });
+        std::thread::sleep(Duration::from_millis(200));
+        while let Ok(event) = rig.events.try_recv() {
+            picked |= matches!(event, Event::ImagePicked { .. });
+        }
+        assert!(!picked);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
