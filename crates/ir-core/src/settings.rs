@@ -432,11 +432,15 @@ mod tests {
 
     #[test]
     fn default_path_is_in_app_data_dir() {
-        // Skipped silently on systems without a home directory. Some platforms add a
-        // `data` folder below the app name, so only check that the name is a component.
+        // Skipped silently on systems without a home directory. Platforms differ: Windows
+        // adds a `data` folder below the app name, and Linux lowercases the name. So only
+        // check that the name is a component, ignoring case.
         if let Ok(path) = Settings::default_path() {
             assert_eq!(path.file_name().unwrap(), SETTINGS_FILE);
-            assert!(path.components().any(|c| c.as_os_str() == crate::APP_NAME));
+            let app_name = crate::APP_NAME.to_lowercase();
+            assert!(path
+                .components()
+                .any(|c| c.as_os_str().to_string_lossy().to_lowercase() == app_name));
         }
     }
 
