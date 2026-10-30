@@ -19,6 +19,7 @@ mod settings_ui;
 mod sidebar;
 mod tree_layout;
 mod tree_view;
+mod tutorial;
 
 use std::sync::Arc;
 

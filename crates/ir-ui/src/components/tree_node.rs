@@ -2,38 +2,43 @@
 
 use egui::text::LayoutJob;
 use egui::{
-    Color32, CursorIcon, FontId, Pos2, Response, Sense, Shape, Stroke, StrokeKind, Ui, Widget,
-    WidgetInfo, WidgetType,
+    Color32, CornerRadius, CursorIcon, FontId, Pos2, Rect, Response, Sense, Stroke, StrokeKind, Ui,
+    Vec2, Widget, WidgetInfo, WidgetType,
 };
 
-use super::common::{contrast_text, focus_ring};
-use crate::theme::{spacing, Theme, ThemeExt, BORDER_WIDTH, RING_WIDTH};
+use super::common::focus_ring;
+use crate::theme::{spacing, Theme, ThemeExt, BORDER_WIDTH};
 
-const NODE_HEIGHT: f32 = 28.0;
+/// Height of every node: the label, and the tag below it.
+pub const HEIGHT: f32 = 56.0;
 
 /// Widest a node grows before its label is cut with an ellipsis.
-const NODE_MAX_WIDTH: f32 = 200.0;
+pub const MAX_WIDTH: f32 = 200.0;
 
-/// Dash and gap lengths of the outline on unexplored nodes.
-const DASH: f32 = 4.0;
-const GAP: f32 = 3.0;
+/// Height of the tag.
+const TAG_HEIGHT: f32 = 20.0;
+
+/// How much a light theme's tag text is darkened, so gold and green stay readable on gray.
+const LIGHT_TEXT_DARKENING: f32 = 0.55;
 
 /// Where a node stands relative to the story.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TreeNodeState {
-    /// The node the story is at now.
+    /// The node the story is at now. Its tag is gold.
     Current,
-    /// A node on the path that was taken.
+    /// A node on the path that was taken. Its tag is green.
     Explored,
-    /// A node on an alternative branch.
+    /// A node on an alternative branch. Its tag is gray.
     Open,
 }
 
-/// A clickable node. The caller decides what a click means, such as a preview on the first
-/// click and a jump on the second.
+/// A clickable node: a gray box with the label, and a tag showing the node's state by its
+/// color. The caller decides what a click means, such as a preview on the first click and a
+/// jump on the second.
 #[derive(Clone, Debug)]
 pub struct TreeNode {
     label: String,
+    tag: String,
     state: TreeNodeState,
     bookmarked: bool,
     selected: bool,
@@ -43,20 +48,29 @@ pub struct TreeNode {
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct NodeColors {
     fill: Color32,
-    text: Color32,
     border: Stroke,
-    dashed: bool,
+    text: Color32,
+    tag_fill: Color32,
+    tag_border: Color32,
+    tag_text: Color32,
 }
 
 impl TreeNode {
-    /// An open (unexplored) node with this label.
+    /// An open (alternative) node with this label and no tag text.
     pub fn new(label: impl Into<String>) -> Self {
         Self {
             label: label.into(),
+            tag: String::new(),
             state: TreeNodeState::Open,
             bookmarked: false,
             selected: false,
         }
+    }
+
+    /// The text in the tag, such as a timestamp. The tag's color shows the state.
+    pub fn tag(mut self, tag: impl Into<String>) -> Self {
+        self.tag = tag.into();
+        self
     }
 
     /// Set the state.
@@ -78,39 +92,35 @@ impl TreeNode {
     }
 
     fn colors(state: TreeNodeState, hovered: bool, t: &Theme) -> NodeColors {
-        let hover = |fill: Color32| {
-            if hovered {
-                Theme::mix(fill, t.foreground, 0.1)
-            } else {
-                fill
-            }
+        let fill = if hovered {
+            Theme::mix(t.muted, t.foreground, 0.1)
+        } else {
+            t.muted
         };
-        match state {
-            TreeNodeState::Current => {
-                let fill = hover(t.tree_current);
-                NodeColors {
-                    fill,
-                    text: contrast_text(fill, t.foreground, t.background),
-                    border: Stroke::new(RING_WIDTH, t.foreground),
-                    dashed: false,
-                }
-            }
-            TreeNodeState::Explored => {
-                let fill = hover(t.tree_explored);
-                NodeColors {
-                    fill,
-                    text: contrast_text(fill, t.foreground, t.background),
-                    border: Stroke::NONE,
-                    dashed: false,
-                }
-            }
-            TreeNodeState::Open => NodeColors {
-                fill: hover(t.background),
-                text: t.muted_foreground,
-                border: Stroke::new(BORDER_WIDTH, t.muted_foreground),
-                dashed: true,
-            },
+        // Border and text share a color: gold, green, or gray.
+        let (tag_border, tag_text) = match state {
+            TreeNodeState::Current => (t.tree_current, readable(t.tree_current, t)),
+            TreeNodeState::Explored => (t.tree_explored, readable(t.tree_explored, t)),
+            TreeNodeState::Open => (t.muted_foreground, t.muted_foreground),
+        };
+        NodeColors {
+            fill,
+            border: Stroke::new(BORDER_WIDTH, t.border),
+            text: t.foreground,
+            tag_fill: tag_border.gamma_multiply(0.14),
+            tag_border,
+            tag_text,
         }
+    }
+}
+
+/// `color` as text on a gray node: darkened in the light theme, where the bright state colors
+/// would wash out.
+fn readable(color: Color32, t: &Theme) -> Color32 {
+    if t.is_dark {
+        color
+    } else {
+        Theme::mix(color, t.foreground, LIGHT_TEXT_DARKENING)
     }
 }
 
@@ -123,42 +133,63 @@ impl Widget for TreeNode {
             self.label.clone()
         };
 
-        // Lay the label out first, in a neutral color, to size the node.
+        // Lay the texts out first, in a neutral color, to size the node.
         let mut job = LayoutJob::simple(
             label.clone(),
             FontId::proportional(t.text_sm),
             Color32::PLACEHOLDER,
-            NODE_MAX_WIDTH - 2.0 * spacing::MD,
+            MAX_WIDTH - 2.0 * spacing::MD,
         );
         job.wrap.max_rows = 1;
         job.wrap.break_anywhere = true;
-        let galley = ui.painter().layout_job(job);
+        let label_galley = ui.painter().layout_job(job);
+        let tag_galley = (!self.tag.is_empty()).then(|| {
+            ui.painter().layout_no_wrap(
+                self.tag.clone(),
+                FontId::proportional(t.text_xs),
+                Color32::PLACEHOLDER,
+            )
+        });
+        let tag_width = tag_galley
+            .as_ref()
+            .map_or(0.0, |g| g.size().x + 2.0 * spacing::SM);
 
-        let size = egui::vec2(galley.size().x + 2.0 * spacing::MD, NODE_HEIGHT);
+        let content = label_galley.size().x.max(tag_width);
+        let size = Vec2::new((content + 2.0 * spacing::MD).min(MAX_WIDTH), HEIGHT);
         let (rect, response) = ui.allocate_exact_size(size, Sense::click());
         response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, &label));
 
         let colors = Self::colors(self.state, response.hovered(), &t);
         let radius = t.corner_md();
         let painter = ui.painter();
-        painter.rect_filled(rect, radius, colors.fill);
-        if colors.dashed {
-            let corners = [
-                rect.left_top(),
-                rect.right_top(),
-                rect.right_bottom(),
-                rect.left_bottom(),
-                rect.left_top(),
-            ];
-            painter.extend(Shape::dashed_line(&corners, colors.border, DASH, GAP));
-        } else if colors.border != Stroke::NONE {
-            painter.rect_stroke(rect, radius, colors.border, StrokeKind::Inside);
-        }
-        let pos = Pos2::new(
-            rect.left() + spacing::MD,
-            rect.center().y - galley.size().y / 2.0,
+        painter.rect(rect, radius, colors.fill, colors.border, StrokeKind::Inside);
+        painter.galley(
+            Pos2::new(rect.left() + spacing::MD, rect.top() + spacing::SM),
+            label_galley,
+            colors.text,
         );
-        painter.galley(pos, galley, colors.text);
+        if let Some(galley) = tag_galley {
+            let tag_rect = Rect::from_min_size(
+                Pos2::new(
+                    rect.left() + spacing::MD,
+                    rect.bottom() - spacing::SM - TAG_HEIGHT,
+                ),
+                Vec2::new(tag_width, TAG_HEIGHT),
+            );
+            let pill = CornerRadius::same(u8::MAX);
+            painter.rect(
+                tag_rect,
+                pill,
+                colors.tag_fill,
+                Stroke::new(BORDER_WIDTH, colors.tag_border),
+                StrokeKind::Inside,
+            );
+            painter.galley(
+                tag_rect.center() - galley.size() / 2.0,
+                galley,
+                colors.tag_text,
+            );
+        }
 
         if self.selected || response.has_focus() {
             focus_ring(ui, rect, radius, &t);
@@ -180,15 +211,21 @@ mod tests {
     ];
 
     #[test]
-    fn labels_are_readable_on_every_state_in_both_themes() {
+    fn labels_and_tags_are_readable_on_every_state_in_both_themes() {
         for t in [Theme::light(), Theme::dark()] {
             for state in STATES {
                 for hovered in [false, true] {
                     let c = TreeNode::colors(state, hovered, &t);
-                    let gap = (luminance(c.fill) - luminance(c.text)).abs();
+                    let label_gap = (luminance(c.fill) - luminance(c.text)).abs();
+                    let tag_gap = (luminance(c.fill) - luminance(c.tag_text)).abs();
                     assert!(
-                        gap > 0.35,
-                        "{state:?} dark={} hovered={hovered}: {gap}",
+                        label_gap > 0.35,
+                        "label {state:?} dark={} hovered={hovered}: {label_gap}",
+                        t.is_dark
+                    );
+                    assert!(
+                        tag_gap > 0.25,
+                        "tag {state:?} dark={} hovered={hovered}: {tag_gap}",
                         t.is_dark
                     );
                 }
@@ -197,18 +234,32 @@ mod tests {
     }
 
     #[test]
-    fn states_use_the_tree_colors_and_only_open_nodes_are_dashed() {
-        let t = Theme::light();
-        let current = TreeNode::colors(TreeNodeState::Current, false, &t);
-        let explored = TreeNode::colors(TreeNodeState::Explored, false, &t);
-        let open = TreeNode::colors(TreeNodeState::Open, false, &t);
-        assert_eq!(current.fill, t.tree_current);
-        assert_eq!(explored.fill, t.tree_explored);
-        assert!(open.dashed && !current.dashed && !explored.dashed);
-        assert!(
-            current.border.width > 0.0,
-            "the current node has a strong outline"
-        );
+    fn every_node_is_gray_and_only_the_tag_carries_the_state() {
+        for t in [Theme::light(), Theme::dark()] {
+            let [current, explored, open] = STATES.map(|s| TreeNode::colors(s, false, &t));
+            assert_eq!(current.fill, t.muted);
+            assert_eq!(explored.fill, t.muted);
+            assert_eq!(open.fill, t.muted);
+            assert_eq!(current.tag_border, t.tree_current, "gold");
+            assert_eq!(explored.tag_border, t.tree_explored, "green");
+            assert_eq!(open.tag_border, t.muted_foreground, "gray");
+            for c in [current, explored, open] {
+                assert!(
+                    c.tag_border != c.fill && c.tag_border != Color32::TRANSPARENT,
+                    "the tag has a visible border"
+                );
+            }
+            assert_ne!(current.tag_border, explored.tag_border);
+        }
+    }
+
+    #[test]
+    fn the_tag_text_matches_its_border_in_the_dark_theme() {
+        let t = Theme::dark();
+        for state in STATES {
+            let c = TreeNode::colors(state, false, &t);
+            assert_eq!(c.tag_text, c.tag_border, "{state:?}");
+        }
     }
 
     #[test]
@@ -236,20 +287,38 @@ mod tests {
     }
 
     #[test]
-    fn long_labels_are_capped_and_bookmarks_add_a_star() {
+    fn nodes_have_a_fixed_height_and_a_capped_width() {
         let mut h = Harness::new();
-        let (mut long, mut short, mut starred) = (0.0, 0.0, 0.0);
+        let mut sizes = Vec::new();
         h.idle(&mut |ui: &mut Ui| {
-            long = ui.add(TreeNode::new("x".repeat(300))).rect.width();
-            short = ui.add(TreeNode::new("Start")).rect.width();
-            starred = ui.add(TreeNode::new("Start").bookmarked(true)).rect.width();
+            sizes.clear();
+            sizes.push(ui.add(TreeNode::new("x".repeat(300))).rect.size());
+            sizes.push(
+                ui.add(TreeNode::new("Start").tag("30 Oct 14:32"))
+                    .rect
+                    .size(),
+            );
+            sizes.push(ui.add(TreeNode::new("Start")).rect.size());
         });
-        assert!(long <= NODE_MAX_WIDTH + 1.0, "{long}");
-        assert!(starred > short);
+        assert!(sizes.iter().all(|s| s.y == HEIGHT), "{sizes:?}");
+        assert!(sizes[0].x <= MAX_WIDTH + 1.0, "{:?}", sizes[0]);
     }
 
     #[test]
-    fn every_state_renders_selected_and_not() {
+    fn a_long_tag_widens_a_short_node_and_a_bookmark_adds_a_star() {
+        let mut h = Harness::new();
+        let (mut plain, mut tagged, mut starred) = (0.0, 0.0, 0.0);
+        h.idle(&mut |ui: &mut Ui| {
+            plain = ui.add(TreeNode::new("A")).rect.width();
+            tagged = ui.add(TreeNode::new("A").tag("30 Oct 14:32")).rect.width();
+            starred = ui.add(TreeNode::new("A").bookmarked(true)).rect.width();
+        });
+        assert!(tagged > plain, "{tagged} vs {plain}");
+        assert!(starred > plain);
+    }
+
+    #[test]
+    fn every_state_renders_selected_and_not_with_and_without_a_tag() {
         let mut h = Harness::new();
         h.idle(&mut |ui: &mut Ui| {
             for state in STATES {
@@ -257,6 +326,7 @@ mod tests {
                 ui.add(
                     TreeNode::new("Node")
                         .state(state)
+                        .tag("14:32")
                         .selected(true)
                         .bookmarked(true),
                 );

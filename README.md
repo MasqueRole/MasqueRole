@@ -8,8 +8,6 @@
 
 InfiniteRoleplay sits between you and the language model provider you choose (xAI, OpenAI, Anthropic, OpenRouter, or a local model via Ollama or LM Studio). It handles character cards, world knowledge, long-term memory, and a branching story tree, so stories don't fall apart when they hit context limits or the model forgets what happened.
 
-> 🚧 **Status: pre-release.** The core, the design system, and the desktop app (chat, settings, character and world editors, story tree view) are implemented and tested. No installers have been published yet, so for now you build from source. Some planned features, such as group scenes with several characters, are not implemented yet.
-
 ---
 
 ## Table of Contents
@@ -83,7 +81,7 @@ The code is split into a UI-independent **core library** and a thin **GUI app**.
 
 ### Download
 
-Installers for Windows (`.exe`) and Linux (`.deb`, `.AppImage`) are built by the release workflow and attached to each version on the [Releases](https://github.com/RoleplayHarness/InfiniteRoleplay/releases) page. Until the first version is tagged, build from source.
+Installers for Windows (`.exe`) and Linux (`.deb`, `.AppImage`) are built by the release workflow and attached to each version on the [Releases](https://github.com/RoleplayHarness/InfiniteRoleplay/releases) page.
 
 ### Build from source
 
@@ -105,12 +103,12 @@ cargo packager --release --formats deb,appimage  # Linux
 
 ## Quick Start
 
-1. Launch InfiniteRoleplay.
+1. Launch InfiniteRoleplay. A short **tutorial** with screenshots opens the first time; reopen it any time with the question mark button next to Settings.
 2. Click **Settings** (top right) and choose a **provider** and paste your API key (not needed for local models).
 3. Open **Characters** (and, optionally, **Worlds**) in the top navigation to create or edit them. Each section has its own list in the sidebar.
-4. Go to **Stories**, press **New session**, and start writing. Press **Enter** to send and **Shift+Enter** for a new line. **Tree** shows the branches of the open story.
+4. Go to **Stories**, press the **+** button, and start writing. Press **Enter** to send and **Shift+Enter** for a new line. Type **/** to see the commands, and click one to use it. **Tree** shows the branches of the open story.
 
-For development, you can also provide the key through the `IR_API_KEY` environment variable.
+For development, you can also provide the key through the `IR_API_KEY` environment variable. Set `IR_DATA_DIR` to keep settings, sessions, and the library in another folder (a portable install or a clean test profile).
 
 ## Configuration
 
@@ -239,7 +237,7 @@ graph TD
     class D,E,G,I open;
 ```
 
-*Gold = current position, green = path you took, gray dashed = alternative branches.*
+*Every node is gray and carries a tag with its time: the tag is gold for the current position, green for the path you took, and gray for alternative branches.*
 
 In the app, the tree is an interactive view drawn with egui: click a node to preview it, and jump there with a second click. Scroll and drag to navigate large trees. The `/tree` command prints a text version:
 
@@ -319,14 +317,13 @@ InfiniteRoleplay/
 │           ├── characters.rs
 │           └── settings_ui.rs
 ├── Packager.toml               # Installer settings (cargo-packager)
-├── AGENTS.md                   # Step-by-step build instructions for AI agents
+├── AGENTS.md                   # Instructions for AI agents
 ├── LICENSE
 └── README.md
 ```
 
 ## Roadmap
 
-- [ ] First tagged desktop release for Windows and Linux (installer workflow is in place)
 - [ ] Multiple characters in one scene
 - [ ] Merge facts between branches
 - [ ] Vector-based memory search

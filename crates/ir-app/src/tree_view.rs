@@ -19,17 +19,13 @@ use crate::backend::TreeData;
 use crate::format;
 use crate::tree_layout::{self, Placed, TreeLayout};
 
+use ir_ui::components::tree_node::{HEIGHT as NODE_HEIGHT, MAX_WIDTH as NODE_MAX_WIDTH};
+
 /// Horizontal distance between columns: a node's widest width plus the gap for edges.
 const COLUMN_WIDTH: f32 = 260.0;
 
 /// Vertical distance between rows: a node's height plus the gap.
-const ROW_HEIGHT: f32 = 44.0;
-
-/// The height of a `TreeNode`.
-const NODE_HEIGHT: f32 = 28.0;
-
-/// The widest a `TreeNode` grows.
-const NODE_MAX_WIDTH: f32 = 200.0;
+const ROW_HEIGHT: f32 = NODE_HEIGHT + spacing::LG;
 
 /// How far an edge reaches into its parent node, so it appears to leave from the node's edge
 /// whatever the node's width.
@@ -369,6 +365,7 @@ impl TreeView {
                     };
                     let widget = TreeNode::new(Self::canvas_label(node, placed.hidden))
                         .state(state)
+                        .tag(crate::format::timestamp(node.created_at))
                         .bookmarked(node.bookmark.is_some())
                         .selected(self.selected == Some(placed.id));
 

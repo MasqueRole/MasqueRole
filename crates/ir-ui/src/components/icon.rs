@@ -40,11 +40,33 @@ pub enum IconKind {
     Branch,
     /// A picture frame with a mountain and a sun.
     Image,
+    /// A floppy disk: save.
+    Save,
+    /// A folder: load.
+    Folder,
+    /// A circular arrow: retry.
+    Refresh,
+    /// A backwards arrow: undo.
+    Undo,
+    /// An arrow pointing right: go to.
+    ArrowRight,
+    /// A bookmark ribbon.
+    Bookmark,
+    /// A bulleted list.
+    List,
+    /// A page with text.
+    File,
+    /// A stack of disks: stored data.
+    Database,
+    /// A pencil: writing style.
+    Pen,
+    /// A question mark in a circle: help.
+    Help,
 }
 
 impl IconKind {
     /// Every icon, for galleries and tests.
-    pub const ALL: [IconKind; 12] = [
+    pub const ALL: [IconKind; 23] = [
         IconKind::Settings,
         IconKind::Trash,
         IconKind::More,
@@ -57,6 +79,17 @@ impl IconKind {
         IconKind::Globe,
         IconKind::Branch,
         IconKind::Image,
+        IconKind::Save,
+        IconKind::Folder,
+        IconKind::Refresh,
+        IconKind::Undo,
+        IconKind::ArrowRight,
+        IconKind::Bookmark,
+        IconKind::List,
+        IconKind::File,
+        IconKind::Database,
+        IconKind::Pen,
+        IconKind::Help,
     ];
 }
 
@@ -79,6 +112,16 @@ fn ellipse(center: (f32, f32), rx: f32, ry: f32) -> Vec<(f32, f32)> {
     (0..SEGMENTS)
         .map(|i| {
             let angle = std::f32::consts::TAU * i as f32 / SEGMENTS as f32;
+            (center.0 + rx * angle.cos(), center.1 + ry * angle.sin())
+        })
+        .collect()
+}
+
+/// Points of part of an ellipse, from `start` to `end` radians.
+fn ellipse_arc(center: (f32, f32), rx: f32, ry: f32, start: f32, end: f32) -> Vec<(f32, f32)> {
+    (0..=SEGMENTS)
+        .map(|i| {
+            let angle = start + (end - start) * i as f32 / SEGMENTS as f32;
             (center.0 + rx * angle.cos(), center.1 + ry * angle.sin())
         })
         .collect()
@@ -176,6 +219,89 @@ fn drawing(kind: IconKind) -> Drawing {
             .circle((12.0, 12.0), 9.0)
             .open(&[(3.0, 12.0), (21.0, 12.0)])
             .closed(&ellipse((12.0, 12.0), 4.0, 9.0)),
+        IconKind::Save => d
+            .closed(&[
+                (4.0, 4.0),
+                (17.0, 4.0),
+                (20.0, 7.0),
+                (20.0, 20.0),
+                (4.0, 20.0),
+            ])
+            .open(&[(8.0, 4.0), (8.0, 9.0), (15.0, 9.0), (15.0, 4.0)])
+            .open(&[(7.0, 20.0), (7.0, 14.0), (17.0, 14.0), (17.0, 20.0)]),
+        IconKind::Folder => d.closed(&[
+            (3.0, 6.0),
+            (10.0, 6.0),
+            (12.0, 8.0),
+            (21.0, 8.0),
+            (21.0, 19.0),
+            (3.0, 19.0),
+        ]),
+        IconKind::Refresh => {
+            // Three quarters of a circle, with an arrow head at its end.
+            let end = PI * 1.75;
+            let tip = (12.0 + 8.0 * end.cos(), 12.0 + 8.0 * end.sin());
+            d.open(&arc((12.0, 12.0), 8.0, PI * 0.25, end)).open(&[
+                (tip.0 + 4.5, tip.1 - 1.0),
+                tip,
+                (tip.0 + 0.5, tip.1 + 4.5),
+            ])
+        }
+        IconKind::Undo => d.open(&[(9.0, 6.0), (4.0, 11.0), (9.0, 16.0)]).open(&[
+            (4.0, 11.0),
+            (14.0, 11.0),
+            (20.0, 14.0),
+            (20.0, 19.0),
+        ]),
+        IconKind::ArrowRight => {
+            d.open(&[(4.0, 12.0), (20.0, 12.0)])
+                .open(&[(14.0, 6.0), (20.0, 12.0), (14.0, 18.0)])
+        }
+        IconKind::Bookmark => d.closed(&[
+            (6.0, 3.0),
+            (18.0, 3.0),
+            (18.0, 21.0),
+            (12.0, 16.0),
+            (6.0, 21.0),
+        ]),
+        IconKind::List => d
+            .open(&[(9.0, 6.0), (20.0, 6.0)])
+            .open(&[(9.0, 12.0), (20.0, 12.0)])
+            .open(&[(9.0, 18.0), (20.0, 18.0)])
+            .dot((4.5, 6.0), 1.25)
+            .dot((4.5, 12.0), 1.25)
+            .dot((4.5, 18.0), 1.25),
+        IconKind::File => d
+            .closed(&[
+                (5.0, 3.0),
+                (14.0, 3.0),
+                (19.0, 8.0),
+                (19.0, 21.0),
+                (5.0, 21.0),
+            ])
+            .open(&[(14.0, 3.0), (14.0, 8.0), (19.0, 8.0)])
+            .open(&[(8.0, 13.0), (16.0, 13.0)])
+            .open(&[(8.0, 17.0), (16.0, 17.0)]),
+        IconKind::Database => d
+            .closed(&ellipse((12.0, 6.0), 7.0, 3.0))
+            .open(&[(5.0, 6.0), (5.0, 18.0)])
+            .open(&[(19.0, 6.0), (19.0, 18.0)])
+            .open(&ellipse_arc((12.0, 12.0), 7.0, 3.0, 0.0, PI))
+            .open(&ellipse_arc((12.0, 18.0), 7.0, 3.0, 0.0, PI)),
+        IconKind::Pen => d
+            .closed(&[
+                (15.0, 4.0),
+                (20.0, 9.0),
+                (9.0, 20.0),
+                (3.0, 21.0),
+                (4.0, 15.0),
+            ])
+            .open(&[(12.0, 7.0), (17.0, 12.0)]),
+        IconKind::Help => d
+            .circle((12.0, 12.0), 9.0)
+            .open(&arc((12.0, 10.0), 2.75, PI, PI * 2.5))
+            .open(&[(12.0, 12.75), (12.0, 14.5)])
+            .dot((12.0, 17.5), 1.1),
         IconKind::Image => d
             .closed(&[(3.0, 5.0), (21.0, 5.0), (21.0, 19.0), (3.0, 19.0)])
             .circle((9.0, 10.0), 1.75)

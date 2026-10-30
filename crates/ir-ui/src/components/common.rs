@@ -23,17 +23,8 @@ pub(crate) fn focus_ring(ui: &Ui, rect: Rect, radius: CornerRadius, theme: &Them
     );
 }
 
-/// The text color, of `a` and `b`, that contrasts most with `background`.
-pub(crate) fn contrast_text(background: Color32, a: Color32, b: Color32) -> Color32 {
-    let bg = luminance(background);
-    if (luminance(a) - bg).abs() >= (luminance(b) - bg).abs() {
-        a
-    } else {
-        b
-    }
-}
-
-/// Approximate perceived brightness, 0.0 (black) to 1.0 (white).
+/// Approximate perceived brightness, 0.0 (black) to 1.0 (white). Used to check contrast in tests.
+#[cfg(test)]
 pub(crate) fn luminance(c: Color32) -> f32 {
     (0.2126 * f32::from(c.r()) + 0.7152 * f32::from(c.g()) + 0.0722 * f32::from(c.b())) / 255.0
 }
@@ -41,21 +32,6 @@ pub(crate) fn luminance(c: Color32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn contrast_picks_the_more_readable_color() {
-        let (dark, light) = (Color32::BLACK, Color32::WHITE);
-        assert_eq!(
-            contrast_text(Color32::from_rgb(245, 197, 66), dark, light),
-            dark
-        );
-        assert_eq!(
-            contrast_text(Color32::from_rgb(20, 20, 30), dark, light),
-            light
-        );
-        // Argument order does not matter.
-        assert_eq!(contrast_text(Color32::WHITE, light, dark), dark);
-    }
 
     #[test]
     fn dim_only_changes_disabled_colors() {

@@ -5,8 +5,8 @@ use ir_core::commands::{CommandInfo, COMMANDS};
 use ir_core::db::NodeKind;
 use ir_core::settings::Settings;
 use ir_ui::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, ChatBubble, IconKind, Label, ScrollArea,
-    Separator, Textarea, TooltipExt,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ChatBubble, IconKind, Label,
+    ScrollArea, Separator, Suggestion, Suggestions, Textarea, TooltipExt,
 };
 use ir_ui::spacing;
 
@@ -16,7 +16,7 @@ use crate::format;
 use crate::prompts;
 
 /// Width of the column holding the Send and Stop buttons.
-const BUTTON_COLUMN: f32 = 88.0;
+const BUTTON_COLUMN: f32 = 32.0;
 
 /// The most command hints shown at once.
 const MAX_HINTS: usize = 6;
@@ -165,19 +165,64 @@ fn welcome(app: &mut App, ui: &mut Ui) {
     }
 }
 
+/// The icon of a slash command, by name.
+fn command_icon(name: &str) -> Option<IconKind> {
+    Some(match name {
+        "save" => IconKind::Save,
+        "load" => IconKind::Folder,
+        "retry" => IconKind::Refresh,
+        "undo" => IconKind::Undo,
+        "tree" | "branch" => IconKind::Branch,
+        "goto" => IconKind::ArrowRight,
+        "mark" => IconKind::Bookmark,
+        "branches" => IconKind::List,
+        "prune" | "forget" => IconKind::Trash,
+        "memory" => IconKind::Database,
+        "summary" => IconKind::File,
+        "char" => IconKind::User,
+        "style" => IconKind::Pen,
+        "narrator" => IconKind::Chat,
+        _ => return None,
+    })
+}
+
+/// The suggestions for what is typed: the matching commands, each with its icon.
+fn command_suggestions(input: &str) -> Vec<Suggestion> {
+    command_hints(input)
+        .into_iter()
+        .map(|c| Suggestion {
+            icon: command_icon(c.name).unwrap_or(IconKind::Chat),
+            title: c.usage.to_string(),
+            description: c.description.to_string(),
+        })
+        .collect()
+}
+
+/// What choosing a suggestion types into the box: the command and a space, ready for its
+/// arguments.
+fn completion(input: &str, index: usize) -> Option<String> {
+    let command = command_hints(input).get(index).copied()?;
+    Some(format!("/{} ", command.name))
+}
+
+/// Put the cursor at the end of the message box and focus it.
+fn focus_at_end(ctx: &egui::Context, id: egui::Id, text: &str) {
+    if let Some(mut state) = egui::TextEdit::load_state(ctx, id) {
+        let end = egui::text::CCursor::new(text.chars().count());
+        state
+            .cursor
+            .set_char_range(Some(egui::text::CCursorRange::one(end)));
+        state.store(ctx, id);
+    }
+    ctx.memory_mut(|m| m.request_focus(id));
+}
+
 /// Draw the message box and its buttons.
 pub fn composer(app: &mut App, ui: &mut Ui) {
-    for hint in command_hints(&app.chat.input) {
-        ui.add(
-            Label::new(format!("{}   {}", hint.usage, hint.description))
-                .small()
-                .muted(),
-        );
-    }
-
     let generating = app.chat.generating;
     let (mut send, mut stop) = (false, false);
-    ui.horizontal_top(|ui| {
+    let mut input_rect = egui::Rect::NOTHING;
+    ui.horizontal(|ui| {
         let width = (ui.available_width() - BUTTON_COLUMN - ui.spacing().item_spacing.x).max(0.0);
         ui.allocate_ui(egui::vec2(width, 0.0), |ui| {
             // Enter sends and Shift+Enter starts a new line. The key must be taken before the
@@ -201,20 +246,45 @@ pub fn composer(app: &mut App, ui: &mut Ui) {
                     .id_salt("chat-input"),
             );
             app.chat.input_id = Some(response.id);
+            input_rect = response.rect;
         });
+        // Icon-only buttons, aligned with the middle of the message box.
         ui.vertical(|ui| {
             ui.set_width(BUTTON_COLUMN);
+            ui.add_space(spacing::SM);
             if generating {
-                let stop_button = Button::new("Stop")
+                let button = Button::new("")
                     .icon(IconKind::Stop)
-                    .variant(ButtonVariant::Outline);
-                stop |= ui.add(stop_button).clicked();
+                    .variant(ButtonVariant::Outline)
+                    .size(ButtonSize::Icon);
+                stop |= ui.add(button).ir_tooltip("Stop").clicked();
             } else {
-                send |= ui.add(Button::new("Send").icon(IconKind::Send)).clicked();
+                let button = Button::new("").icon(IconKind::Send).size(ButtonSize::Icon);
+                let hint = "Send (Enter). Shift+Enter starts a new line.";
+                send |= ui.add(button).ir_tooltip(hint).clicked();
             }
-            ui.add(Label::new("Shift+Enter: new line").small().muted());
         });
     });
+
+    // The matching commands float above the box. A press on the list takes focus from the
+    // box, so the list also stays open while the pointer is on it.
+    let focused = app
+        .chat
+        .input_id
+        .is_some_and(|id| ui.memory(|m| m.has_focus(id)));
+    let suggestions = if focused || app.chat.suggestions_hovered {
+        command_suggestions(&app.chat.input)
+    } else {
+        Vec::new()
+    };
+    let output = Suggestions::new("command-suggestions", input_rect, &suggestions).show(ui.ctx());
+    app.chat.suggestions_hovered = output.hovered && !suggestions.is_empty();
+    if let Some(completed) = output.picked.and_then(|i| completion(&app.chat.input, i)) {
+        app.chat.input = completed;
+        if let Some(id) = app.chat.input_id {
+            focus_at_end(ui.ctx(), id, &app.chat.input);
+        }
+    }
 
     if send && !generating {
         app.send_chat();
@@ -230,6 +300,32 @@ mod tests {
 
     fn names(input: &str) -> Vec<&'static str> {
         command_hints(input).into_iter().map(|c| c.name).collect()
+    }
+
+    #[test]
+    fn every_command_has_its_own_icon() {
+        for command in COMMANDS {
+            assert!(
+                command_icon(command.name).is_some(),
+                "/{} has no icon",
+                command.name
+            );
+        }
+        assert_eq!(command_icon("nonsense"), None);
+    }
+
+    #[test]
+    fn suggestions_follow_the_hints_and_completing_types_the_command() {
+        let suggestions = command_suggestions("/br");
+        let titles: Vec<_> = suggestions.iter().map(|s| s.title.as_str()).collect();
+        assert_eq!(titles, ["/branch [label]", "/branches"]);
+        assert_eq!(suggestions[1].icon, IconKind::List);
+        assert!(command_suggestions("hello").is_empty());
+
+        assert_eq!(completion("/br", 1).as_deref(), Some("/branches "));
+        assert_eq!(completion("/br", 0).as_deref(), Some("/branch "));
+        assert_eq!(completion("/zzz", 0), None);
+        assert_eq!(completion("/br", 9), None);
     }
 
     #[test]

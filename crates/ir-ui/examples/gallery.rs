@@ -7,9 +7,9 @@
 use eframe::egui;
 use ir_ui::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ChatBubble, Checkbox, Dialog,
-    FormField, Icon, IconKind, Input, Label, LabelTone, ListItem, Logo, MenuItem, Panel, Picture,
-    Popover, ScrollArea, Select, Separator, Slider, Switch, Tabs, Textarea, Toast, Toasts,
-    TooltipExt, TopBar, TreeNode, TreeNodeState,
+    Figure, FormField, Icon, IconKind, Input, Label, LabelTone, ListItem, Logo, MenuItem, Panel,
+    Picture, Popover, ScrollArea, Select, Separator, Slider, Suggestion, Suggestions, Switch, Tabs,
+    Textarea, Toast, Toasts, TooltipExt, TopBar, TreeNode, TreeNodeState,
 };
 use ir_ui::{spacing, Theme, ThemeExt, ThemeMode};
 
@@ -27,6 +27,7 @@ struct Gallery {
     provider: usize,
     tab: usize,
     nav_tab: usize,
+    command: String,
     row_selected: usize,
     node_selected: bool,
     dialog_open: bool,
@@ -59,6 +60,7 @@ impl Gallery {
             provider: 1,
             tab: 0,
             nav_tab: 0,
+            command: "/b".into(),
             row_selected: 0,
             node_selected: false,
             dialog_open,
@@ -386,11 +388,42 @@ impl Gallery {
         );
         let ctx = ui.ctx().clone();
         let sample = self.sample(&ctx).clone();
+        ui.add(Figure::new(&sample).width(240.0));
+        ui.add_space(spacing::SM);
         ui.horizontal(|ui| {
             ui.add(Picture::new(Some(&sample), IconKind::User));
             ui.add(Picture::new(None, IconKind::User));
             ui.add(Picture::new(None, IconKind::Globe).size(64.0));
         });
+
+        Self::section(ui, "Suggestions");
+        ui.add(
+            Label::new("A list that floats above a field, such as matching commands. Click a row.")
+                .muted()
+                .small(),
+        );
+        let field = ui.add(Input::new(&mut self.command).id_salt("gallery-command"));
+        let items = [
+            Suggestion {
+                icon: IconKind::Branch,
+                title: "/branch [label]".into(),
+                description: "Fork the story at the current node".into(),
+            },
+            Suggestion {
+                icon: IconKind::List,
+                title: "/branches".into(),
+                description: "List all branches and their tips".into(),
+            },
+        ];
+        let shown: &[Suggestion] = if self.command.starts_with('/') {
+            &items
+        } else {
+            &[]
+        };
+        let output = Suggestions::new("gallery-suggestions", field.rect, shown).show(ui.ctx());
+        if let Some(index) = output.picked {
+            self.command = format!("{} ", shown[index].title.split(' ').next().unwrap_or("/"));
+        }
 
         Self::section(ui, "Logo");
         ui.add(
@@ -452,9 +485,21 @@ impl Gallery {
 
         Self::section(ui, "TreeNode");
         ui.horizontal(|ui| {
-            ui.add(TreeNode::new("Current node").state(TreeNodeState::Current));
-            ui.add(TreeNode::new("On the path").state(TreeNodeState::Explored));
-            ui.add(TreeNode::new("Other branch").state(TreeNodeState::Open));
+            ui.add(
+                TreeNode::new("Current node")
+                    .state(TreeNodeState::Current)
+                    .tag("30 Oct 14:32"),
+            );
+            ui.add(
+                TreeNode::new("On the path")
+                    .state(TreeNodeState::Explored)
+                    .tag("30 Oct 14:30"),
+            );
+            ui.add(
+                TreeNode::new("Other branch")
+                    .state(TreeNodeState::Open)
+                    .tag("29 Oct 09:05"),
+            );
         });
         ui.horizontal(|ui| {
             ui.add(

@@ -118,6 +118,21 @@ pub fn notice(output: &CommandOutput) -> Notice {
     }
 }
 
+/// A node's creation time for display, in the local time zone: `30 Oct 14:32`.
+pub fn timestamp(unix_seconds: i64) -> String {
+    format_time(unix_seconds, &chrono::Local)
+}
+
+/// [`timestamp`] in a given time zone, so tests do not depend on where they run.
+fn format_time<Tz: chrono::TimeZone>(unix_seconds: i64, zone: &Tz) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
+    chrono::DateTime::from_timestamp(unix_seconds, 0)
+        .map(|time| time.with_timezone(zone).format("%-d %b %H:%M").to_string())
+        .unwrap_or_default()
+}
+
 /// A token count for display: `950`, `12.3k`, `1.5M`. Tokens are only estimated, so the
 /// short form is plenty.
 pub fn tokens(count: i64) -> String {
@@ -338,6 +353,20 @@ mod tests {
         })
         .text;
         assert!(joined.contains("joined") && already.contains("already"));
+    }
+
+    #[test]
+    fn timestamps_show_day_month_and_time() {
+        // 2026-10-30 14:32:00 UTC.
+        assert_eq!(format_time(1_793_370_720, &chrono::Utc), "30 Oct 14:32");
+        // A single-digit day has no leading zero; midnight keeps its zeros.
+        assert_eq!(format_time(1_767_225_600, &chrono::Utc), "1 Jan 00:00");
+        assert_eq!(
+            format_time(i64::MAX, &chrono::Utc),
+            "",
+            "out of range is blank"
+        );
+        assert!(!timestamp(0).is_empty());
     }
 
     #[test]

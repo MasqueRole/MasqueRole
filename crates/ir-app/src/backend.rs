@@ -150,6 +150,8 @@ pub enum Request {
     /// Delete a world file.
     DeleteWorld(PathBuf),
 
+    /// Remember that the first-run tutorial has been shown, so it does not open again.
+    MarkTutorialSeen,
     /// Let the user choose a picture for the editor `target`. The result arrives as
     /// [`Event::ImagePicked`].
     PickImage(ImageTarget),
@@ -404,6 +406,12 @@ impl Actor {
                 self.delete_item(&path, image);
             }
             Request::PickImage(target) => self.pick_image(target),
+            Request::MarkTutorialSeen => {
+                if !self.settings.ui.tutorial_seen {
+                    self.settings.ui.tutorial_seen = true;
+                    self.persist_settings();
+                }
+            }
             Request::SaveWorld { path, world } => {
                 let old = path
                     .as_ref()
@@ -1698,6 +1706,24 @@ entries:
             picked |= matches!(event, Event::ImagePicked { .. });
         }
         assert!(!picked);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_tutorial_is_remembered_in_the_settings_file() {
+        let rig = Rig::start("tutorial", Mock::new(&["x"]), true, true);
+        let seen = |rig: &Rig| {
+            rig.wait_for(|e| match e {
+                Event::Settings { settings, .. } => Some(settings.ui.tutorial_seen),
+                _ => None,
+            })
+        };
+        assert!(!seen(&rig));
+
+        rig.backend.send(Request::MarkTutorialSeen);
+        rig.backend.send(Request::Init); // reloads settings from the file
+        assert!(seen(&rig), "the flag was written to settings.toml");
+        let file = std::fs::read_to_string(rig.dir.0.join("settings.toml")).unwrap();
+        assert!(file.contains("tutorial_seen = true"), "{file}");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

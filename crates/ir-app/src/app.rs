@@ -26,6 +26,7 @@ use crate::format::Notice;
 use crate::library::Entry;
 use crate::settings_ui::{SettingsAction, SettingsForm};
 use crate::tree_view::TreeView;
+use crate::tutorial::Tutorial;
 use crate::{branding, chat, sidebar};
 
 /// Width of the sidebar.
@@ -141,6 +142,8 @@ pub struct ChatState {
     pub streaming: String,
     /// The id of the input field, once it has been drawn.
     pub input_id: Option<eframe::egui::Id>,
+    /// Whether the pointer was over the command suggestions last frame.
+    pub suggestions_hovered: bool,
 }
 
 /// The new-session dialog.
@@ -197,6 +200,10 @@ pub struct App {
     pub key_available: bool,
     /// The settings overlay, when open.
     pub settings_form: Option<SettingsForm>,
+    /// The tutorial, when open.
+    pub tutorial: Option<Tutorial>,
+    /// Whether the first-run tutorial was already offered during this run.
+    tutorial_offered: bool,
     /// All sessions.
     pub sessions: Vec<Session>,
     /// The open story, if any.
@@ -252,6 +259,8 @@ impl App {
             settings: Settings::default(),
             key_available: false,
             settings_form: None,
+            tutorial: None,
+            tutorial_offered: false,
             sessions: Vec::new(),
             transcript: None,
             notices: Vec::new(),
@@ -290,6 +299,11 @@ impl App {
             } => {
                 self.settings = settings;
                 self.key_available = key_available;
+                // The very first start shows the tutorial, once.
+                if !self.settings.ui.tutorial_seen && !self.tutorial_offered {
+                    self.tutorial_offered = true;
+                    self.open_tutorial();
+                }
             }
             Event::Sessions(sessions) => self.sessions = sessions,
             Event::Tree(data) => {
@@ -379,6 +393,20 @@ impl App {
         let size = [picture.width as usize, picture.height as usize];
         let image = ColorImage::from_rgba_unmultiplied(size, &picture.rgba);
         Some(ctx.load_texture(format!("picture-{name}"), image, TextureOptions::LINEAR))
+    }
+
+    /// Open the tutorial at its first page.
+    pub fn open_tutorial(&mut self) {
+        self.tutorial = Some(Tutorial::new());
+    }
+
+    /// Close the tutorial and remember that it has been seen.
+    fn close_tutorial(&mut self) {
+        self.tutorial = None;
+        if !self.settings.ui.tutorial_seen {
+            self.settings.ui.tutorial_seen = true;
+            self.backend.send(Request::MarkTutorialSeen);
+        }
     }
 
     /// Open the settings overlay.
@@ -552,7 +580,7 @@ impl App {
     /// button at the right.
     fn top_bar(&mut self, ctx: &Context) {
         let mut section = self.section;
-        let mut settings = false;
+        let (mut settings, mut help) = (false, false);
         let logo = self.logo.clone();
         TopBar::new("top-bar").show(
             ctx,
@@ -576,6 +604,12 @@ impl App {
                     .variant(ButtonVariant::Ghost)
                     .size(ButtonSize::Icon);
                 settings = ui.add(button).ir_tooltip("Settings").clicked();
+                // Added second, so it sits to the left of the settings button.
+                let button = Button::new("")
+                    .icon(IconKind::Help)
+                    .variant(ButtonVariant::Ghost)
+                    .size(ButtonSize::Icon);
+                help = ui.add(button).ir_tooltip("Tutorial").clicked();
             },
         );
         if section != self.section {
@@ -583,6 +617,9 @@ impl App {
         }
         if settings {
             self.open_settings();
+        }
+        if help {
+            self.open_tutorial();
         }
     }
 
@@ -711,6 +748,11 @@ impl App {
     }
 
     fn dialogs(&mut self, ctx: &Context) {
+        if let Some(tutorial) = &mut self.tutorial {
+            if !tutorial.show(ctx) {
+                self.close_tutorial();
+            }
+        }
         self.settings_dialog(ctx);
         self.new_session_dialog(ctx);
         self.confirm_dialog(ctx);
@@ -1350,6 +1392,102 @@ mod tests {
             Some(ThemeMode::Dark),
             "the form starts from the current theme"
         );
+    }
+
+    // ---- tutorial ----
+
+    fn settings_event(seen: bool) -> Event {
+        Event::Settings {
+            settings: Settings {
+                ui: ir_core::settings::UiSettings {
+                    tutorial_seen: seen,
+                },
+                ..Settings::default()
+            },
+            key_available: false,
+        }
+    }
+
+    #[test]
+    fn the_first_start_opens_the_tutorial_once() {
+        let mut rig = Rig::new();
+        rig.push(settings_event(false));
+        assert!(rig.app.tutorial.is_some());
+
+        // Closing it remembers that it was seen, and later settings events do not reopen it.
+        rig.app.close_tutorial();
+        assert!(rig.app.tutorial.is_none());
+        assert_eq!(rig.sent(), ["MarkTutorialSeen"]);
+        rig.push(settings_event(false));
+        assert!(rig.app.tutorial.is_none(), "not offered twice in one run");
+    }
+
+    #[test]
+    fn a_seen_tutorial_stays_closed_and_reopening_does_not_write_again() {
+        let mut rig = Rig::new();
+        rig.push(settings_event(true));
+        assert!(rig.app.tutorial.is_none());
+
+        rig.app.open_tutorial();
+        rig.frame();
+        assert!(rig.app.tutorial.is_some());
+        rig.app.close_tutorial();
+        assert!(rig.sent().is_empty(), "nothing to remember a second time");
+    }
+
+    #[test]
+    fn the_tutorial_draws_over_every_section_in_both_themes() {
+        for mode in [ThemeMode::Light, ThemeMode::Dark] {
+            let mut rig = Rig::new();
+            Theme::set_mode(&rig.ctx, mode);
+            rig.app.open_tutorial();
+            for section in Section::ALL {
+                rig.app.show_section(section);
+                rig.frame();
+            }
+        }
+    }
+
+    // ---- command suggestions ----
+
+    fn press(pos: egui::Pos2, pressed: bool) -> egui::Event {
+        egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        }
+    }
+
+    #[test]
+    fn typing_a_slash_floats_the_matching_commands_and_clicking_one_completes_it() {
+        let mut rig = rig_with_focused_input();
+        rig.app.chat.input = "/br".into();
+        rig.frame();
+        rig.frame();
+        let id = egui::Id::new("command-suggestions");
+        let list = rig
+            .ctx
+            .memory(|m| m.area_rect(id))
+            .expect("the suggestions are shown while typing a command");
+
+        // The second suggestion, /branches, is the lower row.
+        let target = egui::pos2(list.center().x, list.bottom() - 24.0);
+        rig.frame_with(vec![egui::Event::PointerMoved(target)]);
+        rig.frame_with(vec![press(target, true)]);
+        rig.frame_with(vec![press(target, false)]);
+        assert_eq!(rig.app.chat.input, "/branches ");
+        assert!(rig.sent().is_empty(), "choosing a command does not run it");
+    }
+
+    #[test]
+    fn plain_text_shows_no_suggestions() {
+        let mut rig = rig_with_focused_input();
+        rig.app.chat.input = "I wave".into();
+        rig.frame();
+        rig.frame();
+        let id = egui::Id::new("command-suggestions");
+        assert!(rig.ctx.memory(|m| m.area_rect(id)).is_none());
     }
 
     // ---- pictures ----

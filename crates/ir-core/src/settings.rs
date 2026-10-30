@@ -17,6 +17,10 @@ pub const SETTINGS_FILE: &str = "settings.toml";
 /// Environment variable consulted when no key is stored in the keychain.
 pub const API_KEY_ENV: &str = "IR_API_KEY";
 
+/// Environment variable that moves all app data (settings, sessions, library) to another
+/// folder, for a portable install or a clean profile.
+pub const DATA_DIR_ENV: &str = "IR_DATA_DIR";
+
 const KEYRING_SERVICE: &str = "InfiniteRoleplay";
 
 /// Errors from loading, saving, or reading secrets.
@@ -67,6 +71,16 @@ pub struct Settings {
     pub debug: DebugSettings,
     /// Optional cap on token usage.
     pub limits: LimitSettings,
+    /// Things the app remembers about the user's interface.
+    pub ui: UiSettings,
+}
+
+/// What the app remembers about the interface.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UiSettings {
+    /// The first-run tutorial has been shown (or skipped).
+    pub tutorial_seen: bool,
 }
 
 /// An optional cap on how many tokens one story may use.
@@ -232,8 +246,16 @@ impl Default for TreeSettings {
 }
 
 impl Settings {
-    /// The platform data directory for the app.
+    /// The platform data directory for the app, or the folder named by `IR_DATA_DIR`.
     pub fn data_dir() -> Result<PathBuf, SettingsError> {
+        Self::data_dir_with(std::env::var_os(DATA_DIR_ENV))
+    }
+
+    /// [`Settings::data_dir`] with the override passed in. An empty override counts as unset.
+    fn data_dir_with(over: Option<std::ffi::OsString>) -> Result<PathBuf, SettingsError> {
+        if let Some(dir) = over.filter(|d| !d.is_empty()) {
+            return Ok(PathBuf::from(dir));
+        }
         ProjectDirs::from("", "RoleplayHarness", crate::APP_NAME)
             .map(|dirs| dirs.data_dir().to_path_buf())
             .ok_or(SettingsError::NoDataDir)
@@ -400,6 +422,33 @@ mod tests {
         assert!(!on.reached(999));
         assert!(on.reached(1_000));
         assert!(on.reached(5_000));
+    }
+
+    #[test]
+    fn the_data_directory_can_be_overridden() {
+        let custom = Settings::data_dir_with(Some("D:/portable/ir".into())).unwrap();
+        assert_eq!(custom, PathBuf::from("D:/portable/ir"));
+        // An empty value is the same as not setting it.
+        assert_eq!(
+            Settings::data_dir_with(Some(String::new().into())).ok(),
+            Settings::data_dir_with(None).ok()
+        );
+    }
+
+    #[test]
+    fn the_tutorial_starts_unseen_and_the_flag_round_trips() {
+        let mut s = Settings::default();
+        assert!(!s.ui.tutorial_seen);
+        s.ui.tutorial_seen = true;
+        let text = toml::to_string_pretty(&s).unwrap();
+        assert!(toml::from_str::<Settings>(&text).unwrap().ui.tutorial_seen);
+        // Files from older versions have no [ui] section.
+        assert!(
+            !toml::from_str::<Settings>("[api]\nmodel = \"m\"")
+                .unwrap()
+                .ui
+                .tutorial_seen
+        );
     }
 
     #[test]

@@ -1,6 +1,6 @@
 # AGENTS.md: Build Instructions for AI Agents
 
-This file tells an AI coding agent how to build InfiniteRoleplay step by step. Read it fully before writing code. The project vision, features, and configuration are described in the [README](README.md); this file is about *how to build it*.
+This file tells an AI coding agent how to work on InfiniteRoleplay. Read it fully before writing code. The project vision, features, and configuration are described in the [README](README.md); this file is about *how to build and change it*.
 
 ## Ground Rules
 
@@ -9,10 +9,14 @@ This file tells an AI coding agent how to build InfiniteRoleplay step by step. R
 3. **Core has no UI.** `ir-core` must not depend on `egui`, `eframe`, or `ir-ui`. The dependency direction is `ir-app → ir-ui → egui` and `ir-app → ir-core`.
 4. **Uniform styling.** Every visual element comes from the `ir-ui` design system (see [Design System](#design-system)). No ad-hoc colors, sizes, or fonts in `ir-app`.
 5. **Secrets stay out of files.** API keys go in the OS keychain (`keyring`), never in `settings.toml`, logs, tests, or commits.
-6. **Small, verified steps.** Finish one step, make it compile, run its tests, commit, then continue.
-7. **Stay in scope.** Do not add features that are not in the README or the current step. Propose them instead.
+6. **Small, verified changes.** Make a change compile, run the tests, commit, then continue.
+7. **Stay in scope.** Do not add features that were not asked for or are not in the README. Propose them instead.
 
-## Definition of Done (for every step)
+## Before Every Code Change
+
+**Pull the latest version from `main` first** (`git pull origin main`), so you build on the current code and avoid conflicts later.
+
+## Definition of Done (for every change)
 
 Run these before every commit; all must pass with no warnings:
 
@@ -21,6 +25,8 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
+
+**Before every new commit, pull the latest version from `main`** (`git pull origin main`) and resolve any conflicts, then run the checks above again if anything came in.
 
 Then commit with a short, descriptive message (imperative mood, e.g. `Add story tree storage`).
 
@@ -72,99 +78,6 @@ One file per component. Each exposes a builder-style API and uses only theme tok
 - Support hover, focus (use the `ring` color), active, and disabled states.
 - Every interactive component is keyboard accessible.
 - Add a `gallery` example (`cargo run -p ir-ui --example gallery`) that shows every component in every variant, in light and dark. Update it whenever a component changes.
-
-## Step-by-Step Plan
-
-### Step 1: Workspace skeleton
-
-1. Create the Cargo workspace with `ir-core`, `ir-ui`, and `ir-app` (edition 2021).
-2. Add `rustfmt.toml` (defaults are fine) and a `.gitignore` for `target/`.
-3. Add a GitHub Actions workflow running the three Definition-of-Done commands on Linux and Windows.
-4. Make `cargo run -p ir-app` open an empty window titled "InfiniteRoleplay".
-
-### Step 2: Design system foundation (`ir-ui`)
-
-1. Implement `Theme` with tokens and light/dark palettes, plus `Theme::apply`.
-2. Bundle fonts and load them into egui.
-3. Implement `Button`, `Label`, `Separator`, `Card`, `Badge`.
-4. Create the `gallery` example. Verify visually in light and dark.
-
-### Step 3: Settings and secrets (`ir-core`)
-
-1. Define `Settings` structs matching the README `settings.toml` (serde + TOML) with defaults.
-2. Load/save from the platform data directory (use the `directories` crate).
-3. Store and read the API key via `keyring`, keyed by provider. Fall back to the `IR_API_KEY` environment variable for development.
-4. Unit-test round-tripping and defaults.
-
-### Step 4: Provider client (`ir-core/client.rs`)
-
-1. Define the `LlmProvider` trait: a `stream_chat` method taking messages and generation parameters, returning an async stream of text chunks, plus a non-streaming `complete` for summaries.
-2. Implement an OpenAI-compatible provider with `reqwest` (SSE parsing for streaming), configurable `base_url` and `model`.
-3. Add provider presets (name, base URL, key required yes/no) as data, not code branches.
-4. Map failures to typed errors with `thiserror` (auth, rate limit, network, bad response).
-5. Test with a mock HTTP server; never call real APIs in tests.
-
-### Step 5: Storage (`ir-core/db.rs`)
-
-1. Create the SQLite schema with `rusqlite` (bundled) and versioned migrations: sessions, characters, nodes (with `parent_id`), facts, summaries.
-2. Add typed query functions; keep SQL in this module only.
-3. Test migrations and queries against an in-memory database.
-
-### Step 6: Characters and lorebooks
-
-1. Implement YAML loading for character cards and lorebooks, matching the README formats.
-2. Implement keyword matching that returns lorebook entries triggered by recent messages.
-3. Add example files to `characters/` and `worlds/`.
-4. Test parsing, validation errors, and keyword matching.
-
-### Step 7: Context and memory
-
-1. Implement token budgeting (`context.rs`): build the prompt from system prompt, character, active lore, facts, summary, and recent messages, within `max_context_tokens`.
-2. Implement summarization of messages older than `summarize_after` using the provider.
-3. Implement fact extraction and storage when `memory.fact_extraction` is on.
-4. Test budget trimming and that the newest messages are always kept.
-
-### Step 8: Story tree (`ir-core/tree.rs`)
-
-1. Implement nodes that snapshot message, summary state, facts, and active lore.
-2. Implement branch, jump to node, bookmark, prune, and list branches.
-3. Restoring a node must exclude facts learned after it.
-4. Implement the text rendering used by `/tree`.
-5. Test branching, rewinding, and pruning thoroughly.
-
-### Step 9: Commands (`ir-core/commands.rs`)
-
-1. Parse and execute every slash command listed in the README against the core APIs.
-2. Return structured results so any front end can render them.
-3. Test parsing and each command.
-
-### Step 10: Remaining design system components
-
-Implement `Input`, `Textarea`, `Select`, `Checkbox`, `Switch`, `Slider`, `Dialog`, `Popover`, `Tooltip`, `Toast`, `Tabs`, `ScrollArea`, `FormField`, `ChatBubble`, and `TreeNode`. Update the gallery.
-
-### Step 11: App screens (`ir-app`)
-
-Build screens using **only** `ir-ui` components:
-
-1. App shell: sidebar (sessions, characters, worlds), main area, top bar with theme toggle.
-2. Chat screen with streaming responses, `ChatBubble`s, and an input box that understands slash commands.
-3. Settings screen: provider, base URL, model, API key, context, memory, style, and tree options.
-4. Character and world editors.
-5. Run all async work (network, database) on a `tokio` runtime and send results to the UI over channels. The UI thread must never block.
-
-### Step 12: Story tree view
-
-1. Draw the tree with egui painting using `TreeNode` and the tree theme colors.
-2. Support pan, zoom, click to preview, second click to jump, and collapsing branches.
-3. Highlight the current node and the current path.
-
-### Step 13: Polish and release
-
-1. Handle errors in the UI with `Toast` and `Dialog`, never panics.
-2. Add `tracing` logging behind a debug setting, with API keys redacted.
-3. Check startup time and binary size in release mode.
-4. Add packaging (`cargo-packager`) and a release workflow for Windows and Linux.
-5. Update the README to match reality (status banner, install steps, license file).
 
 ## Conventions
 
