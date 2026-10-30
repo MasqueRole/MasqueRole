@@ -9,6 +9,16 @@ use ir_ui::components::{
 };
 use ir_ui::{spacing, ThemeMode};
 
+/// The settings tabs.
+const TAB_NAMES: [&str; 6] = [
+    "General",
+    "Provider",
+    "Generation",
+    "Memory",
+    "Story",
+    "Limits",
+];
+
 /// The theme choices, in the order the tabs show them.
 const THEMES: [(&str, ThemeMode); 3] = [
     ("System", ThemeMode::System),
@@ -43,6 +53,9 @@ pub struct SettingsForm {
     pub api_key: String,
     /// The color theme. It applies at once and is not part of the saved settings.
     pub theme: ThemeMode,
+    /// The tab being shown.
+    tab: usize,
+    token_limit: f64,
     node_label: usize,
     temperature: f64,
     max_tokens: f64,
@@ -62,6 +75,8 @@ impl SettingsForm {
                 .unwrap_or(0),
             api_key: String::new(),
             theme: ThemeMode::System,
+            tab: 0,
+            token_limit: f64::from(settings.limits.token_limit),
             node_label: usize::from(settings.tree.node_label == NodeLabel::Manual),
             temperature: f64::from(settings.api.temperature),
             max_tokens: f64::from(settings.api.max_tokens),
@@ -82,6 +97,7 @@ impl SettingsForm {
         s.context.max_context_tokens = self.max_context_tokens.round() as u32;
         s.context.recent_messages = self.recent_messages.round() as u32;
         s.context.summarize_after = self.summarize_after.round() as u32;
+        s.limits.token_limit = self.token_limit.round() as u32;
         s.tree.node_label = if self.node_label == 1 {
             NodeLabel::Manual
         } else {
@@ -109,182 +125,227 @@ impl SettingsForm {
     pub fn show(&mut self, key_available: bool, ui: &mut Ui) -> Option<SettingsAction> {
         let mut action = None;
 
-        Card::new()
-            .header(|ui| Card::title(ui, "Appearance"))
-            .content(|ui| {
-                let mut index = THEMES
-                    .iter()
-                    .position(|(_, m)| *m == self.theme)
-                    .unwrap_or(0);
-                FormField::new("Theme")
-                    .help("System follows your operating system.")
-                    .show(ui, |ui| {
-                        ui.add(Tabs::new(&mut index, THEMES.iter().map(|(name, _)| *name)))
-                    });
-                self.theme = THEMES[index].1;
-            })
-            .show(ui);
-        ui.add_space(spacing::LG);
+        let mut tab = self.tab;
+        ui.add(Tabs::new(&mut tab, TAB_NAMES));
+        self.tab = tab;
+        ui.add_space(spacing::MD);
 
-        Card::new()
-            .header(|ui| {
-                Card::title(ui, "Provider");
-                Card::description(ui, "Where responses come from. Any OpenAI-compatible endpoint works.");
-            })
-            .content(|ui| {
-                let names = PRESETS.iter().map(|p| p.name);
-                FormField::new("Provider").show(ui, |ui| {
-                    if ui
-                        .add(Select::new("settings-provider", &mut self.provider, names).width(320.0))
-                        .changed()
-                    {
-                        self.apply_provider();
-                    }
-                });
-                FormField::new("Base URL").show(ui, |ui| {
-                    ui.add(Input::new(&mut self.settings.api.base_url).id_salt("settings-url"))
-                });
-                FormField::new("Model")
-                    .help("Check your provider's documentation for current model names.")
-                    .show(ui, |ui| ui.add(Input::new(&mut self.settings.api.model).id_salt("settings-model")));
-                FormField::new("API key")
-                    .help("Stored in your operating system's keychain, never in a file. Leave empty to keep the current key.")
-                    .show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.add(Input::new(&mut self.api_key).password(true).placeholder("Paste a key").id_salt("settings-key"));
+        if self.tab == 0 {
+            Card::new()
+                .header(|ui| Card::title(ui, "Appearance"))
+                .content(|ui| {
+                    let mut index = THEMES
+                        .iter()
+                        .position(|(_, m)| *m == self.theme)
+                        .unwrap_or(0);
+                    FormField::new("Theme")
+                        .help("System follows your operating system.")
+                        .show(ui, |ui| {
+                            ui.add(Tabs::new(&mut index, THEMES.iter().map(|(name, _)| *name)))
                         });
-                        ui.horizontal(|ui| {
-                            let (text, variant) =
-                                key_status(PRESETS[self.provider].key_required, key_available);
-                            ui.add(Badge::new(text).variant(variant));
-                            if key_available
-                                && ui
-                                    .add(Button::new("Remove stored key").variant(ButtonVariant::Ghost))
-                                    .clicked()
-                            {
-                                action = Some(SettingsAction::RemoveKey);
-                            }
-                        });
-                    });
-            })
-            .show(ui);
-        ui.add_space(spacing::LG);
-
-        Card::new()
-            .header(|ui| Card::title(ui, "Generation"))
-            .content(|ui| {
-                FormField::new("Temperature")
-                    .help("Higher is more creative, lower is more predictable.")
-                    .show(ui, |ui| {
-                        ui.add(
-                            Slider::new(&mut self.temperature, 0.0..=2.0)
-                                .step(0.05)
-                                .decimals(2),
-                        )
-                    });
-                FormField::new("Maximum response length")
-                    .help("In tokens.")
-                    .show(ui, |ui| {
-                        ui.add(Slider::new(&mut self.max_tokens, 64.0..=8192.0).step(64.0))
-                    });
-                ui.add(
-                    Switch::new(&mut self.settings.api.stream)
-                        .label("Show responses as they are written"),
-                );
-            })
-            .show(ui);
-        ui.add_space(spacing::LG);
-
-        Card::new()
-            .header(|ui| {
-                Card::title(ui, "Context and memory");
-                Card::description(ui, "How much of the story is sent with every message.");
-            })
-            .content(|ui| {
-                FormField::new("Context budget")
-                    .help("Upper limit, in tokens, for everything sent to the model.")
-                    .show(ui, |ui| {
-                        ui.add(
-                            Slider::new(&mut self.max_context_tokens, 1000.0..=200_000.0)
-                                .step(1000.0),
-                        )
-                    });
-                FormField::new("Recent messages")
-                    .help("Kept word for word.")
-                    .show(ui, |ui| {
-                        ui.add(Slider::new(&mut self.recent_messages, 2.0..=100.0).step(1.0))
-                    });
-                FormField::new("Summarize after")
-                    .help("Older messages are condensed once this many pile up.")
-                    .show(ui, |ui| {
-                        ui.add(Slider::new(&mut self.summarize_after, 5.0..=200.0).step(1.0))
-                    });
-                ui.add(Switch::new(&mut self.settings.memory.enabled).label("Remember the story"));
-                ui.add(
-                    Switch::new(&mut self.settings.memory.fact_extraction)
-                        .label("Extract facts automatically")
-                        .enabled(self.settings.memory.enabled),
-                );
-            })
-            .show(ui);
-        ui.add_space(spacing::LG);
-
-        Card::new()
-            .header(|ui| Card::title(ui, "Style"))
-            .content(|ui| {
-                FormField::new("Style profile")
-                    .help("A short description, such as noir or slice of life.")
-                    .show(ui, |ui| {
-                        ui.add(
-                            Input::new(&mut self.settings.style.profile).id_salt("settings-style"),
-                        )
-                    });
-                ui.add(Switch::new(&mut self.settings.style.narrator_mode).label("Narrator mode"));
-            })
-            .show(ui);
-        ui.add_space(spacing::LG);
-
-        Card::new()
-            .header(|ui| Card::title(ui, "Story tree"))
-            .content(|ui| {
-                ui.add(
-                    Switch::new(&mut self.settings.tree.auto_checkpoint)
-                        .label("Create a node after every turn"),
-                );
-                ui.add(
-                    Switch::new(&mut self.settings.tree.show_tree_on_branch)
-                        .label("Show the tree after branching"),
-                );
-                FormField::new("Node labels").show(ui, |ui| {
+                    self.theme = THEMES[index].1;
+                })
+                .show(ui);
+            ui.add_space(spacing::LG);
+        }
+        if self.tab == 0 {
+            Card::new()
+                .header(|ui| {
+                    Card::title(ui, "Troubleshooting");
+                    Card::description(
+                        ui,
+                        "For bug reports. API keys are never written to the log.",
+                    );
+                })
+                .content(|ui| {
                     ui.add(
-                        Select::new(
-                            "settings-labels",
-                            &mut self.node_label,
-                            ["Generated automatically", "Ask every time"],
+                        Switch::new(&mut self.settings.debug.logging)
+                            .label("Write a debug log (applies after a restart)"),
+                    );
+                })
+                .show(ui);
+            ui.add_space(spacing::LG);
+        }
+        if self.tab == 1 {
+            Card::new()
+                .header(|ui| {
+                    Card::title(ui, "Provider");
+                    Card::description(ui, "Where responses come from. Any OpenAI-compatible endpoint works.");
+                })
+                .content(|ui| {
+                    let names = PRESETS.iter().map(|p| p.name);
+                    FormField::new("Provider").show(ui, |ui| {
+                        if ui
+                            .add(Select::new("settings-provider", &mut self.provider, names).width(320.0))
+                            .changed()
+                        {
+                            self.apply_provider();
+                        }
+                    });
+                    FormField::new("Base URL").show(ui, |ui| {
+                        ui.add(Input::new(&mut self.settings.api.base_url).id_salt("settings-url"))
+                    });
+                    FormField::new("Model")
+                        .help("Check your provider's documentation for current model names.")
+                        .show(ui, |ui| ui.add(Input::new(&mut self.settings.api.model).id_salt("settings-model")));
+                    FormField::new("API key")
+                        .help("Stored in your operating system's keychain, never in a file. Leave empty to keep the current key.")
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.add(Input::new(&mut self.api_key).password(true).placeholder("Paste a key").id_salt("settings-key"));
+                            });
+                            ui.horizontal(|ui| {
+                                let (text, variant) =
+                                    key_status(PRESETS[self.provider].key_required, key_available);
+                                ui.add(Badge::new(text).variant(variant));
+                                if key_available
+                                    && ui
+                                        .add(Button::new("Remove stored key").variant(ButtonVariant::Ghost))
+                                        .clicked()
+                                {
+                                    action = Some(SettingsAction::RemoveKey);
+                                }
+                            });
+                        });
+                })
+                .show(ui);
+            ui.add_space(spacing::LG);
+        }
+        if self.tab == 2 {
+            Card::new()
+                .header(|ui| Card::title(ui, "Generation"))
+                .content(|ui| {
+                    FormField::new("Temperature")
+                        .help("Higher is more creative, lower is more predictable.")
+                        .show(ui, |ui| {
+                            ui.add(
+                                Slider::new(&mut self.temperature, 0.0..=2.0)
+                                    .step(0.05)
+                                    .decimals(2),
+                            )
+                        });
+                    FormField::new("Maximum response length")
+                        .help("In tokens.")
+                        .show(ui, |ui| {
+                            ui.add(Slider::new(&mut self.max_tokens, 64.0..=8192.0).step(64.0))
+                        });
+                    ui.add(
+                        Switch::new(&mut self.settings.api.stream)
+                            .label("Show responses as they are written"),
+                    );
+                })
+                .show(ui);
+            ui.add_space(spacing::LG);
+        }
+        if self.tab == 3 {
+            Card::new()
+                .header(|ui| {
+                    Card::title(ui, "Context and memory");
+                    Card::description(ui, "How much of the story is sent with every message.");
+                })
+                .content(|ui| {
+                    FormField::new("Context budget")
+                        .help("Upper limit, in tokens, for everything sent to the model.")
+                        .show(ui, |ui| {
+                            ui.add(
+                                Slider::new(&mut self.max_context_tokens, 1000.0..=200_000.0)
+                                    .step(1000.0),
+                            )
+                        });
+                    FormField::new("Recent messages")
+                        .help("Kept word for word.")
+                        .show(ui, |ui| {
+                            ui.add(Slider::new(&mut self.recent_messages, 2.0..=100.0).step(1.0))
+                        });
+                    FormField::new("Summarize after")
+                        .help("Older messages are condensed once this many pile up.")
+                        .show(ui, |ui| {
+                            ui.add(Slider::new(&mut self.summarize_after, 5.0..=200.0).step(1.0))
+                        });
+                    ui.add(
+                        Switch::new(&mut self.settings.memory.enabled).label("Remember the story"),
+                    );
+                    ui.add(
+                        Switch::new(&mut self.settings.memory.fact_extraction)
+                            .label("Extract facts automatically")
+                            .enabled(self.settings.memory.enabled),
+                    );
+                })
+                .show(ui);
+            ui.add_space(spacing::LG);
+        }
+        if self.tab == 4 {
+            Card::new()
+                .header(|ui| Card::title(ui, "Style"))
+                .content(|ui| {
+                    FormField::new("Style profile")
+                        .help("A short description, such as noir or slice of life.")
+                        .show(ui, |ui| {
+                            ui.add(
+                                Input::new(&mut self.settings.style.profile)
+                                    .id_salt("settings-style"),
+                            )
+                        });
+                    ui.add(
+                        Switch::new(&mut self.settings.style.narrator_mode).label("Narrator mode"),
+                    );
+                })
+                .show(ui);
+            ui.add_space(spacing::LG);
+        }
+        if self.tab == 4 {
+            Card::new()
+                .header(|ui| Card::title(ui, "Story tree"))
+                .content(|ui| {
+                    ui.add(
+                        Switch::new(&mut self.settings.tree.auto_checkpoint)
+                            .label("Create a node after every turn"),
+                    );
+                    ui.add(
+                        Switch::new(&mut self.settings.tree.show_tree_on_branch)
+                            .label("Show the tree after branching"),
+                    );
+                    FormField::new("Node labels").show(ui, |ui| {
+                        ui.add(
+                            Select::new(
+                                "settings-labels",
+                                &mut self.node_label,
+                                ["Generated automatically", "Ask every time"],
+                            )
+                            .width(320.0),
                         )
-                        .width(320.0),
-                    )
-                });
-            })
-            .show(ui);
-        ui.add_space(spacing::LG);
-
-        Card::new()
-            .header(|ui| {
-                Card::title(ui, "Troubleshooting");
-                Card::description(
-                    ui,
-                    "For bug reports. API keys are never written to the log.",
-                );
-            })
-            .content(|ui| {
-                ui.add(
-                    Switch::new(&mut self.settings.debug.logging)
-                        .label("Write a debug log (applies after a restart)"),
-                );
-            })
-            .show(ui);
-        ui.add_space(spacing::LG);
+                    });
+                })
+                .show(ui);
+            ui.add_space(spacing::LG);
+        }
+        if self.tab == 5 {
+            Card::new()
+                .header(|ui| {
+                    Card::title(ui, "Token limit");
+                    Card::description(
+                        ui,
+                        "Stops a story from using more tokens than you want to pay for. Usage is estimated and counts everything sent to and received from the provider, including summaries.",
+                    );
+                })
+                .content(|ui| {
+                    ui.add(
+                        Switch::new(&mut self.settings.limits.token_limit_enabled)
+                            .label("Limit the tokens one story may use"),
+                    );
+                    FormField::new("Limit per story")
+                        .help("Once a story reaches this, it stops generating until you raise the limit or turn it off.")
+                        .show(ui, |ui| {
+                            ui.add(
+                                Slider::new(&mut self.token_limit, 10_000.0..=2_000_000.0)
+                                    .step(10_000.0)
+                                    .enabled(self.settings.limits.token_limit_enabled),
+                            )
+                        });
+                })
+                .show(ui);
+            ui.add_space(spacing::LG);
+        }
         action
     }
 }
@@ -313,6 +374,32 @@ mod tests {
         assert_eq!(s.api.max_tokens, 1024);
         assert_eq!(s.context.recent_messages, 7);
         assert_eq!(s.tree.node_label, NodeLabel::Manual);
+    }
+
+    #[test]
+    fn the_token_limit_is_edited_in_the_form_and_written_back() {
+        let mut form = SettingsForm::new(&Settings::default());
+        form.settings.limits.token_limit_enabled = true;
+        form.token_limit = 50_000.4;
+        let limits = form.to_settings().limits;
+        assert!(limits.token_limit_enabled);
+        assert_eq!(limits.token_limit, 50_000);
+    }
+
+    #[test]
+    fn every_tab_draws_and_the_tab_names_match_the_tabs() {
+        let ctx = eframe::egui::Context::default();
+        ir_ui::Theme::apply(&ctx);
+        let mut form = SettingsForm::new(&Settings::default());
+        for tab in 0..TAB_NAMES.len() {
+            form.tab = tab;
+            let _ = ctx.run(Default::default(), |ctx| {
+                eframe::egui::CentralPanel::default().show(ctx, |ui| {
+                    form.show(false, ui);
+                });
+            });
+        }
+        assert_eq!(TAB_NAMES.len(), 6);
     }
 
     #[test]

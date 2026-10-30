@@ -55,12 +55,26 @@ pub struct SummaryJob {
     prompt: Vec<ChatMessage>,
 }
 
+impl SummaryJob {
+    /// Estimated tokens of the prompt this job sends.
+    pub fn estimated_tokens(&self) -> usize {
+        self.prompt.iter().map(crate::context::message_tokens).sum()
+    }
+}
+
 /// A request to extract new facts.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FactJob {
     /// The newest node covered. Store the facts at this node.
     pub node_id: NodeId,
     prompt: Vec<ChatMessage>,
+}
+
+impl FactJob {
+    /// Estimated tokens of the prompt this job sends.
+    pub fn estimated_tokens(&self) -> usize {
+        self.prompt.iter().map(crate::context::message_tokens).sum()
+    }
 }
 
 /// How many nodes of `path` (root first) the summary in effect already covers.

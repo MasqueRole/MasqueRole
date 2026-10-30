@@ -1,5 +1,9 @@
 //! InfiniteRoleplay desktop app.
 
+// Release builds on Windows are GUI programs: without this, a console window opens next to
+// the app. Debug builds keep the console for logs and panics.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod app;
 mod backend;
 mod branding;

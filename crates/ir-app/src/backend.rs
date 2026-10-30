@@ -123,6 +123,13 @@ pub enum Request {
     DeleteWorld(PathBuf),
 
     // Sent by the backend's own tasks.
+    /// Tokens used by a background job, to add to the session's usage.
+    Usage {
+        /// The session the tokens belong to.
+        session: SessionId,
+        /// The estimated amount.
+        tokens: usize,
+    },
     /// A response finished (or was cut short but has text).
     Generated {
         /// The session it belongs to.
@@ -359,6 +366,7 @@ impl Actor {
                 text,
                 lore,
             } => self.generated(session, parent, &text, lore),
+            Request::Usage { session, tokens } => self.add_usage(session, tokens),
             Request::GenerationFailed(message) => {
                 self.cancel = None;
                 self.emit(Event::Generating(false));
@@ -748,8 +756,29 @@ impl Actor {
         (self.provider)(&self.settings, key).map_err(|e| e.to_string())
     }
 
+    /// Add an estimate of `tokens` to the session's usage. A failure here is only logged: usage
+    /// is bookkeeping and must never interrupt the story.
+    fn add_usage(&self, session: SessionId, tokens: usize) {
+        let tokens = i64::try_from(tokens).unwrap_or(i64::MAX);
+        if let Err(e) = self.db.add_tokens(session, tokens) {
+            tracing::warn!(error = %e, "could not record token usage");
+        }
+    }
+
+    /// Whether the session has used up the token limit, if one is on.
+    fn limit_reached(&self, session: SessionId) -> bool {
+        let used = self.db.session(session).map_or(0, |s| s.tokens_used);
+        self.settings.limits.reached(used)
+    }
+
     fn start_generation(&mut self) {
         let Some(session) = self.session else { return };
+        if self.limit_reached(session) {
+            return self.error(format!(
+                "This story has reached the token limit ({}). Raise the limit or turn it off in Settings, under Limits.",
+                format::tokens(i64::from(self.settings.limits.token_limit))
+            ));
+        }
         let prompt = match self.build_prompt(session) {
             Ok(prompt) => prompt,
             Err(e) => return self.error(e),
@@ -758,6 +787,10 @@ impl Actor {
             Ok(provider) => provider,
             Err(e) => return self.error(e),
         };
+        self.add_usage(
+            session,
+            prompt.messages.iter().map(context::message_tokens).sum(),
+        );
         let cancel = Arc::new(Notify::new());
         self.cancel = Some(cancel.clone());
         tracing::debug!(session = ?session, "generation started");
@@ -815,6 +848,7 @@ impl Actor {
 
     fn generated(&mut self, session: SessionId, parent: NodeId, text: &str, lore: Vec<String>) {
         self.cancel = None;
+        self.add_usage(session, context::estimate_tokens(text));
         let result = (|| -> Result<NodeId, String> {
             let current = self
                 .db
@@ -875,14 +909,26 @@ impl Actor {
         let Ok(path) = self.db.path_to_root(node) else {
             return;
         };
+        let Some(session) = path.last().map(|n| n.session_id) else {
+            return;
+        };
+        // Background jobs also cost tokens, so they stop when the limit is reached.
+        if self.limit_reached(session) {
+            return;
+        }
 
         if let Ok(summary) = self.db.summary_at(node) {
             if let Some(job) = memory::plan_summary(&path, summary.as_ref(), &self.settings) {
+                self.add_usage(session, job.estimated_tokens());
                 let (provider, requests, events) =
                     (provider.clone(), self.requests.clone(), self.events.clone());
                 tokio::spawn(async move {
                     match memory::summarize(provider.as_ref(), &job).await {
                         Ok(text) => {
+                            let _ = requests.send(Request::Usage {
+                                session,
+                                tokens: context::estimate_tokens(&text),
+                            });
                             let _ = requests.send(Request::SummaryReady {
                                 node: job.through_node,
                                 text,
@@ -904,10 +950,15 @@ impl Actor {
             .unwrap_or_default();
         let newest = &path[path.len().saturating_sub(2)..];
         if let Some(job) = memory::plan_fact_extraction(newest, &known, &self.settings) {
+            self.add_usage(session, job.estimated_tokens());
             let (requests, events) = (self.requests.clone(), self.events.clone());
             tokio::spawn(async move {
                 match memory::extract_facts(provider.as_ref(), &job, &known).await {
                     Ok(facts) if !facts.is_empty() => {
+                        let _ = requests.send(Request::Usage {
+                            session,
+                            tokens: facts.iter().map(|f| context::estimate_tokens(f)).sum(),
+                        });
                         let _ = requests.send(Request::FactsReady {
                             node: job.node_id,
                             facts,
@@ -1336,6 +1387,56 @@ entries:
         });
         assert!(error.contains("No API key"), "{error}");
         assert!(rig.mock.seen.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn generations_add_to_the_sessions_token_usage() {
+        let rig = Rig::start(
+            "usage",
+            Mock::new(&["A fairly long reply to count."]),
+            true,
+            false,
+        );
+        let before = rig.start_story().session.tokens_used;
+        assert_eq!(before, 0, "the greeting is not sent to the provider");
+        let t = rig.chat("Tell me something.");
+        assert!(t.session.tokens_used > 10, "{}", t.session.tokens_used);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_token_limit_stops_generation_when_on_and_not_when_off() {
+        let limited = |enabled| Settings {
+            limits: ir_core::settings::LimitSettings {
+                token_limit_enabled: enabled,
+                token_limit: 1,
+            },
+            ..Settings::default()
+        };
+
+        let rig = Rig::start("limit-on", Mock::new(&["First.", "Second."]), true, false);
+        rig.start_story();
+        rig.backend.send(Request::SaveSettings {
+            settings: limited(true),
+            api_key: None,
+        });
+        rig.chat("One."); // under the limit when it starts, so it runs
+        rig.backend.send(Request::Send("Two.".into()));
+        let error = rig.wait_for(|e| match e {
+            Event::Error(m) => Some(m.clone()),
+            _ => None,
+        });
+        assert!(error.contains("token limit"), "{error}");
+        assert_eq!(rig.mock.seen.lock().unwrap().len(), 1, "no second request");
+
+        let rig = Rig::start("limit-off", Mock::new(&["First.", "Second."]), true, false);
+        rig.start_story();
+        rig.backend.send(Request::SaveSettings {
+            settings: limited(false),
+            api_key: None,
+        });
+        rig.chat("One.");
+        let t = rig.chat("Two.");
+        assert_eq!(t.nodes.len(), 5, "the limit is off, so both turns ran");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

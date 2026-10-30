@@ -167,7 +167,9 @@ fn empty_state(ui: &mut Ui, title: &str, description: &str, button: Option<&str>
     });
     if let Some(label) = button {
         let clicked = &mut clicked;
-        card = card.footer(move |ui| *clicked = ui.add(Button::new(label)).clicked());
+        card = card.footer(move |ui| {
+            *clicked = ui.add(Button::new(label).icon(IconKind::Plus)).clicked();
+        });
     }
     card.show(ui);
     clicked
@@ -868,6 +870,7 @@ mod tests {
             current_node_id: Some(NodeId(3)),
             created_at: 0,
             updated_at: 0,
+            tokens_used: 0,
         }
     }
 
