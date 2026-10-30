@@ -1,0 +1,252 @@
+//! Button with variants and sizes.
+
+use egui::{Color32, CursorIcon, FontId, Response, Sense, Stroke, StrokeKind, Ui, Widget};
+
+use crate::theme::{spacing, ThemeExt};
+
+/// Visual style of a [`Button`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ButtonVariant {
+    /// Solid primary color.
+    #[default]
+    Default,
+    /// Subdued solid color.
+    Secondary,
+    /// Transparent with a border.
+    Outline,
+    /// Transparent until hovered.
+    Ghost,
+    /// Solid destructive color.
+    Destructive,
+    /// Looks like a link.
+    Link,
+}
+
+/// Size of a [`Button`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ButtonSize {
+    /// Compact.
+    Sm,
+    /// Standard.
+    #[default]
+    Md,
+    /// Large.
+    Lg,
+    /// Square, for a single glyph.
+    Icon,
+}
+
+/// A clickable button. Keyboard accessible: Tab to focus, Enter or Space to press.
+#[derive(Clone, Debug)]
+pub struct Button {
+    text: String,
+    variant: ButtonVariant,
+    size: ButtonSize,
+    enabled: bool,
+}
+
+impl Button {
+    /// A default-variant, medium-size button.
+    pub fn new(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            variant: ButtonVariant::default(),
+            size: ButtonSize::default(),
+            enabled: true,
+        }
+    }
+
+    /// Set the visual variant.
+    pub fn variant(mut self, variant: ButtonVariant) -> Self {
+        self.variant = variant;
+        self
+    }
+
+    /// Set the size.
+    pub fn size(mut self, size: ButtonSize) -> Self {
+        self.size = size;
+        self
+    }
+
+    /// Enable or disable the button.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+}
+
+impl Widget for Button {
+    fn ui(self, ui: &mut Ui) -> Response {
+        let t = ui.ir_theme();
+        let enabled = self.enabled && ui.is_enabled();
+        let is_link = self.variant == ButtonVariant::Link;
+
+        let (font_size, pad_x, height) = match self.size {
+            ButtonSize::Sm => (t.text_xs, spacing::MD, 28.0),
+            ButtonSize::Md => (t.text_sm, spacing::LG, 32.0),
+            ButtonSize::Lg => (t.text_base, spacing::XL, 40.0),
+            ButtonSize::Icon => (t.text_base, 0.0, 32.0),
+        };
+        let galley = ui.painter().layout_no_wrap(
+            self.text.clone(),
+            FontId::proportional(font_size),
+            Color32::PLACEHOLDER,
+        );
+
+        let desired = if is_link {
+            galley.size()
+        } else if self.size == ButtonSize::Icon {
+            egui::vec2(height, height)
+        } else {
+            egui::vec2(galley.size().x + 2.0 * pad_x, height)
+        };
+        let sense = if enabled {
+            Sense::click()
+        } else {
+            Sense::hover()
+        };
+        let (rect, response) = ui.allocate_exact_size(desired, sense);
+        response.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, &self.text)
+        });
+
+        let hovered = enabled && response.hovered();
+        let pressed = enabled && response.is_pointer_button_down_on();
+        let (mut bg, mut fg, mut stroke) = match self.variant {
+            ButtonVariant::Default => (
+                shade(t.primary, t.background, hovered, pressed),
+                t.primary_foreground,
+                Stroke::NONE,
+            ),
+            ButtonVariant::Secondary => (
+                shade(t.secondary, t.foreground, hovered, pressed),
+                t.secondary_foreground,
+                Stroke::NONE,
+            ),
+            ButtonVariant::Outline => (
+                if hovered || pressed {
+                    shade(t.accent, t.foreground, false, pressed)
+                } else {
+                    t.background
+                },
+                if hovered || pressed {
+                    t.accent_foreground
+                } else {
+                    t.foreground
+                },
+                Stroke::new(1.0, t.input),
+            ),
+            ButtonVariant::Ghost => (
+                if hovered || pressed {
+                    shade(t.accent, t.foreground, false, pressed)
+                } else {
+                    Color32::TRANSPARENT
+                },
+                if hovered || pressed {
+                    t.accent_foreground
+                } else {
+                    t.foreground
+                },
+                Stroke::NONE,
+            ),
+            ButtonVariant::Destructive => (
+                shade(t.destructive, t.background, hovered, pressed),
+                t.destructive_foreground,
+                Stroke::NONE,
+            ),
+            ButtonVariant::Link => (Color32::TRANSPARENT, t.primary, Stroke::NONE),
+        };
+        if !enabled {
+            bg = bg.gamma_multiply(0.5);
+            fg = fg.gamma_multiply(0.5);
+            stroke.color = stroke.color.gamma_multiply(0.5);
+        }
+
+        let radius = t.corner_md();
+        let painter = ui.painter();
+        painter.rect(rect, radius, bg, stroke, StrokeKind::Inside);
+        let text_pos = rect.center() - galley.size() / 2.0;
+        painter.galley(text_pos, galley.clone(), fg);
+        if is_link && hovered {
+            let y = text_pos.y + galley.size().y;
+            painter.hline(
+                text_pos.x..=text_pos.x + galley.size().x,
+                y,
+                Stroke::new(1.0, fg),
+            );
+        }
+        if enabled && response.has_focus() {
+            painter.rect_stroke(rect, radius, Stroke::new(2.0, t.ring), StrokeKind::Outside);
+        }
+
+        if enabled {
+            response.on_hover_cursor(CursorIcon::PointingHand)
+        } else {
+            response
+        }
+    }
+}
+
+/// Blend a base color toward `toward` for hover (10%) and pressed (20%) states.
+fn shade(base: Color32, toward: Color32, hovered: bool, pressed: bool) -> Color32 {
+    let amount = if pressed {
+        0.2
+    } else if hovered {
+        0.1
+    } else {
+        0.0
+    };
+    base.lerp_to_gamma(toward, amount)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builder_sets_fields() {
+        let b = Button::new("Go")
+            .variant(ButtonVariant::Outline)
+            .size(ButtonSize::Lg)
+            .enabled(false);
+        assert_eq!(b.variant, ButtonVariant::Outline);
+        assert_eq!(b.size, ButtonSize::Lg);
+        assert!(!b.enabled);
+    }
+
+    #[test]
+    fn shade_changes_only_on_interaction() {
+        let (a, b) = (Color32::BLACK, Color32::WHITE);
+        assert_eq!(shade(a, b, false, false), a);
+        assert_ne!(shade(a, b, true, false), a);
+        assert_ne!(shade(a, b, true, true), shade(a, b, true, false));
+    }
+
+    #[test]
+    fn every_variant_and_size_renders() {
+        let ctx = egui::Context::default();
+        crate::Theme::apply(&ctx);
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                for variant in [
+                    ButtonVariant::Default,
+                    ButtonVariant::Secondary,
+                    ButtonVariant::Outline,
+                    ButtonVariant::Ghost,
+                    ButtonVariant::Destructive,
+                    ButtonVariant::Link,
+                ] {
+                    for size in [
+                        ButtonSize::Sm,
+                        ButtonSize::Md,
+                        ButtonSize::Lg,
+                        ButtonSize::Icon,
+                    ] {
+                        ui.add(Button::new("x").variant(variant).size(size));
+                        ui.add(Button::new("x").variant(variant).size(size).enabled(false));
+                    }
+                }
+            });
+        });
+    }
+}

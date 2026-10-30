@@ -8,3 +8,6 @@ repository.workspace = true
 
 [dependencies]
 egui.workspace = true
+
+[dev-dependencies]
+eframe.workspace = true
