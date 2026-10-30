@@ -2,8 +2,11 @@
 //!
 //! This crate must not depend on any UI crate.
 
+pub mod cards;
+pub mod character;
 pub mod client;
 pub mod db;
+pub mod lorebook;
 pub mod settings;
 
 pub use client::{LlmError, LlmProvider};

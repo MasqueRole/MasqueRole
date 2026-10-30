@@ -1,0 +1,7 @@
+name: "The Misty Coast"
+setting: "A coastal region where constant fog makes navigation nearly impossible."
+entries:
+  - keys: ["lighthouse", "keeper"]
+    content: "The Karrow lighthouse has been guarded by an order for centuries."
+  - keys: ["fogglass"]
+    content: "Fogglass is a rare mineral that briefly clears fog."
