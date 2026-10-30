@@ -1948,8 +1948,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "eframe",
+ "futures-util",
  "ir-core",
  "ir-ui",
+ "serde_yaml_ng",
+ "tokio",
 ]
 
 [[package]]

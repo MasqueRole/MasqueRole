@@ -7,8 +7,8 @@
 use eframe::egui;
 use ir_ui::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ChatBubble, Checkbox, Dialog,
-    FormField, Input, Label, LabelTone, Popover, ScrollArea, Select, Separator, Slider, Switch,
-    Tabs, Textarea, Toast, Toasts, TooltipExt, TreeNode, TreeNodeState,
+    FormField, Input, Label, LabelTone, Panel, Popover, ScrollArea, Select, Separator, Slider,
+    Switch, Tabs, Textarea, Toast, Toasts, TooltipExt, TreeNode, TreeNodeState,
 };
 use ir_ui::{spacing, Theme, ThemeExt, ThemeMode};
 
@@ -88,6 +88,28 @@ impl Gallery {
                 ui.add(Button::new("Disabled").variant(variant).enabled(false));
             });
         }
+        ui.add_space(spacing::SM);
+        ui.add(Label::new("Full width, for list rows").muted().small());
+        ui.scope(|ui| {
+            ui.set_max_width(260.0);
+            ui.add(
+                Button::new("A selected row")
+                    .variant(ButtonVariant::Secondary)
+                    .fill_width(true),
+            );
+            ui.add(
+                Button::new("A row")
+                    .variant(ButtonVariant::Ghost)
+                    .fill_width(true),
+            );
+            ui.add(
+                Button::new(
+                    "A row whose name is far too long to fit in the space it has been given",
+                )
+                .variant(ButtonVariant::Ghost)
+                .fill_width(true),
+            );
+        });
     }
 
     fn text(ui: &mut egui::Ui) {
@@ -97,6 +119,12 @@ impl Gallery {
         ui.add(Label::new("Small text").small());
         ui.add(Label::new("Muted text").muted());
         ui.add(Label::new("Error text").tone(LabelTone::Destructive));
+        ui.add(
+            Label::new(
+                "\u{25cf} Monospace  [#1]\n\u{2514}\u{2500}\u{25cb} for aligned output  [#2]",
+            )
+            .monospace(),
+        );
 
         Self::section(ui, "Badge");
         ui.horizontal(|ui| {
@@ -323,7 +351,7 @@ impl Gallery {
 
 impl eframe::App for Gallery {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::TopBottomPanel::top("top").show(ctx, |ui| {
+        Panel::top("top").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.add(Label::new("ir-ui gallery").heading());
                 ui.add_space(spacing::LG);
@@ -348,7 +376,7 @@ impl eframe::App for Gallery {
             });
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        Panel::central().show(ctx, |ui| {
             let mut scroll = egui::ScrollArea::vertical();
             if let Some(offset) = self.initial_scroll.take() {
                 scroll = scroll.vertical_scroll_offset(offset);

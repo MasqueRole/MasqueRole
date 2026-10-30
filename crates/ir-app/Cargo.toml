@@ -11,3 +11,6 @@ ir-core = { path = "../ir-core" }
 ir-ui = { path = "../ir-ui" }
 eframe.workspace = true
 anyhow.workspace = true
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "sync", "macros", "time"] }
+futures-util = "0.3.34"
+serde_yaml_ng = "0.10.0"

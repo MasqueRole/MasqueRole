@@ -23,6 +23,7 @@ pub struct Label {
     tone: LabelTone,
     small: bool,
     heading: bool,
+    monospace: bool,
 }
 
 impl Label {
@@ -33,6 +34,7 @@ impl Label {
             tone: LabelTone::default(),
             small: false,
             heading: false,
+            monospace: false,
         }
     }
 
@@ -58,6 +60,12 @@ impl Label {
         self.heading = true;
         self
     }
+
+    /// Fixed-width text, for aligned output such as the story tree.
+    pub fn monospace(mut self) -> Self {
+        self.monospace = true;
+        self
+    }
 }
 
 impl Widget for Label {
@@ -78,6 +86,9 @@ impl Widget for Label {
         let mut text = RichText::new(self.text).color(color).size(size);
         if self.heading {
             text = text.strong();
+        }
+        if self.monospace {
+            text = text.monospace().size(t.text_sm);
         }
         ui.add(egui::Label::new(text))
     }

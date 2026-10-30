@@ -1,6 +1,7 @@
 //! Button with variants and sizes.
 
-use egui::{Color32, CursorIcon, FontId, Response, Sense, Stroke, StrokeKind, Ui, Widget};
+use egui::text::LayoutJob;
+use egui::{Color32, CursorIcon, FontId, Pos2, Response, Sense, Stroke, StrokeKind, Ui, Widget};
 
 use crate::theme::{spacing, ThemeExt, BORDER_WIDTH, RING_WIDTH};
 
@@ -43,6 +44,7 @@ pub struct Button {
     variant: ButtonVariant,
     size: ButtonSize,
     enabled: bool,
+    fill_width: bool,
 }
 
 impl Button {
@@ -53,7 +55,15 @@ impl Button {
             variant: ButtonVariant::default(),
             size: ButtonSize::default(),
             enabled: true,
+            fill_width: false,
         }
+    }
+
+    /// Stretch across the available width with the text left-aligned and cut with an
+    /// ellipsis if too long. Meant for list rows, such as the sidebar.
+    pub fn fill_width(mut self, fill: bool) -> Self {
+        self.fill_width = fill;
+        self
     }
 
     /// Set the visual variant.
@@ -87,14 +97,26 @@ impl Widget for Button {
             ButtonSize::Lg => (t.text_base, spacing::XL, 40.0),
             ButtonSize::Icon => (t.text_base, 0.0, 32.0),
         };
-        let galley = ui.painter().layout_no_wrap(
+        let available = ui.available_width();
+        let wrap_width = if self.fill_width {
+            (available - 2.0 * pad_x).max(0.0)
+        } else {
+            f32::INFINITY
+        };
+        let mut job = LayoutJob::simple(
             self.text.clone(),
             FontId::proportional(font_size),
             Color32::PLACEHOLDER,
+            wrap_width,
         );
+        job.wrap.max_rows = 1;
+        job.wrap.break_anywhere = true;
+        let galley = ui.painter().layout_job(job);
 
         let desired = if is_link {
             galley.size()
+        } else if self.fill_width {
+            egui::vec2(available, height)
         } else if self.size == ButtonSize::Icon {
             egui::vec2(height, height)
         } else {
@@ -165,7 +187,11 @@ impl Widget for Button {
         let radius = t.corner_md();
         let painter = ui.painter();
         painter.rect(rect, radius, bg, stroke, StrokeKind::Inside);
-        let text_pos = rect.center() - galley.size() / 2.0;
+        let text_pos = if self.fill_width {
+            Pos2::new(rect.left() + pad_x, rect.center().y - galley.size().y / 2.0)
+        } else {
+            rect.center() - galley.size() / 2.0
+        };
         painter.galley(text_pos, galley.clone(), fg);
         if is_link && hovered {
             let y = text_pos.y + galley.size().y;
