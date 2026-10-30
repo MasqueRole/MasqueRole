@@ -40,6 +40,7 @@ InfiniteRoleplay sits between you and the language model provider you choose (xA
 - **Local-first:** Sessions are stored in a local SQLite database. Your API key lives in the operating system's secure storage.
 - **Streaming:** Responses appear token by token.
 - **Multiple characters:** Group scenes with several characters and a narrator mode.
+- **Uniform design system:** Every screen is built from a shared component library (`ir-ui`), a shadcn-style set of themed components for egui, with light and dark themes.
 - **Customizable prompts:** System prompt templates and style profiles (e.g. fantasy, noir, slice of life).
 
 ## Tech Stack
@@ -264,7 +265,7 @@ Everything is also available through buttons and menus in the UI. In the chat in
 
 ## Project Structure
 
-A Cargo workspace with a UI-independent core library and the desktop app:
+A Cargo workspace with a UI-independent core library, a UI component library, and the desktop app:
 
 ```
 InfiniteRoleplay/
@@ -282,6 +283,7 @@ InfiniteRoleplay/
 │   │       ├── commands.rs     # Slash commands
 │   │       ├── db.rs           # SQLite schema and queries
 │   │       └── settings.rs     # Settings and keychain access
+│   ├── ir-ui/                  # Design system: theme tokens + reusable components
 │   └── ir-app/                 # Desktop GUI (egui / eframe)
 │       └── src/
 │           ├── main.rs
@@ -292,6 +294,8 @@ InfiniteRoleplay/
 ├── characters/                 # Example character cards
 ├── worlds/                     # Example lorebooks
 ├── prompts/                    # System prompts & style profiles
+├── .agent/
+│   └── AGENTS.md               # Step-by-step build instructions for AI agents
 └── README.md
 ```
 
@@ -318,7 +322,7 @@ Contributions are welcome!
 3. Commit your changes
 4. Open a pull request
 
-Please describe your changes clearly, run `cargo fmt` and `cargo clippy` before submitting, and keep UI code out of `ir-core`.
+Please describe your changes clearly, run `cargo fmt` and `cargo clippy` before submitting, and keep UI code out of `ir-core`, and build new screens from `ir-ui` components. AI coding agents should follow [`.agent/AGENTS.md`](.agent/AGENTS.md).
 
 ## Usage Notes
 
