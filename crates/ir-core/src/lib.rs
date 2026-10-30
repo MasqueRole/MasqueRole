@@ -5,8 +5,10 @@
 pub mod cards;
 pub mod character;
 pub mod client;
+pub mod context;
 pub mod db;
 pub mod lorebook;
+pub mod memory;
 pub mod settings;
 
 pub use client::{LlmError, LlmProvider};
