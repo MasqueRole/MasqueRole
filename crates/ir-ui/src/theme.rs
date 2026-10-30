@@ -84,6 +84,8 @@ pub struct Theme {
     pub input: Color32,
     /// Focus ring.
     pub ring: Color32,
+    /// Backdrop behind modal dialogs.
+    pub scrim: Color32,
 
     /// Story tree: the node you are on.
     pub tree_current: Color32,
@@ -140,6 +142,7 @@ impl Theme {
             border: rgb(0xe4e4e7),
             input: rgb(0xe4e4e7),
             ring: rgb(0xa1a1aa),
+            scrim: Color32::from_black_alpha(110),
             tree_current: rgb(0xf5c542),
             tree_explored: rgb(0x8fd694),
             tree_open: rgb(0xd4d4d8),
@@ -169,6 +172,7 @@ impl Theme {
             border: rgb(0x27272a),
             input: rgb(0x3f3f46),
             ring: rgb(0xd4d4d8),
+            scrim: Color32::from_black_alpha(170),
             tree_current: rgb(0xf5c542),
             tree_explored: rgb(0x4f9e5a),
             tree_open: rgb(0x52525b),
@@ -198,6 +202,7 @@ impl Theme {
             border: Color32::PLACEHOLDER,
             input: Color32::PLACEHOLDER,
             ring: Color32::PLACEHOLDER,
+            scrim: Color32::PLACEHOLDER,
             tree_current: Color32::PLACEHOLDER,
             tree_explored: Color32::PLACEHOLDER,
             tree_open: Color32::PLACEHOLDER,
@@ -402,6 +407,7 @@ mod tests {
                 t.border,
                 t.input,
                 t.ring,
+                t.scrim,
                 t.tree_current,
                 t.tree_explored,
                 t.tree_open,
