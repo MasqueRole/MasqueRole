@@ -45,6 +45,9 @@ pub struct Lorebook {
     /// Keyword-triggered entries.
     #[serde(default)]
     pub entries: Vec<LoreEntry>,
+    /// File name of the world's picture in the library's images folder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
 }
 
 impl Card for Lorebook {
@@ -246,6 +249,20 @@ entries:
         assert_eq!(b.triggered(&["Down at the old harbor."]).len(), 1);
         assert_eq!(b.triggered(&["Meet at the CAFÉ."]).len(), 1);
         assert!(b.triggered(&["Cafés are nice"]).is_empty());
+    }
+
+    #[test]
+    fn the_image_is_optional_and_only_written_when_set() {
+        let plain = Lorebook::from_yaml("name: Coast").unwrap();
+        assert_eq!(plain.image, None);
+        assert!(!serde_yaml_ng::to_string(&plain).unwrap().contains("image"));
+
+        let pictured = Lorebook::from_yaml(
+            "name: Coast
+image: coast.png",
+        )
+        .unwrap();
+        assert_eq!(pictured.image.as_deref(), Some("coast.png"));
     }
 
     #[test]

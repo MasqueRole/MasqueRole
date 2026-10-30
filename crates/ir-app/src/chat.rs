@@ -3,14 +3,16 @@
 use eframe::egui::{self, Key, Modifiers, Ui};
 use ir_core::commands::{CommandInfo, COMMANDS};
 use ir_core::db::NodeKind;
+use ir_core::settings::Settings;
 use ir_ui::components::{
     Badge, BadgeVariant, Button, ButtonVariant, Card, ChatBubble, IconKind, Label, ScrollArea,
-    Separator, Textarea,
+    Separator, Textarea, TooltipExt,
 };
 use ir_ui::spacing;
 
 use crate::app::App;
 use crate::backend::Request;
+use crate::format;
 use crate::prompts;
 
 /// Width of the column holding the Send and Stop buttons.
@@ -43,6 +45,31 @@ pub fn command_hints(input: &str) -> Vec<&'static CommandInfo> {
         .collect()
 }
 
+/// The token usage shown in the story header: nothing until something was used or a limit
+/// is on, and a warning color once the limit is reached.
+fn usage_badge(settings: &Settings, used: i64) -> Option<(String, BadgeVariant)> {
+    let limits = &settings.limits;
+    if !limits.token_limit_enabled {
+        return (used > 0).then(|| {
+            (
+                format!("~{} tokens", format::tokens(used)),
+                BadgeVariant::Outline,
+            )
+        });
+    }
+    let variant = if limits.reached(used) {
+        BadgeVariant::Destructive
+    } else {
+        BadgeVariant::Outline
+    };
+    let text = format!(
+        "~{} / {} tokens",
+        format::tokens(used),
+        format::tokens(i64::from(limits.token_limit))
+    );
+    Some((text, variant))
+}
+
 /// Draw the story. Without a session, draw the welcome card.
 pub fn body(app: &mut App, ui: &mut Ui) {
     if app.transcript.is_none() {
@@ -60,6 +87,10 @@ pub fn body(app: &mut App, ui: &mut Ui) {
         }
         for name in &transcript.characters {
             ui.add(Badge::new(name).variant(BadgeVariant::Outline));
+        }
+        if let Some((text, variant)) = usage_badge(&app.settings, transcript.session.tokens_used) {
+            ui.add(Badge::new(text).variant(variant))
+                .ir_tooltip("Estimated tokens used by this story");
         }
     });
     ui.add(Separator::horizontal());
@@ -124,7 +155,9 @@ fn welcome(app: &mut App, ui: &mut Ui) {
             );
         })
         .footer(|ui| {
-            create = ui.add(Button::new("New session")).clicked();
+            create = ui
+                .add(Button::new("New session").icon(IconKind::Plus))
+                .clicked();
         })
         .show(ui);
     if create {
@@ -197,6 +230,27 @@ mod tests {
 
     fn names(input: &str) -> Vec<&'static str> {
         command_hints(input).into_iter().map(|c| c.name).collect()
+    }
+
+    #[test]
+    fn the_usage_badge_depends_on_the_limit() {
+        let mut settings = Settings::default();
+        assert_eq!(usage_badge(&settings, 0), None, "nothing to show yet");
+        let (text, variant) = usage_badge(&settings, 12_345).unwrap();
+        assert_eq!(
+            (text.as_str(), variant),
+            ("~12.3k tokens", BadgeVariant::Outline)
+        );
+
+        settings.limits.token_limit_enabled = true;
+        settings.limits.token_limit = 20_000;
+        let (text, variant) = usage_badge(&settings, 12_345).unwrap();
+        assert_eq!(
+            (text.as_str(), variant),
+            ("~12.3k / 20k tokens", BadgeVariant::Outline)
+        );
+        let (_, variant) = usage_badge(&settings, 20_000).unwrap();
+        assert_eq!(variant, BadgeVariant::Destructive);
     }
 
     #[test]

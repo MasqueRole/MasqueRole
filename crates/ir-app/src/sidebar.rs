@@ -1,7 +1,9 @@
 //! The sidebar: the list that belongs to the section chosen in the top navigation.
 
-use eframe::egui::Ui;
-use ir_ui::components::{Button, ButtonVariant, IconKind, Label, ListItem, MenuItem, ScrollArea};
+use eframe::egui::{Align, Layout, Ui};
+use ir_ui::components::{
+    Button, ButtonSize, IconKind, Label, ListItem, MenuItem, ScrollArea, TooltipExt,
+};
 use ir_ui::spacing;
 
 use crate::app::{App, Confirm, Section};
@@ -20,20 +22,20 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     });
 }
 
-fn heading(ui: &mut Ui, text: &str) {
+/// A list heading with a round button at its right edge that creates a new item. Returns
+/// whether the button was clicked.
+fn heading(ui: &mut Ui, text: &str, new_item: &str) -> bool {
+    let mut clicked = false;
     ui.add_space(spacing::XS);
-    ui.add(Label::new(text).small().muted());
+    ui.horizontal(|ui| {
+        ui.add(Label::new(text).small().muted());
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            let button = Button::new("").icon(IconKind::Plus).size(ButtonSize::Icon);
+            clicked = ui.add(button).ir_tooltip(new_item).clicked();
+        });
+    });
     ui.add_space(spacing::XS);
-}
-
-fn create_button(ui: &mut Ui, text: &str) -> bool {
-    ui.add(
-        Button::new(text)
-            .icon(IconKind::Plus)
-            .variant(ButtonVariant::Outline)
-            .fill_width(true),
-    )
-    .clicked()
+    clicked
 }
 
 fn empty(ui: &mut Ui, text: &str) {
@@ -56,8 +58,7 @@ fn row(ui: &mut Ui, id: impl std::hash::Hash, text: &str, selected: bool) -> (bo
 }
 
 fn sessions(app: &mut App, ui: &mut Ui) {
-    heading(ui, "STORIES");
-    if create_button(ui, "New session") {
+    if heading(ui, "STORIES", "New session") {
         app.open_new_session();
     }
     if app.sessions.is_empty() {
@@ -84,8 +85,7 @@ fn sessions(app: &mut App, ui: &mut Ui) {
 }
 
 fn characters(app: &mut App, ui: &mut Ui) {
-    heading(ui, "CHARACTERS");
-    if create_button(ui, "New character") {
+    if heading(ui, "CHARACTERS", "New character") {
         app.character_form = Some(CharacterForm::new());
     }
     if app.characters.is_empty() {
@@ -113,8 +113,7 @@ fn characters(app: &mut App, ui: &mut Ui) {
 }
 
 fn worlds(app: &mut App, ui: &mut Ui) {
-    heading(ui, "WORLDS");
-    if create_button(ui, "New world") {
+    if heading(ui, "WORLDS", "New world") {
         app.world_form = Some(WorldForm::new());
     }
     if app.worlds.is_empty() {

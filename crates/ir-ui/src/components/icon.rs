@@ -38,11 +38,13 @@ pub enum IconKind {
     Globe,
     /// A branching line: the story tree.
     Branch,
+    /// A picture frame with a mountain and a sun.
+    Image,
 }
 
 impl IconKind {
     /// Every icon, for galleries and tests.
-    pub const ALL: [IconKind; 11] = [
+    pub const ALL: [IconKind; 12] = [
         IconKind::Settings,
         IconKind::Trash,
         IconKind::More,
@@ -54,6 +56,7 @@ impl IconKind {
         IconKind::User,
         IconKind::Globe,
         IconKind::Branch,
+        IconKind::Image,
     ];
 }
 
@@ -173,6 +176,16 @@ fn drawing(kind: IconKind) -> Drawing {
             .circle((12.0, 12.0), 9.0)
             .open(&[(3.0, 12.0), (21.0, 12.0)])
             .closed(&ellipse((12.0, 12.0), 4.0, 9.0)),
+        IconKind::Image => d
+            .closed(&[(3.0, 5.0), (21.0, 5.0), (21.0, 19.0), (3.0, 19.0)])
+            .circle((9.0, 10.0), 1.75)
+            .open(&[
+                (3.0, 17.0),
+                (9.0, 13.0),
+                (14.0, 17.0),
+                (17.0, 14.5),
+                (21.0, 17.5),
+            ]),
         IconKind::Branch => d
             .circle((6.0, 5.0), 2.0)
             .circle((6.0, 19.0), 2.0)

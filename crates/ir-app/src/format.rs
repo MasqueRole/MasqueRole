@@ -118,6 +118,21 @@ pub fn notice(output: &CommandOutput) -> Notice {
     }
 }
 
+/// A token count for display: `950`, `12.3k`, `1.5M`. Tokens are only estimated, so the
+/// short form is plenty.
+pub fn tokens(count: i64) -> String {
+    let count = count.max(0);
+    let short = |value: f64, unit: &str| {
+        let text = format!("{value:.1}");
+        format!("{}{unit}", text.strip_suffix(".0").unwrap_or(&text))
+    };
+    match count {
+        0..=999 => count.to_string(),
+        1_000..=999_949 => short(count as f64 / 1_000.0, "k"),
+        _ => short(count as f64 / 1_000_000.0, "M"),
+    }
+}
+
 /// A short single-line preview of a node's text.
 pub fn preview(node: &Node) -> String {
     const MAX: usize = 60;
@@ -163,6 +178,7 @@ mod tests {
             current_node_id: None,
             created_at: 0,
             updated_at: 0,
+            tokens_used: 0,
         }
     }
 
@@ -322,6 +338,17 @@ mod tests {
         })
         .text;
         assert!(joined.contains("joined") && already.contains("already"));
+    }
+
+    #[test]
+    fn token_counts_are_short() {
+        assert_eq!(tokens(-5), "0");
+        assert_eq!(tokens(0), "0");
+        assert_eq!(tokens(950), "950");
+        assert_eq!(tokens(1_000), "1k");
+        assert_eq!(tokens(12_345), "12.3k");
+        assert_eq!(tokens(200_000), "200k");
+        assert_eq!(tokens(1_500_000), "1.5M");
     }
 
     #[test]

@@ -7,9 +7,9 @@
 use eframe::egui;
 use ir_ui::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ChatBubble, Checkbox, Dialog,
-    FormField, Icon, IconKind, Input, Label, LabelTone, ListItem, Logo, MenuItem, Panel, Popover,
-    ScrollArea, Select, Separator, Slider, Switch, Tabs, Textarea, Toast, Toasts, TooltipExt,
-    TopBar, TreeNode, TreeNodeState,
+    FormField, Icon, IconKind, Input, Label, LabelTone, ListItem, Logo, MenuItem, Panel, Picture,
+    Popover, ScrollArea, Select, Separator, Slider, Switch, Tabs, Textarea, Toast, Toasts,
+    TooltipExt, TopBar, TreeNode, TreeNodeState,
 };
 use ir_ui::{spacing, Theme, ThemeExt, ThemeMode};
 
@@ -32,6 +32,7 @@ struct Gallery {
     dialog_open: bool,
     toasts: Toasts,
     logo: Option<egui::TextureHandle>,
+    sample: Option<egui::TextureHandle>,
 }
 
 impl Gallery {
@@ -63,6 +64,7 @@ impl Gallery {
             dialog_open,
             toasts,
             logo: None,
+            sample: None,
         }
     }
 
@@ -78,6 +80,24 @@ impl Gallery {
             self.logo = Some(ctx.load_texture("logo", image, egui::TextureOptions::LINEAR));
         }
         self.logo.as_ref()
+    }
+
+    /// A wide gradient, to show how pictures are cropped.
+    fn sample(&mut self, ctx: &egui::Context) -> &egui::TextureHandle {
+        self.sample.get_or_insert_with(|| {
+            let (w, h) = (96_usize, 48_usize);
+            let pixels = (0..w * h)
+                .map(|i| {
+                    let (x, y) = ((i % w) as u8, (i / w) as u8);
+                    egui::Color32::from_rgb(x.saturating_mul(2), 90 + y, 200_u8.saturating_sub(x))
+                })
+                .collect();
+            let image = egui::ColorImage {
+                size: [w, h],
+                pixels,
+            };
+            ctx.load_texture("sample", image, egui::TextureOptions::LINEAR)
+        })
     }
 
     fn section(ui: &mut egui::Ui, title: &str) {
@@ -354,6 +374,22 @@ impl Gallery {
                     self.row_selected = i;
                 }
             }
+        });
+
+        Self::section(ui, "Picture");
+        ui.add(
+            Label::new(
+                "Cropped from the middle to a square; an icon stands in when there is none.",
+            )
+            .muted()
+            .small(),
+        );
+        let ctx = ui.ctx().clone();
+        let sample = self.sample(&ctx).clone();
+        ui.horizontal(|ui| {
+            ui.add(Picture::new(Some(&sample), IconKind::User));
+            ui.add(Picture::new(None, IconKind::User));
+            ui.add(Picture::new(None, IconKind::Globe).size(64.0));
         });
 
         Self::section(ui, "Logo");

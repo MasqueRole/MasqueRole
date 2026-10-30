@@ -19,7 +19,8 @@ use crate::settings::{Settings, SettingsError};
 pub const DB_FILE: &str = "sessions.db";
 
 /// Schema migrations, applied in order. Index `i` upgrades version `i` to `i + 1`.
-const MIGRATIONS: &[&str] = &[r#"
+const MIGRATIONS: &[&str] = &[
+    r#"
     CREATE TABLE sessions (
         id              INTEGER PRIMARY KEY,
         name            TEXT NOT NULL,
@@ -70,7 +71,10 @@ const MIGRATIONS: &[&str] = &[r#"
         created_at INTEGER NOT NULL
     );
     CREATE INDEX summaries_node ON summaries(node_id);
-"#];
+"#,
+    // Estimated tokens sent and received so far, for the optional usage limit.
+    "ALTER TABLE sessions ADD COLUMN tokens_used INTEGER NOT NULL DEFAULT 0;",
+];
 
 /// The schema version this build writes.
 pub const SCHEMA_VERSION: u32 = MIGRATIONS.len() as u32;
@@ -201,6 +205,8 @@ pub struct Session {
     pub created_at: i64,
     /// Last change, Unix seconds.
     pub updated_at: i64,
+    /// Estimated tokens used by this session so far (prompts and responses).
+    pub tokens_used: i64,
 }
 
 /// A character attached to a session.
@@ -336,6 +342,7 @@ fn session_from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
         current_node_id: row.get(3)?,
         created_at: row.get(4)?,
         updated_at: row.get(5)?,
+        tokens_used: row.get(6)?,
     })
 }
 
@@ -412,11 +419,26 @@ impl Db {
         self.session(SessionId(self.conn.last_insert_rowid()))
     }
 
+    /// Add `tokens` to the session's estimated usage. Amounts of zero or less are ignored.
+    pub fn add_tokens(&self, id: SessionId, tokens: i64) -> Result<(), DbError> {
+        if tokens <= 0 {
+            return Ok(());
+        }
+        let changed = self.conn.execute(
+            "UPDATE sessions SET tokens_used = tokens_used + ?1 WHERE id = ?2",
+            params![tokens, id],
+        )?;
+        if changed == 0 {
+            return Err(DbError::NotFound("session"));
+        }
+        Ok(())
+    }
+
     /// Fetch a session.
     pub fn session(&self, id: SessionId) -> Result<Session, DbError> {
         self.conn
             .query_row(
-                "SELECT id, name, world, current_node_id, created_at, updated_at \
+                "SELECT id, name, world, current_node_id, created_at, updated_at, tokens_used \
                  FROM sessions WHERE id = ?1",
                 [id],
                 session_from_row,
@@ -428,7 +450,7 @@ impl Db {
     /// All sessions, most recently changed first.
     pub fn list_sessions(&self) -> Result<Vec<Session>, DbError> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, world, current_node_id, created_at, updated_at \
+            "SELECT id, name, world, current_node_id, created_at, updated_at, tokens_used \
              FROM sessions ORDER BY updated_at DESC, id DESC",
         )?;
         let rows = stmt.query_map([], session_from_row)?;
@@ -440,7 +462,7 @@ impl Db {
         Ok(self
             .conn
             .query_row(
-                "SELECT id, name, world, current_node_id, created_at, updated_at \
+                "SELECT id, name, world, current_node_id, created_at, updated_at, tokens_used \
                  FROM sessions WHERE name = ?1 ORDER BY updated_at DESC, id DESC LIMIT 1",
                 [name],
                 session_from_row,
@@ -1240,5 +1262,26 @@ mod tests {
             .unwrap();
         add(&db, s.id, None, "x");
         assert!(db.session(s.id).unwrap().updated_at > 0);
+    }
+
+    #[test]
+    fn token_usage_accumulates_per_session_and_survives_listing() {
+        let db = Db::open_in_memory().unwrap();
+        let a = db.create_session("A", None).unwrap();
+        let b = db.create_session("B", None).unwrap();
+        assert_eq!(a.tokens_used, 0);
+
+        db.add_tokens(a.id, 120).unwrap();
+        db.add_tokens(a.id, 30).unwrap();
+        db.add_tokens(a.id, 0).unwrap();
+        db.add_tokens(a.id, -50).unwrap();
+        assert_eq!(db.session(a.id).unwrap().tokens_used, 150);
+        assert_eq!(db.session(b.id).unwrap().tokens_used, 0);
+        let listed: Vec<_> = db.list_sessions().unwrap();
+        assert_eq!(listed.iter().map(|s| s.tokens_used).sum::<i64>(), 150);
+        assert!(matches!(
+            db.add_tokens(SessionId(999), 5),
+            Err(DbError::NotFound(_))
+        ));
     }
 }

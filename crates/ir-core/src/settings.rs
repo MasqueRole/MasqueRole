@@ -65,6 +65,37 @@ pub struct Settings {
     pub tree: TreeSettings,
     /// Troubleshooting options.
     pub debug: DebugSettings,
+    /// Optional cap on token usage.
+    pub limits: LimitSettings,
+}
+
+/// An optional cap on how many tokens one story may use.
+///
+/// Usage is estimated (about one token per four characters) for everything sent to and
+/// received from the provider, including summaries and fact extraction.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LimitSettings {
+    /// Stop generating once a story reaches [`LimitSettings::token_limit`].
+    pub token_limit_enabled: bool,
+    /// Estimated tokens one story may use while the limit is on.
+    pub token_limit: u32,
+}
+
+impl Default for LimitSettings {
+    fn default() -> Self {
+        Self {
+            token_limit_enabled: false,
+            token_limit: 200_000,
+        }
+    }
+}
+
+impl LimitSettings {
+    /// Whether a story that has used `used` tokens may not generate any more.
+    pub fn reached(&self, used: i64) -> bool {
+        self.token_limit_enabled && used >= i64::from(self.token_limit)
+    }
 }
 
 /// Troubleshooting options.
@@ -359,6 +390,19 @@ mod tests {
     }
 
     #[test]
+    fn the_token_limit_only_applies_while_it_is_on() {
+        let off = LimitSettings::default();
+        assert!(!off.reached(10_000_000), "off means no limit");
+        let on = LimitSettings {
+            token_limit_enabled: true,
+            token_limit: 1_000,
+        };
+        assert!(!on.reached(999));
+        assert!(on.reached(1_000));
+        assert!(on.reached(5_000));
+    }
+
+    #[test]
     fn defaults_match_readme() {
         let s = Settings::default();
         assert_eq!(s.api.provider, "openai-compatible");
@@ -373,6 +417,8 @@ mod tests {
         assert!(!s.style.narrator_mode);
         assert!(s.tree.auto_checkpoint && s.tree.show_tree_on_branch);
         assert!(!s.debug.logging);
+        assert!(!s.limits.token_limit_enabled);
+        assert_eq!(s.limits.token_limit, 200_000);
         assert_eq!(s.tree.node_label, NodeLabel::Auto);
     }
 

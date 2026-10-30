@@ -1,5 +1,9 @@
 //! InfiniteRoleplay desktop app.
 
+// Release builds on Windows are GUI programs: without this, a console window opens next to
+// the app. Debug builds keep the console for logs and panics.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod app;
 mod backend;
 mod branding;
@@ -7,6 +11,7 @@ mod characters;
 mod chat;
 mod fatal;
 mod format;
+mod images;
 mod library;
 mod logging;
 mod prompts;
@@ -25,7 +30,7 @@ use ir_core::APP_NAME;
 use ir_ui::Theme;
 
 use crate::app::App;
-use crate::backend::{default_provider_factory, Request, Services};
+use crate::backend::{default_image_picker, default_provider_factory, Request, Services};
 use crate::library::Library;
 
 fn main() {
@@ -75,6 +80,7 @@ fn run() -> anyhow::Result<()> {
                 settings_path: Some(settings_path),
                 secrets: Arc::new(KeychainStore),
                 provider: default_provider_factory(),
+                picker: default_image_picker(),
                 wake: Arc::new(move || ctx.request_repaint()),
             };
             let (backend, events) = backend::spawn(runtime.handle(), services);
