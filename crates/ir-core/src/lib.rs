@@ -3,6 +3,7 @@
 //! This crate must not depend on any UI crate.
 
 pub mod client;
+pub mod db;
 pub mod settings;
 
 pub use client::{LlmError, LlmProvider};
