@@ -3,10 +3,11 @@
 use std::hash::Hash;
 
 use egui::{
-    CentralPanel, Context, Frame, Id, InnerResponse, Margin, SidePanel, TopBottomPanel, Ui,
+    CentralPanel, Context, CornerRadius, Frame, Id, InnerResponse, Margin, SidePanel, Stroke,
+    StrokeKind, TopBottomPanel, Ui,
 };
 
-use crate::theme::{spacing, ThemeExt};
+use crate::theme::{spacing, ThemeExt, BORDER_WIDTH};
 
 #[derive(Clone, Copy, Debug)]
 enum Kind {
@@ -14,6 +15,7 @@ enum Kind {
     Top,
     Bottom,
     Central,
+    Content,
 }
 
 /// A region of the window: a fixed-width sidebar, a top or bottom bar, or the central area.
@@ -59,23 +61,61 @@ impl Panel {
         }
     }
 
+    /// The content area on top of the [`surface`](Self::surface): transparent, with the page
+    /// margin. Use it instead of [`central`](Self::central) when the window has a surface.
+    pub fn content() -> Self {
+        Self {
+            kind: Kind::Content,
+            id: Id::NULL,
+        }
+    }
+
+    /// Paint the content surface: the rounded, bordered sheet that the page lives on, over all
+    /// the space the sidebar and the top bar leave. The sidebar and top bar share the page
+    /// background, so only the sheet has a border and a rounded corner, at the top left.
+    ///
+    /// Call it after the side and top panels and before the bottom and [`content`](Self::content)
+    /// panels, which are transparent and draw on it.
+    pub fn surface(ctx: &Context) {
+        let t = ctx.ir_theme();
+        let radius = t.radius_lg;
+        let corner = CornerRadius {
+            nw: radius,
+            ..CornerRadius::ZERO
+        };
+        let painter = ctx.layer_painter(egui::LayerId::background());
+        let rect = ctx.available_rect();
+        painter.rect(
+            rect,
+            corner,
+            t.card,
+            Stroke::new(BORDER_WIDTH, t.border),
+            StrokeKind::Inside,
+        );
+    }
+
     /// Draw the panel with `add` as its content.
     pub fn show<R>(self, ctx: &Context, add: impl FnOnce(&mut Ui) -> R) -> InnerResponse<R> {
         let t = ctx.ir_theme();
-        let bar = |margin: Margin| Frame::new().fill(t.card).inner_margin(margin);
+        let bar = |margin: Margin| Frame::new().fill(t.background).inner_margin(margin);
+        let clear = |margin: Margin| Frame::new().inner_margin(margin);
         let page = Margin::same(spacing::LG as i8);
         match self.kind {
             Kind::Side(width) => SidePanel::left(self.id)
                 .exact_width(width)
                 .resizable(false)
                 .frame(bar(page))
+                .show_separator_line(false)
                 .show(ctx, add),
             Kind::Top => TopBottomPanel::top(self.id)
                 .frame(bar(Margin::symmetric(spacing::LG as i8, spacing::SM as i8)))
+                .show_separator_line(false)
                 .show(ctx, add),
             Kind::Bottom => TopBottomPanel::bottom(self.id)
-                .frame(bar(page))
+                .frame(clear(page))
+                .show_separator_line(false)
                 .show(ctx, add),
+            Kind::Content => CentralPanel::default().frame(clear(page)).show(ctx, add),
             Kind::Central => CentralPanel::default()
                 .frame(Frame::new().fill(t.background).inner_margin(page))
                 .show(ctx, add),

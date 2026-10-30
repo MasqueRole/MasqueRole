@@ -5,8 +5,8 @@ use ir_core::commands::{CommandInfo, COMMANDS};
 use ir_core::db::NodeKind;
 use ir_core::settings::Settings;
 use ir_ui::components::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ChatBubble, IconKind, Label,
-    ScrollArea, Separator, Suggestion, Suggestions, Textarea, TooltipExt,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ChatBubble, FloatingBar,
+    IconKind, Label, ScrollArea, Separator, Suggestion, Suggestions, Textarea, TooltipExt,
 };
 use ir_ui::spacing;
 
@@ -17,6 +17,12 @@ use crate::prompts;
 
 /// Width of the column holding the Send and Stop buttons.
 const BUTTON_COLUMN: f32 = 32.0;
+
+/// The most height the message box takes before its text scrolls.
+const MAX_INPUT_HEIGHT: f32 = 160.0;
+
+/// Identity of the floating island that holds the message box.
+const COMPOSER: &str = "composer";
 
 /// The most command hints shown at once.
 const MAX_HINTS: usize = 6;
@@ -132,8 +138,10 @@ pub fn body(app: &mut App, ui: &mut Ui) {
                     })
                     .show(ui);
             }
-            ui.add_space(spacing::SM);
+            // Room for the message box that floats over the end of the story.
+            ui.add_space(spacing::SM + FloatingBar::new(COMPOSER).height(ui.ctx()));
         });
+    composer(app, ui);
 }
 
 fn welcome(app: &mut App, ui: &mut Ui) {
@@ -217,52 +225,56 @@ fn focus_at_end(ctx: &egui::Context, id: egui::Id, text: &str) {
     ctx.memory_mut(|m| m.request_focus(id));
 }
 
-/// Draw the message box and its buttons.
-pub fn composer(app: &mut App, ui: &mut Ui) {
+/// Draw the message box and its buttons in a floating island at the bottom of `ui`.
+fn composer(app: &mut App, ui: &mut Ui) {
     let generating = app.chat.generating;
     let (mut send, mut stop) = (false, false);
     let mut input_rect = egui::Rect::NOTHING;
-    ui.horizontal(|ui| {
-        let width = (ui.available_width() - BUTTON_COLUMN - ui.spacing().item_spacing.x).max(0.0);
-        ui.allocate_ui(egui::vec2(width, 0.0), |ui| {
-            // Enter sends and Shift+Enter starts a new line. The key must be taken before the
-            // text field sees it, or the field would insert a line break.
-            let focused = app
-                .chat
-                .input_id
-                .is_some_and(|id| ui.memory(|m| m.has_focus(id)));
-            if focused {
-                send |= ui.input_mut(|i| {
-                    // `consume_key` ignores Shift, so it is checked by hand.
-                    !i.modifiers.shift
-                        && (i.consume_key(Modifiers::NONE, Key::Enter)
-                            || i.consume_key(Modifiers::COMMAND, Key::Enter))
-                });
-            }
-            let response = ui.add(
-                Textarea::new(&mut app.chat.input)
-                    .rows(2)
-                    .placeholder("Write your message, or type / for commands")
-                    .id_salt("chat-input"),
-            );
-            app.chat.input_id = Some(response.id);
-            input_rect = response.rect;
-        });
-        // Icon-only buttons, aligned with the middle of the message box.
-        ui.vertical(|ui| {
-            ui.set_width(BUTTON_COLUMN);
-            ui.add_space(spacing::SM);
-            if generating {
-                let button = Button::new("")
-                    .icon(IconKind::Stop)
-                    .variant(ButtonVariant::Outline)
-                    .size(ButtonSize::Icon);
-                stop |= ui.add(button).ir_tooltip("Stop").clicked();
-            } else {
-                let button = Button::new("").icon(IconKind::Send).size(ButtonSize::Icon);
-                let hint = "Send (Enter). Shift+Enter starts a new line.";
-                send |= ui.add(button).ir_tooltip(hint).clicked();
-            }
+    FloatingBar::new(COMPOSER).show(ui.ctx(), ui.max_rect(), |ui| {
+        // The buttons stay at the top right however tall the text grows.
+        ui.horizontal_top(|ui| {
+            let width =
+                (ui.available_width() - BUTTON_COLUMN - ui.spacing().item_spacing.x).max(0.0);
+            ui.allocate_ui(egui::vec2(width, 0.0), |ui| {
+                // Enter sends and Shift+Enter starts a new line. The key must be taken before
+                // the text field sees it, or the field would insert a line break.
+                let focused = app
+                    .chat
+                    .input_id
+                    .is_some_and(|id| ui.memory(|m| m.has_focus(id)));
+                if focused {
+                    send |= ui.input_mut(|i| {
+                        // `consume_key` ignores Shift, so it is checked by hand.
+                        !i.modifiers.shift
+                            && (i.consume_key(Modifiers::NONE, Key::Enter)
+                                || i.consume_key(Modifiers::COMMAND, Key::Enter))
+                    });
+                }
+                let response = ui.add(
+                    Textarea::new(&mut app.chat.input)
+                        .bare()
+                        .rows(1)
+                        .max_height(MAX_INPUT_HEIGHT)
+                        .placeholder("Write your message, or type / for commands")
+                        .id_salt("chat-input"),
+                );
+                app.chat.input_id = Some(response.id);
+                input_rect = response.rect;
+            });
+            ui.vertical(|ui| {
+                ui.set_width(BUTTON_COLUMN);
+                if generating {
+                    let button = Button::new("")
+                        .icon(IconKind::Stop)
+                        .variant(ButtonVariant::Outline)
+                        .size(ButtonSize::Icon);
+                    stop |= ui.add(button).ir_tooltip("Stop").clicked();
+                } else {
+                    let button = Button::new("").icon(IconKind::Send).size(ButtonSize::Icon);
+                    let hint = "Send (Enter). Shift+Enter starts a new line.";
+                    send |= ui.add(button).ir_tooltip(hint).clicked();
+                }
+            });
         });
     });
 

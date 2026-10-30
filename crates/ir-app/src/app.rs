@@ -567,10 +567,11 @@ impl App {
 
         self.top_bar(ctx);
         Panel::side("sidebar", SIDEBAR_WIDTH).show(ctx, |ui| sidebar::show(self, ui));
+        Panel::surface(ctx);
         if self.has_footer() {
             Panel::bottom("footer").show(ctx, |ui| self.footer(ui));
         }
-        Panel::central().show(ctx, |ui| self.body(ui));
+        Panel::content().show(ctx, |ui| self.body(ui));
 
         self.dialogs(ctx);
         self.toasts.show(ctx);
@@ -625,7 +626,9 @@ impl App {
 
     fn has_footer(&self) -> bool {
         match self.section {
-            Section::Stories | Section::Tree => self.transcript.is_some(),
+            // The story's message box floats over the page instead of sitting in a footer.
+            Section::Stories => false,
+            Section::Tree => self.transcript.is_some(),
             Section::Characters => self.character_form.is_some(),
             Section::Worlds => self.world_form.is_some(),
         }
@@ -633,7 +636,7 @@ impl App {
 
     fn footer(&mut self, ui: &mut Ui) {
         match self.section {
-            Section::Stories => chat::composer(self, ui),
+            Section::Stories => {}
             Section::Tree => {
                 if let Some(node) = self.tree_view.footer(ui, self.tree.as_ref()) {
                     self.jump_to(node);

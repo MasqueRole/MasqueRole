@@ -7,9 +7,10 @@
 use eframe::egui;
 use ir_ui::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ChatBubble, Checkbox, Dialog,
-    Figure, FormField, Icon, IconKind, Input, Label, LabelTone, ListItem, Logo, MenuItem, Panel,
-    Picture, Popover, ScrollArea, Select, Separator, Slider, Suggestion, Suggestions, Switch, Tabs,
-    Textarea, Toast, Toasts, TooltipExt, TopBar, TreeNode, TreeNodeState,
+    Figure, FloatingBar, FormField, Icon, IconKind, Input, Label, LabelTone, ListItem, Logo,
+    MenuItem, Panel, Picture, Popover, ScrollArea, Select, Separator, Slider, Suggestion,
+    Suggestions, Switch, Tabs, Textarea, Toast, Toasts, TooltipExt, TopBar, TreeNode,
+    TreeNodeState,
 };
 use ir_ui::{spacing, Theme, ThemeExt, ThemeMode};
 
@@ -28,6 +29,7 @@ struct Gallery {
     tab: usize,
     nav_tab: usize,
     command: String,
+    island: String,
     row_selected: usize,
     node_selected: bool,
     dialog_open: bool,
@@ -61,6 +63,7 @@ impl Gallery {
             tab: 0,
             nav_tab: 0,
             command: "/b".into(),
+            island: String::new(),
             row_selected: 0,
             node_selected: false,
             dialog_open,
@@ -589,7 +592,8 @@ impl eframe::App for Gallery {
             Theme::set_mode(ctx, mode);
         }
 
-        Panel::central().show(ctx, |ui| {
+        Panel::surface(ctx);
+        Panel::content().show(ctx, |ui| {
             let mut scroll = egui::ScrollArea::vertical();
             if let Some(offset) = self.initial_scroll.take() {
                 scroll = scroll.vertical_scroll_offset(offset);
@@ -600,6 +604,18 @@ impl eframe::App for Gallery {
                 self.inputs(ui);
                 self.navigation(ui);
                 self.story(ui);
+                // Room for the floating bar below, so the last section can scroll clear of it.
+                ui.add_space(FloatingBar::new("gallery-bar").height(ctx));
+            });
+            // The message box of the chat: a translucent island the content scrolls under.
+            FloatingBar::new("gallery-bar").show(ctx, ui.max_rect(), |ui| {
+                ui.add(
+                    Textarea::new(&mut self.island)
+                        .bare()
+                        .rows(1)
+                        .max_height(120.0)
+                        .placeholder("Floating bar with a borderless field"),
+                );
             });
         });
 
