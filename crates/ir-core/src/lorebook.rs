@@ -254,21 +254,4 @@ entries:
         let messages = vec![String::from("the lighthouse")];
         assert_eq!(b.triggered(&messages).len(), 1);
     }
-
-    #[test]
-    fn bundled_examples_are_valid() {
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../worlds");
-        let loaded = Lorebook::load_dir(&dir).unwrap();
-        assert!(!loaded.is_empty(), "worlds/ should hold examples");
-        for result in loaded {
-            result.unwrap();
-        }
-    }
-
-    #[test]
-    fn misty_coast_example_triggers_as_documented() {
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../worlds");
-        let book = Lorebook::load(&dir.join("misty-coast.yaml")).unwrap();
-        assert_eq!(book.triggered(&["I found some fogglass"]).len(), 1);
-    }
 }

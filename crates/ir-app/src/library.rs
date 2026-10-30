@@ -6,23 +6,6 @@ use ir_core::cards::{Card, LoadError};
 use ir_core::character::Character;
 use ir_core::lorebook::Lorebook;
 
-/// Example cards copied into a new library, so the app is usable on first start.
-const EXAMPLE_CHARACTERS: &[(&str, &str)] = &[
-    (
-        "mira-valen.yaml",
-        include_str!("../../../characters/mira-valen.yaml"),
-    ),
-    (
-        "orrin-karrow.yaml",
-        include_str!("../../../characters/orrin-karrow.yaml"),
-    ),
-];
-
-const EXAMPLE_WORLDS: &[(&str, &str)] = &[(
-    "misty-coast.yaml",
-    include_str!("../../../worlds/misty-coast.yaml"),
-)];
-
 /// A library item and the file it lives in.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Entry<T> {
@@ -50,25 +33,6 @@ impl Library {
 
     fn worlds_dir(&self) -> PathBuf {
         self.root.join("worlds")
-    }
-
-    /// Copy the bundled examples into any directory that does not exist yet. Existing
-    /// libraries, even empty ones, are left alone.
-    pub fn seed_examples(&self) -> Result<(), String> {
-        for (dir, files) in [
-            (self.characters_dir(), EXAMPLE_CHARACTERS),
-            (self.worlds_dir(), EXAMPLE_WORLDS),
-        ] {
-            if dir.exists() {
-                continue;
-            }
-            std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-            for (name, text) in files {
-                let path = dir.join(name);
-                std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))?;
-            }
-        }
-        Ok(())
     }
 
     /// Every character in the library, plus a message for each file that could not be read.
@@ -224,37 +188,6 @@ mod tests {
         assert_eq!(slug("Caf\u{e9}"), "caf\u{e9}");
         assert_eq!(slug("!!!"), "untitled");
         assert_eq!(slug(""), "untitled");
-    }
-
-    #[test]
-    fn the_first_start_seeds_valid_examples() {
-        let tmp = TempLibrary::new("seed");
-        let lib = tmp.library();
-        lib.seed_examples().unwrap();
-
-        let (characters, errors) = lib.characters();
-        assert!(errors.is_empty(), "{errors:?}");
-        let names: Vec<_> = characters.iter().map(|e| e.item.name.as_str()).collect();
-        assert_eq!(names, ["Mira Valen", "Orrin Karrow"]);
-        let (worlds, errors) = lib.worlds();
-        assert!(errors.is_empty());
-        assert_eq!(worlds[0].item.name, "The Misty Coast");
-    }
-
-    #[test]
-    fn seeding_never_overwrites_or_refills_an_existing_library() {
-        let tmp = TempLibrary::new("reseed");
-        let lib = tmp.library();
-        lib.seed_examples().unwrap();
-        let (characters, _) = lib.characters();
-        lib.delete(&characters[0].path).unwrap();
-
-        lib.seed_examples().unwrap();
-        assert_eq!(
-            lib.characters().0.len(),
-            1,
-            "the deleted example stays deleted"
-        );
     }
 
     #[test]

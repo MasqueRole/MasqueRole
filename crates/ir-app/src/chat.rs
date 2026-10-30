@@ -1,11 +1,11 @@
 //! The chat screen: the story so far, and the box for the next message.
 
-use eframe::egui::{self, Key, Ui};
+use eframe::egui::{self, Key, Modifiers, Ui};
 use ir_core::commands::{CommandInfo, COMMANDS};
 use ir_core::db::NodeKind;
 use ir_ui::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, ChatBubble, Label, ScrollArea, Separator,
-    Textarea,
+    Badge, BadgeVariant, Button, ButtonVariant, Card, ChatBubble, IconKind, Label, ScrollArea,
+    Separator, Textarea,
 };
 use ir_ui::spacing;
 
@@ -147,25 +147,39 @@ pub fn composer(app: &mut App, ui: &mut Ui) {
     ui.horizontal_top(|ui| {
         let width = (ui.available_width() - BUTTON_COLUMN - ui.spacing().item_spacing.x).max(0.0);
         ui.allocate_ui(egui::vec2(width, 0.0), |ui| {
+            // Enter sends and Shift+Enter starts a new line. The key must be taken before the
+            // text field sees it, or the field would insert a line break.
+            let focused = app
+                .chat
+                .input_id
+                .is_some_and(|id| ui.memory(|m| m.has_focus(id)));
+            if focused {
+                send |= ui.input_mut(|i| {
+                    // `consume_key` ignores Shift, so it is checked by hand.
+                    !i.modifiers.shift
+                        && (i.consume_key(Modifiers::NONE, Key::Enter)
+                            || i.consume_key(Modifiers::COMMAND, Key::Enter))
+                });
+            }
             let response = ui.add(
                 Textarea::new(&mut app.chat.input)
                     .rows(2)
                     .placeholder("Write your message, or type / for commands")
                     .id_salt("chat-input"),
             );
-            let ctrl_enter = ui.input(|i| i.modifiers.command && i.key_pressed(Key::Enter));
-            send |= response.has_focus() && ctrl_enter;
+            app.chat.input_id = Some(response.id);
         });
         ui.vertical(|ui| {
             ui.set_width(BUTTON_COLUMN);
             if generating {
-                stop |= ui
-                    .add(Button::new("Stop").variant(ButtonVariant::Outline))
-                    .clicked();
+                let stop_button = Button::new("Stop")
+                    .icon(IconKind::Stop)
+                    .variant(ButtonVariant::Outline);
+                stop |= ui.add(stop_button).clicked();
             } else {
-                send |= ui.add(Button::new("Send")).clicked();
+                send |= ui.add(Button::new("Send").icon(IconKind::Send)).clicked();
             }
-            ui.add(Label::new("Ctrl+Enter").small().muted());
+            ui.add(Label::new("Shift+Enter: new line").small().muted());
         });
     });
 

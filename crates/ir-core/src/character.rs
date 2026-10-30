@@ -198,14 +198,4 @@ example_dialogue:
         ));
         let _ = std::fs::remove_dir_all(&dir);
     }
-
-    #[test]
-    fn bundled_examples_are_valid() {
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../characters");
-        let loaded = Character::load_dir(&dir).unwrap();
-        assert!(!loaded.is_empty(), "characters/ should hold examples");
-        for result in loaded {
-            result.unwrap();
-        }
-    }
 }

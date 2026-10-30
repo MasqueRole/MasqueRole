@@ -108,7 +108,7 @@ cargo packager --release --formats deb,appimage  # Linux
 1. Launch InfiniteRoleplay.
 2. Click **Settings** (top right) and choose a **provider** and paste your API key (not needed for local models).
 3. Open **Characters** (and, optionally, **Worlds**) in the top navigation to create or edit them. Each section has its own list in the sidebar.
-4. Go to **Stories**, press **New session**, and start writing. **Tree** shows the branches of the open story.
+4. Go to **Stories**, press **New session**, and start writing. Press **Enter** to send and **Shift+Enter** for a new line. **Tree** shows the branches of the open story.
 
 For development, you can also provide the key through the `IR_API_KEY` environment variable.
 
@@ -308,8 +308,6 @@ InfiniteRoleplay/
 │           ├── tree_view.rs    # Skill-tree view
 │           ├── characters.rs
 │           └── settings_ui.rs
-├── characters/                 # Example character cards
-├── worlds/                     # Example lorebooks
 ├── Packager.toml               # Installer settings (cargo-packager)
 ├── AGENTS.md                   # Step-by-step build instructions for AI agents
 ├── LICENSE

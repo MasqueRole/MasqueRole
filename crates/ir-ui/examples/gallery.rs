@@ -7,8 +7,9 @@
 use eframe::egui;
 use ir_ui::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ChatBubble, Checkbox, Dialog,
-    FormField, Icon, Input, Island, Label, LabelTone, Panel, Popover, ScrollArea, Select,
-    Separator, Slider, Switch, Tabs, Textarea, Toast, Toasts, TooltipExt, TreeNode, TreeNodeState,
+    FormField, Icon, IconKind, Input, Label, LabelTone, ListItem, Logo, MenuItem, Panel, Popover,
+    ScrollArea, Select, Separator, Slider, Switch, Tabs, Textarea, Toast, Toasts, TooltipExt,
+    TopBar, TreeNode, TreeNodeState,
 };
 use ir_ui::{spacing, Theme, ThemeExt, ThemeMode};
 
@@ -25,6 +26,8 @@ struct Gallery {
     temperature: f64,
     provider: usize,
     tab: usize,
+    nav_tab: usize,
+    row_selected: usize,
     node_selected: bool,
     dialog_open: bool,
     toasts: Toasts,
@@ -54,6 +57,8 @@ impl Gallery {
             temperature: 0.9,
             provider: 1,
             tab: 0,
+            nav_tab: 0,
+            row_selected: 0,
             node_selected: false,
             dialog_open,
             toasts,
@@ -274,7 +279,84 @@ impl Gallery {
             });
         });
 
+        Self::section(ui, "Pill tabs");
+        ui.add(
+            Label::new("Round on hover, filled when selected. Used for the top navigation.")
+                .muted()
+                .small(),
+        );
+        ui.add(
+            Tabs::new(
+                &mut self.nav_tab,
+                ["Stories", "Characters", "Worlds", "Tree"],
+            )
+            .pills(true)
+            .icons([
+                IconKind::Chat,
+                IconKind::User,
+                IconKind::Globe,
+                IconKind::Branch,
+            ]),
+        );
+
         Self::section(ui, "Icon");
+        ui.horizontal_wrapped(|ui| {
+            for kind in IconKind::ALL {
+                ui.vertical(|ui| {
+                    ui.set_width(72.0);
+                    ui.add(Icon::new(kind).size(24.0));
+                    ui.add(Label::new(format!("{kind:?}")).muted().small());
+                });
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.add(Button::new("New session").icon(IconKind::Plus));
+            ui.add(
+                Button::new("Send")
+                    .icon(IconKind::Send)
+                    .variant(ButtonVariant::Secondary),
+            );
+            ui.add(
+                Button::new("")
+                    .icon(IconKind::Settings)
+                    .variant(ButtonVariant::Ghost)
+                    .size(ButtonSize::Icon),
+            );
+        });
+
+        Self::section(ui, "List item and menu item");
+        ui.add(
+            Label::new("Hover a row for its three-dots menu.")
+                .muted()
+                .small(),
+        );
+        ui.scope(|ui| {
+            ui.set_max_width(260.0);
+            for (i, name) in [
+                "Mira Valen",
+                "Orrin Karrow",
+                "A name that is far too long to fit",
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let out = ListItem::new(("gallery-row", i), name)
+                    .selected(self.row_selected == i)
+                    .show(ui, |ui| {
+                        ui.add(
+                            MenuItem::new("Delete")
+                                .icon(IconKind::Trash)
+                                .destructive(true),
+                        )
+                        .clicked()
+                    });
+                if out.clicked {
+                    self.row_selected = i;
+                }
+            }
+        });
+
+        Self::section(ui, "Logo");
         ui.add(
             Label::new("A white texture, painted in the foreground color.")
                 .muted()
@@ -282,7 +364,7 @@ impl Gallery {
         );
         let ctx = ui.ctx().clone();
         if let Some(logo) = self.logo(&ctx) {
-            ui.add(Icon::new(logo).width(96.0));
+            ui.add(Logo::new(logo).width(96.0));
         }
 
         Self::section(ui, "Dialog and Toast");
@@ -378,29 +460,53 @@ impl Gallery {
 
 impl eframe::App for Gallery {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // The header doubles as the Island example.
-        Island::new("top").show(ctx, |ui| {
-            ui.add(Label::new("ir-ui gallery").heading());
-            ui.add_space(spacing::LG);
-            for (label, mode) in [
-                ("System", ThemeMode::System),
-                ("Light", ThemeMode::Light),
-                ("Dark", ThemeMode::Dark),
-            ] {
-                let variant = if self.mode == mode {
-                    ButtonVariant::Default
-                } else {
-                    ButtonVariant::Outline
-                };
-                if ui
-                    .add(Button::new(label).variant(variant).size(ButtonSize::Sm))
-                    .clicked()
-                {
-                    self.mode = mode;
-                    Theme::set_mode(ctx, mode);
+        // The header is the TopBar example: left, centered, and right groups.
+        let mut mode = self.mode;
+        TopBar::new("top").show(
+            ctx,
+            |ui| {
+                ui.add(Label::new("ir-ui gallery").heading());
+            },
+            |ui| {
+                ui.add(
+                    Tabs::new(
+                        &mut self.nav_tab,
+                        ["Stories", "Characters", "Worlds", "Tree"],
+                    )
+                    .pills(true)
+                    .icons([
+                        IconKind::Chat,
+                        IconKind::User,
+                        IconKind::Globe,
+                        IconKind::Branch,
+                    ]),
+                );
+            },
+            |ui| {
+                // Right to left, so the order here is the reverse of how it reads.
+                for (label, candidate) in [
+                    ("Dark", ThemeMode::Dark),
+                    ("Light", ThemeMode::Light),
+                    ("System", ThemeMode::System),
+                ] {
+                    let variant = if mode == candidate {
+                        ButtonVariant::Default
+                    } else {
+                        ButtonVariant::Outline
+                    };
+                    if ui
+                        .add(Button::new(label).variant(variant).size(ButtonSize::Sm))
+                        .clicked()
+                    {
+                        mode = candidate;
+                    }
                 }
-            }
-        });
+            },
+        );
+        if mode != self.mode {
+            self.mode = mode;
+            Theme::set_mode(ctx, mode);
+        }
 
         Panel::central().show(ctx, |ui| {
             let mut scroll = egui::ScrollArea::vertical();

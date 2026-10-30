@@ -3,6 +3,7 @@
 use egui::text::LayoutJob;
 use egui::{Color32, CursorIcon, FontId, Pos2, Response, Sense, Stroke, StrokeKind, Ui, Widget};
 
+use super::icon::{self, IconKind};
 use crate::theme::{spacing, ThemeExt, BORDER_WIDTH, RING_WIDTH};
 
 /// Visual style of a [`Button`].
@@ -45,6 +46,7 @@ pub struct Button {
     size: ButtonSize,
     enabled: bool,
     fill_width: bool,
+    icon: Option<IconKind>,
 }
 
 impl Button {
@@ -56,7 +58,15 @@ impl Button {
             size: ButtonSize::default(),
             enabled: true,
             fill_width: false,
+            icon: None,
         }
+    }
+
+    /// Show an icon before the text. With an empty text and [`ButtonSize::Icon`], the
+    /// button is just the icon.
+    pub fn icon(mut self, icon: IconKind) -> Self {
+        self.icon = Some(icon);
+        self
     }
 
     /// Stretch across the available width with the text left-aligned and cut with an
@@ -98,8 +108,20 @@ impl Widget for Button {
             ButtonSize::Icon => (t.text_base, 0.0, 32.0),
         };
         let available = ui.available_width();
+        let has_text = !self.text.is_empty();
+        // The icon is a little larger than the text beside it.
+        let icon_px = if is_link {
+            0.0
+        } else {
+            self.icon.map_or(0.0, |_| font_size + 2.0)
+        };
+        let gap = if icon_px > 0.0 && has_text {
+            spacing::SM
+        } else {
+            0.0
+        };
         let wrap_width = if self.fill_width {
-            (available - 2.0 * pad_x).max(0.0)
+            (available - 2.0 * pad_x - icon_px - gap).max(0.0)
         } else {
             f32::INFINITY
         };
@@ -120,7 +142,7 @@ impl Widget for Button {
         } else if self.size == ButtonSize::Icon {
             egui::vec2(height, height)
         } else {
-            egui::vec2(galley.size().x + 2.0 * pad_x, height)
+            egui::vec2(galley.size().x + icon_px + gap + 2.0 * pad_x, height)
         };
         let sense = if enabled {
             Sense::click()
@@ -184,14 +206,31 @@ impl Widget for Button {
             stroke.color = stroke.color.gamma_multiply(0.5);
         }
 
-        let radius = t.corner_md();
+        // Square icon buttons are round.
+        let radius = if self.size == ButtonSize::Icon {
+            egui::CornerRadius::same(u8::MAX)
+        } else {
+            t.corner_md()
+        };
         let painter = ui.painter();
         painter.rect(rect, radius, bg, stroke, StrokeKind::Inside);
-        let text_pos = if self.fill_width {
-            Pos2::new(rect.left() + pad_x, rect.center().y - galley.size().y / 2.0)
+        let content_width = icon_px + gap + galley.size().x;
+        let start_x = if self.fill_width {
+            rect.left() + pad_x
         } else {
-            rect.center() - galley.size() / 2.0
+            rect.center().x - content_width / 2.0
         };
+        if let (Some(kind), true) = (self.icon, icon_px > 0.0) {
+            let icon_rect = egui::Rect::from_center_size(
+                Pos2::new(start_x + icon_px / 2.0, rect.center().y),
+                egui::Vec2::splat(icon_px),
+            );
+            icon::paint(painter, icon_rect, fg, kind);
+        }
+        let text_pos = Pos2::new(
+            start_x + icon_px + gap,
+            rect.center().y - galley.size().y / 2.0,
+        );
         painter.galley(text_pos, galley.clone(), fg);
         if is_link && hovered {
             let y = text_pos.y + galley.size().y;
@@ -243,6 +282,29 @@ mod tests {
         assert_eq!(b.variant, ButtonVariant::Outline);
         assert_eq!(b.size, ButtonSize::Lg);
         assert!(!b.enabled);
+    }
+
+    #[test]
+    fn an_icon_makes_the_button_wider_and_an_icon_only_button_stays_square() {
+        let ctx = egui::Context::default();
+        crate::Theme::apply(&ctx);
+        let (mut plain, mut with_icon, mut icon_only) = (0.0, 0.0, egui::Vec2::ZERO);
+        let _ = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                plain = ui.add(Button::new("New")).rect.width();
+                with_icon = ui.add(Button::new("New").icon(IconKind::Plus)).rect.width();
+                icon_only = ui
+                    .add(
+                        Button::new("")
+                            .icon(IconKind::Settings)
+                            .size(ButtonSize::Icon),
+                    )
+                    .rect
+                    .size();
+            });
+        });
+        assert!(with_icon > plain + 10.0, "{plain} vs {with_icon}");
+        assert_eq!(icon_only.x, icon_only.y);
     }
 
     #[test]

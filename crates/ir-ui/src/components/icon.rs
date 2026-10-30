@@ -1,72 +1,326 @@
-//! A glyph or logo drawn from a texture.
+//! Line icons, drawn with the painter so they scale and follow the theme colors.
 
-use egui::{Image, Response, TextureHandle, Ui, Widget};
+use egui::{Color32, Painter, Pos2, Rect, Response, Sense, Shape, Stroke, Ui, Vec2, Widget};
 
 use crate::theme::ThemeExt;
 
-/// A white-on-transparent texture, painted in the theme's foreground color so it reads in
-/// both light and dark mode. Keeps the texture's aspect ratio.
-#[must_use = "add the icon with `ui.add(...)`"]
-pub struct Icon<'a> {
-    texture: &'a TextureHandle,
-    width: f32,
+/// The grid every icon is designed on, in its own units.
+const GRID: f32 = 24.0;
+
+/// Stroke width on the grid. It scales with the icon.
+const STROKE: f32 = 1.75;
+
+/// Segments used to approximate a circle or an arc.
+const SEGMENTS: usize = 32;
+
+/// Which icon to draw.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IconKind {
+    /// A gear.
+    Settings,
+    /// A bin.
+    Trash,
+    /// Three dots in a row, for a "more" menu.
+    More,
+    /// A plus sign.
+    Plus,
+    /// A cross.
+    Close,
+    /// A paper plane.
+    Send,
+    /// A square, for stopping.
+    Stop,
+    /// A speech bubble: stories.
+    Chat,
+    /// A person: characters.
+    User,
+    /// A globe: worlds.
+    Globe,
+    /// A branching line: the story tree.
+    Branch,
 }
 
-impl<'a> Icon<'a> {
-    /// An icon from `texture`, 24 logical pixels wide until [`Icon::width`] says otherwise.
-    pub fn new(texture: &'a TextureHandle) -> Self {
+impl IconKind {
+    /// Every icon, for galleries and tests.
+    pub const ALL: [IconKind; 11] = [
+        IconKind::Settings,
+        IconKind::Trash,
+        IconKind::More,
+        IconKind::Plus,
+        IconKind::Close,
+        IconKind::Send,
+        IconKind::Stop,
+        IconKind::Chat,
+        IconKind::User,
+        IconKind::Globe,
+        IconKind::Branch,
+    ];
+}
+
+/// Points of a circle or arc, from `start` to `end` radians, around `center`.
+fn arc(center: (f32, f32), radius: f32, start: f32, end: f32) -> Vec<(f32, f32)> {
+    (0..=SEGMENTS)
+        .map(|i| {
+            let angle = start + (end - start) * i as f32 / SEGMENTS as f32;
+            (
+                center.0 + radius * angle.cos(),
+                center.1 + radius * angle.sin(),
+            )
+        })
+        .collect()
+}
+
+/// Points of a closed ellipse. The last point is not a repeat of the first: a repeated
+/// point makes a zero-length segment, which the stroke tessellator draws as a long spike.
+fn ellipse(center: (f32, f32), rx: f32, ry: f32) -> Vec<(f32, f32)> {
+    (0..SEGMENTS)
+        .map(|i| {
+            let angle = std::f32::consts::TAU * i as f32 / SEGMENTS as f32;
+            (center.0 + rx * angle.cos(), center.1 + ry * angle.sin())
+        })
+        .collect()
+}
+
+fn circle(center: (f32, f32), radius: f32) -> Vec<(f32, f32)> {
+    ellipse(center, radius, radius)
+}
+
+/// The strokes of an icon, as open or closed polylines on the 24 x 24 grid, plus the points
+/// that are drawn as filled dots.
+struct Drawing {
+    lines: Vec<(Vec<(f32, f32)>, bool)>,
+    dots: Vec<((f32, f32), f32)>,
+}
+
+impl Drawing {
+    fn new() -> Self {
         Self {
-            texture,
-            width: 24.0,
+            lines: Vec::new(),
+            dots: Vec::new(),
         }
     }
 
-    /// The icon's width in logical pixels; the height follows the texture's proportions.
-    pub fn width(mut self, width: f32) -> Self {
-        self.width = width;
+    fn open(mut self, points: &[(f32, f32)]) -> Self {
+        self.lines.push((points.to_vec(), false));
+        self
+    }
+
+    fn closed(mut self, points: &[(f32, f32)]) -> Self {
+        self.lines.push((points.to_vec(), true));
+        self
+    }
+
+    fn circle(mut self, center: (f32, f32), radius: f32) -> Self {
+        self.lines.push((circle(center, radius), true));
+        self
+    }
+
+    fn dot(mut self, center: (f32, f32), radius: f32) -> Self {
+        self.dots.push((center, radius));
         self
     }
 }
 
-impl Widget for Icon<'_> {
+fn drawing(kind: IconKind) -> Drawing {
+    use std::f32::consts::{PI, TAU};
+    let d = Drawing::new();
+    match kind {
+        IconKind::Settings => {
+            let mut d = d.circle((12.0, 12.0), 3.0).circle((12.0, 12.0), 7.0);
+            for i in 0..8 {
+                let a = TAU * i as f32 / 8.0;
+                let (c, s) = (a.cos(), a.sin());
+                d = d.open(&[
+                    (12.0 + 7.0 * c, 12.0 + 7.0 * s),
+                    (12.0 + 10.0 * c, 12.0 + 10.0 * s),
+                ]);
+            }
+            d
+        }
+        IconKind::Trash => d
+            .open(&[(4.0, 7.0), (20.0, 7.0)])
+            .open(&[(9.0, 7.0), (9.0, 4.0), (15.0, 4.0), (15.0, 7.0)])
+            .open(&[(6.0, 7.0), (7.0, 20.0), (17.0, 20.0), (18.0, 7.0)])
+            .open(&[(10.0, 11.0), (10.0, 16.0)])
+            .open(&[(14.0, 11.0), (14.0, 16.0)]),
+        IconKind::More => d
+            .dot((5.0, 12.0), 1.75)
+            .dot((12.0, 12.0), 1.75)
+            .dot((19.0, 12.0), 1.75),
+        IconKind::Plus => d
+            .open(&[(12.0, 5.0), (12.0, 19.0)])
+            .open(&[(5.0, 12.0), (19.0, 12.0)]),
+        IconKind::Close => d
+            .open(&[(6.0, 6.0), (18.0, 18.0)])
+            .open(&[(18.0, 6.0), (6.0, 18.0)]),
+        IconKind::Send => d
+            .closed(&[(3.0, 11.0), (21.0, 3.0), (14.0, 21.0), (11.0, 13.0)])
+            .open(&[(21.0, 3.0), (11.0, 13.0)]),
+        IconKind::Stop => d.closed(&[(6.0, 6.0), (18.0, 6.0), (18.0, 18.0), (6.0, 18.0)]),
+        IconKind::Chat => d.closed(&[
+            (4.0, 5.0),
+            (20.0, 5.0),
+            (20.0, 16.0),
+            (12.0, 16.0),
+            (7.0, 20.0),
+            (7.0, 16.0),
+            (4.0, 16.0),
+        ]),
+        IconKind::User => d
+            .circle((12.0, 8.0), 4.0)
+            .open(&arc((12.0, 21.0), 8.0, PI, TAU)),
+        IconKind::Globe => d
+            .circle((12.0, 12.0), 9.0)
+            .open(&[(3.0, 12.0), (21.0, 12.0)])
+            .closed(&ellipse((12.0, 12.0), 4.0, 9.0)),
+        IconKind::Branch => d
+            .circle((6.0, 5.0), 2.0)
+            .circle((6.0, 19.0), 2.0)
+            .circle((18.0, 8.0), 2.0)
+            .open(&[(6.0, 7.0), (6.0, 17.0)])
+            .open(&[(18.0, 10.0), (18.0, 12.0), (15.0, 15.0), (6.0, 15.0)]),
+    }
+}
+
+/// Paint `kind` into `rect` with `color`.
+pub fn paint(painter: &Painter, rect: Rect, color: Color32, kind: IconKind) {
+    let scale = rect.width().min(rect.height()) / GRID;
+    let origin = rect.center() - Vec2::splat(GRID * scale / 2.0);
+    let map = |(x, y): (f32, f32)| Pos2::new(origin.x + x * scale, origin.y + y * scale);
+    let stroke = Stroke::new(STROKE * scale, color);
+    let drawing = drawing(kind);
+    for (points, closed) in &drawing.lines {
+        let points: Vec<Pos2> = points.iter().copied().map(map).collect();
+        painter.add(if *closed {
+            Shape::closed_line(points, stroke)
+        } else {
+            Shape::line(points, stroke)
+        });
+    }
+    for (center, radius) in &drawing.dots {
+        painter.circle_filled(map(*center), radius * scale, color);
+    }
+}
+
+/// An icon as a widget. It is `size` logical pixels square and, unless told otherwise,
+/// drawn in the theme's foreground color.
+#[must_use = "add the icon with `ui.add(...)`"]
+pub struct Icon {
+    kind: IconKind,
+    size: f32,
+    color: Option<Color32>,
+}
+
+impl Icon {
+    /// An icon, 16 logical pixels square.
+    pub fn new(kind: IconKind) -> Self {
+        Self {
+            kind,
+            size: 16.0,
+            color: None,
+        }
+    }
+
+    /// The width and height in logical pixels.
+    pub fn size(mut self, size: f32) -> Self {
+        self.size = size;
+        self
+    }
+
+    /// Draw in this color instead of the foreground color.
+    pub fn color(mut self, color: Color32) -> Self {
+        self.color = Some(color);
+        self
+    }
+}
+
+impl Widget for Icon {
     fn ui(self, ui: &mut Ui) -> Response {
-        let tint = ui.ir_theme().foreground;
-        let size = egui::vec2(self.width, self.width / self.texture.aspect_ratio());
-        ui.add(Image::new((self.texture.id(), size)).tint(tint))
+        let (rect, response) = ui.allocate_exact_size(Vec2::splat(self.size), Sense::hover());
+        let color = self.color.unwrap_or_else(|| ui.ir_theme().foreground);
+        paint(ui.painter(), rect, color, self.kind);
+        response
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use egui::{Color32, ColorImage, TextureOptions};
-
     use super::*;
     use crate::components::testing::Harness;
 
-    fn texture(h: &Harness, width: usize, height: usize) -> TextureHandle {
-        let image = ColorImage::new([width, height], Color32::WHITE);
-        h.ctx
-            .load_texture("icon-test", image, TextureOptions::LINEAR)
+    #[test]
+    fn every_icon_has_something_to_draw() {
+        for kind in IconKind::ALL {
+            let d = drawing(kind);
+            assert!(!d.lines.is_empty() || !d.dots.is_empty(), "{kind:?}");
+        }
     }
 
     #[test]
-    fn the_height_follows_the_texture_proportions() {
-        let mut h = Harness::new();
-        let texture = texture(&h, 200, 50);
-        let mut size = egui::Vec2::ZERO;
-        h.idle(&mut |ui| size = ui.add(Icon::new(&texture).width(80.0)).rect.size());
-        assert!(
-            (size.x - 80.0).abs() < 0.5 && (size.y - 20.0).abs() < 0.5,
-            "{size:?}"
-        );
+    fn no_line_repeats_a_point_back_to_back() {
+        for kind in IconKind::ALL {
+            for (points, closed) in &drawing(kind).lines {
+                let mut pairs: Vec<_> = points.windows(2).map(|w| (w[0], w[1])).collect();
+                if *closed {
+                    pairs.push((points[points.len() - 1], points[0]));
+                }
+                assert!(
+                    pairs.iter().all(|(a, b)| a != b),
+                    "{kind:?} has a zero-length segment"
+                );
+            }
+        }
     }
 
     #[test]
-    fn the_default_width_is_small() {
+    fn every_icon_stays_inside_the_grid() {
+        for kind in IconKind::ALL {
+            let d = drawing(kind);
+            let points = d
+                .lines
+                .iter()
+                .flat_map(|(p, _)| p.iter().copied())
+                .chain(d.dots.iter().map(|(c, _)| *c));
+            for (x, y) in points {
+                assert!(
+                    (0.0..=GRID).contains(&x) && (0.0..=GRID).contains(&y),
+                    "{kind:?} has a point outside the grid: ({x}, {y})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_widget_is_square_and_paints_shapes() {
         let mut h = Harness::new();
-        let texture = texture(&h, 10, 10);
-        let mut size = egui::Vec2::ZERO;
-        h.idle(&mut |ui| size = ui.add(Icon::new(&texture)).rect.size());
-        assert!((size.x - 24.0).abs() < 0.5, "{size:?}");
+        let mut sizes = Vec::new();
+        h.idle(&mut |ui| {
+            sizes.clear();
+            for kind in IconKind::ALL {
+                sizes.push(ui.add(Icon::new(kind).size(20.0)).rect.size());
+            }
+        });
+        assert!(sizes
+            .iter()
+            .all(|s| (s.x - 20.0).abs() < 0.01 && (s.y - 20.0).abs() < 0.01));
+    }
+
+    #[test]
+    fn painting_adds_shapes_for_every_icon() {
+        let ctx = egui::Context::default();
+        for kind in IconKind::ALL {
+            let output = ctx.run(Default::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let rect = Rect::from_min_size(Pos2::ZERO, Vec2::splat(24.0));
+                    paint(ui.painter(), rect, Color32::WHITE, kind);
+                });
+            });
+            let icon_shapes = output
+                .shapes
+                .iter()
+                .filter(|s| !matches!(s.shape, Shape::Noop))
+                .count();
+            assert!(icon_shapes > 1, "{kind:?} painted {icon_shapes} shapes");
+        }
     }
 }
