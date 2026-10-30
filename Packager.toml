@@ -10,6 +10,7 @@ version = "0.1.0"
 description = "Endless, consistent roleplay with the AI model of your choice."
 authors = ["RoleplayHarness"]
 license-file = "LICENSE"
+icons = ["assets/icon.png"]
 out-dir = "dist"
 binaries-dir = "target/release"
 binaries = [{ path = "ir-app", main = true }]
