@@ -4,8 +4,10 @@ mod app;
 mod backend;
 mod characters;
 mod chat;
+mod fatal;
 mod format;
 mod library;
+mod logging;
 mod prompts;
 mod settings_ui;
 mod sidebar;
@@ -25,14 +27,27 @@ use crate::app::App;
 use crate::backend::{default_provider_factory, Request, Services};
 use crate::library::Library;
 
-fn main() -> anyhow::Result<()> {
+fn main() {
+    if let Err(e) = run() {
+        tracing::error!("startup failed: {e:#}");
+        fatal::show(&format!("{e:#}"));
+        std::process::exit(1);
+    }
+}
+
+fn run() -> anyhow::Result<()> {
+    let data_dir = Settings::data_dir().context("could not find the data directory")?;
+    let settings_path = Settings::default_path().context("could not find the settings file")?;
+    // An unreadable settings file is reported by the backend; here it only means no log.
+    let logging = Settings::load_from(&settings_path).is_ok_and(|s| s.debug.logging);
+    if let Some(log) = logging::init(logging, &data_dir) {
+        tracing::info!(log = %log.display(), "debug log enabled");
+    }
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .context("could not start the async runtime")?;
-    let data_dir = Settings::data_dir().context("could not find the data directory")?;
     let db = Db::open(&data_dir.join(DB_FILE)).context("could not open the database")?;
-    let settings_path = Settings::default_path().context("could not find the settings file")?;
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()

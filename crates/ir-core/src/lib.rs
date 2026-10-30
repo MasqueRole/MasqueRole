@@ -10,6 +10,7 @@ pub mod context;
 pub mod db;
 pub mod lorebook;
 pub mod memory;
+pub mod redact;
 pub mod settings;
 pub mod tree;
 

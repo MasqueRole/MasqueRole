@@ -4,7 +4,7 @@
 
 InfiniteRoleplay sits between you and the language model provider you choose (xAI, OpenAI, Anthropic, OpenRouter, or a local model via Ollama or LM Studio). It handles character cards, world knowledge, long-term memory, and a branching story tree, so stories don't fall apart when they hit context limits or the model forgets what happened.
 
-> 🚧 **Status: early development.** The repository currently contains only this README. Everything below describes the planned design and is not yet implemented. Installation steps, commands, and the project layout will work as described once the first release lands.
+> 🚧 **Status: pre-release.** The core, the design system, and the desktop app (chat, settings, character and world editors, story tree view) are implemented and tested. No installers have been published yet, so for now you build from source. Some planned features, such as group scenes with several characters, are not implemented yet.
 
 ---
 
@@ -79,7 +79,7 @@ The code is split into a UI-independent **core library** and a thin **GUI app**.
 
 ### Download
 
-Prebuilt binaries will be published on the [Releases](https://github.com/baicore/InfiniteRoleplay/releases) page once the first version is out.
+Installers for Windows (`.exe`) and Linux (`.deb`, `.AppImage`) are built by the release workflow and attached to each version on the [Releases](https://github.com/baicore/InfiniteRoleplay/releases) page. Until the first version is tagged, build from source.
 
 ### Build from source
 
@@ -89,6 +89,14 @@ cd InfiniteRoleplay
 
 cargo run -p ir-app               # run in development mode
 cargo build --release -p ir-app   # optimized binary in target/release/
+```
+
+To build the installers yourself, install [`cargo-packager`](https://github.com/crabnebula-dev/cargo-packager) and run it after a release build (settings are in `Packager.toml`):
+
+```bash
+cargo install cargo-packager --locked
+cargo packager --release --formats nsis          # Windows
+cargo packager --release --formats deb,appimage  # Linux
 ```
 
 ## Quick Start
@@ -130,6 +138,9 @@ narrator_mode = false
 auto_checkpoint = true
 node_label = "auto"       # "auto" = short AI-generated label, "manual" = ask
 show_tree_on_branch = true
+
+[debug]
+logging = false           # write infiniteroleplay.log next to settings.toml (after a restart)
 ```
 
 | Setting                    | Description                                                    |
@@ -142,6 +153,7 @@ show_tree_on_branch = true
 | `memory.fact_extraction`   | Automatically remember important facts                         |
 | `tree.auto_checkpoint`     | Create a story-tree node after every turn                      |
 | `tree.node_label`          | `auto` = short AI-generated label, `manual` = ask every time   |
+| `debug.logging`            | Write a debug log for bug reports. API keys are removed from it |
 
 > ⚠️ The API key is stored in your operating system's keychain, never in `settings.toml`. Don't commit keys to version control.
 
@@ -279,30 +291,31 @@ InfiniteRoleplay/
 │   │       ├── memory.rs       # Summaries & fact store
 │   │       ├── lorebook.rs     # Keyword-triggered injection
 │   │       ├── tree.rs         # Story tree: nodes, branches, rewind
-│   │       ├── session.rs      # Save, load, resume
 │   │       ├── commands.rs     # Slash commands
 │   │       ├── db.rs           # SQLite schema and queries
+│   │       ├── redact.rs       # Keeps API keys out of logs
 │   │       └── settings.rs     # Settings and keychain access
 │   ├── ir-ui/                  # Design system: theme tokens + reusable components
 │   └── ir-app/                 # Desktop GUI (egui / eframe)
 │       └── src/
 │           ├── main.rs
 │           ├── chat.rs
+│           ├── backend.rs      # Async worker: database, network, memory
 │           ├── tree_view.rs    # Skill-tree view
 │           ├── characters.rs
 │           └── settings_ui.rs
 ├── characters/                 # Example character cards
 ├── worlds/                     # Example lorebooks
-├── prompts/                    # System prompts & style profiles
+├── Packager.toml               # Installer settings (cargo-packager)
 ├── AGENTS.md                   # Step-by-step build instructions for AI agents
+├── LICENSE
 └── README.md
 ```
 
 ## Roadmap
 
-- [ ] First desktop release for Windows and Linux
-- [ ] Installers (e.g. via `cargo-packager`)
-- [ ] Story tree improvements (zoom, drag, collapse branches)
+- [ ] First tagged desktop release for Windows and Linux (installer workflow is in place)
+- [ ] Multiple characters in one scene
 - [ ] Merge facts between branches
 - [ ] Vector-based memory search
 - [ ] Import of character cards from common formats
@@ -332,7 +345,7 @@ Please describe your changes clearly, run `cargo fmt` and `cargo clippy` before 
 
 ## License
 
-Planned to be released under the MIT License. A `LICENSE` file will be added to the repository.
+Released under the [MIT License](LICENSE).
 
 ---
 

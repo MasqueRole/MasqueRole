@@ -258,11 +258,15 @@ impl OpenAiCompatible {
             .connect_timeout(Duration::from_secs(15))
             .build()
             .map_err(|e| LlmError::Network(e.to_string()))?;
+        let api_key = config.api_key.filter(|k| !k.is_empty());
+        if let Some(key) = &api_key {
+            crate::redact::register_secret(key);
+        }
         Ok(Self {
             http,
             url: format!("{}/chat/completions", config.base_url.trim_end_matches('/')),
             model: config.model,
-            api_key: config.api_key.filter(|k| !k.is_empty()),
+            api_key,
         })
     }
 
@@ -287,8 +291,14 @@ impl OpenAiCompatible {
         if let Some(timeout) = timeout {
             request = request.timeout(timeout);
         }
-        let response = request.send().await.map_err(network_error)?;
+        tracing::debug!(url = %self.url, model = %self.model, stream, messages = messages.len(), "sending chat request");
+        let response = request.send().await.map_err(|e| {
+            let error = network_error(e);
+            tracing::warn!(%error, "chat request failed");
+            error
+        })?;
         let status = response.status();
+        tracing::debug!(status = status.as_u16(), "chat response");
         if status.is_success() {
             return Ok(response);
         }
@@ -298,7 +308,9 @@ impl OpenAiCompatible {
             .and_then(|v| v.to_str().ok())
             .and_then(|v| v.trim().parse().ok());
         let body = response.text().await.unwrap_or_default();
-        Err(error_from_status(status.as_u16(), retry_after, &body))
+        let error = error_from_status(status.as_u16(), retry_after, &body);
+        tracing::warn!(status = status.as_u16(), %error, "provider rejected the request");
+        Err(error)
     }
 }
 

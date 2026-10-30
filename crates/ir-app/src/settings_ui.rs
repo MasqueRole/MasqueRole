@@ -242,6 +242,23 @@ impl SettingsForm {
             })
             .show(ui);
         ui.add_space(spacing::LG);
+
+        Card::new()
+            .header(|ui| {
+                Card::title(ui, "Troubleshooting");
+                Card::description(
+                    ui,
+                    "For bug reports. API keys are never written to the log.",
+                );
+            })
+            .content(|ui| {
+                ui.add(
+                    Switch::new(&mut self.settings.debug.logging)
+                        .label("Write a debug log (applies after a restart)"),
+                );
+            })
+            .show(ui);
+        ui.add_space(spacing::LG);
         action
     }
 }

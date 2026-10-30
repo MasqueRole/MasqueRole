@@ -294,7 +294,9 @@ impl Actor {
     }
 
     fn error(&self, message: impl ToString) {
-        self.emit(Event::Error(message.to_string()));
+        let message = message.to_string();
+        tracing::warn!(%message, "error shown to the user");
+        self.emit(Event::Error(message));
     }
 
     fn handle(&mut self, request: Request) {
@@ -761,6 +763,7 @@ impl Actor {
         };
         let cancel = Arc::new(Notify::new());
         self.cancel = Some(cancel.clone());
+        tracing::debug!(session = ?session, "generation started");
         self.emit(Event::Generating(true));
 
         let (requests, events, wake) = (
@@ -889,6 +892,7 @@ impl Actor {
                             });
                         }
                         Err(e) => {
+                            tracing::warn!(error = %e, "summarizing failed");
                             let _ = events.send(Event::Error(format!("Could not summarize: {e}")));
                         }
                     }
@@ -914,6 +918,7 @@ impl Actor {
                     }
                     Ok(_) => {}
                     Err(e) => {
+                        tracing::warn!(error = %e, "fact extraction failed");
                         let _ = events.send(Event::Error(format!("Could not extract facts: {e}")));
                     }
                 }

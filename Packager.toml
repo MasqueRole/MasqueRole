@@ -1,0 +1,13 @@
+# Installer settings for cargo-packager. Build first, then run:
+#   cargo build --release -p ir-app
+#   cargo packager --release --formats nsis        # Windows
+#   cargo packager --release --formats deb,appimage # Linux
+product-name = "InfiniteRoleplay"
+identifier = "io.github.baicore.infiniteroleplay"
+version = "0.1.0"
+description = "Endless, consistent roleplay with the AI model of your choice."
+authors = ["baicore"]
+license-file = "LICENSE"
+out-dir = "dist"
+binaries-dir = "target/release"
+binaries = [{ path = "ir-app", main = true }]

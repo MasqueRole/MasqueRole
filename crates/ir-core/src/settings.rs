@@ -63,6 +63,17 @@ pub struct Settings {
     pub style: StyleSettings,
     /// Story tree behavior.
     pub tree: TreeSettings,
+    /// Troubleshooting options.
+    pub debug: DebugSettings,
+}
+
+/// Troubleshooting options.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DebugSettings {
+    /// Write a log file in the data directory. Takes effect at the next start. API keys
+    /// are never written to it.
+    pub logging: bool,
 }
 
 /// Provider connection and generation parameters. The API key is not stored here.
@@ -361,6 +372,7 @@ mod tests {
         assert_eq!(s.style.profile, "default");
         assert!(!s.style.narrator_mode);
         assert!(s.tree.auto_checkpoint && s.tree.show_tree_on_branch);
+        assert!(!s.debug.logging);
         assert_eq!(s.tree.node_label, NodeLabel::Auto);
     }
 

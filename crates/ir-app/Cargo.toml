@@ -14,3 +14,5 @@ anyhow.workspace = true
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "sync", "macros", "time"] }
 futures-util = "0.3.34"
 serde_yaml_ng = "0.10.0"
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", default-features = false, features = ["fmt", "std", "registry"] }
