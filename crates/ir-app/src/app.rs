@@ -14,10 +14,10 @@ use ir_core::db::{NodeId, Session, SessionId};
 use ir_core::lorebook::Lorebook;
 use ir_core::settings::Settings;
 use ir_ui::components::{
-    Button, ButtonSize, ButtonVariant, Card, Dialog, FormField, Icon, Input, Island, Panel,
-    ScrollArea, Select, Tabs, Toast, Toasts,
+    Button, ButtonSize, ButtonVariant, Card, Dialog, FormField, IconKind, Input, Logo, Panel,
+    ScrollArea, Select, Tabs, Toast, Toasts, TooltipExt, TopBar,
 };
-use ir_ui::{spacing, Theme, ThemeMode};
+use ir_ui::{Theme, ThemeMode};
 
 use crate::backend::{Backend, Event, Request, Transcript, TreeData};
 use crate::characters::{CharacterForm, WorldForm};
@@ -63,6 +63,16 @@ impl Section {
         Section::Worlds,
         Section::Tree,
     ];
+
+    /// The icon in the top navigation.
+    pub fn icon(self) -> IconKind {
+        match self {
+            Self::Stories => IconKind::Chat,
+            Self::Characters => IconKind::User,
+            Self::Worlds => IconKind::Globe,
+            Self::Tree => IconKind::Branch,
+        }
+    }
 
     /// The label in the top navigation.
     pub fn label(self) -> &'static str {
@@ -125,6 +135,8 @@ pub struct ChatState {
     pub generating: bool,
     /// The text of the response so far.
     pub streaming: String,
+    /// The id of the input field, once it has been drawn.
+    pub input_id: Option<eframe::egui::Id>,
 }
 
 /// The new-session dialog.
@@ -470,7 +482,7 @@ impl App {
             self.tree_view.sync(self.tree.as_ref(), self.tree_version);
         }
 
-        Island::new("top-bar").show(ctx, |ui| self.top_bar(ui));
+        self.top_bar(ctx);
         Panel::side("sidebar", SIDEBAR_WIDTH).show(ctx, |ui| sidebar::show(self, ui));
         if self.has_footer() {
             Panel::bottom("footer").show(ctx, |ui| self.footer(ui));
@@ -481,25 +493,40 @@ impl App {
         self.toasts.show(ctx);
     }
 
-    /// The content of the floating island: logo, section tabs, and the settings button.
-    fn top_bar(&mut self, ui: &mut Ui) {
-        if let Some(logo) = &self.logo {
-            ui.add(Icon::new(logo).width(LOGO_WIDTH));
-            ui.add_space(spacing::SM);
+    /// The top bar: the logo at the left, the section tabs in the middle, and the settings
+    /// button at the right.
+    fn top_bar(&mut self, ctx: &Context) {
+        let mut section = self.section;
+        let mut settings = false;
+        let logo = self.logo.clone();
+        TopBar::new("top-bar").show(
+            ctx,
+            |ui| {
+                if let Some(logo) = &logo {
+                    ui.add(Logo::new(logo).width(LOGO_WIDTH));
+                }
+            },
+            |ui| {
+                let mut selected = Section::ALL.iter().position(|s| *s == section).unwrap_or(0);
+                let tabs = Tabs::new(&mut selected, Section::ALL.iter().map(|s| s.label()))
+                    .icons(Section::ALL.iter().map(|s| s.icon()))
+                    .pills(true);
+                if ui.add(tabs).changed() {
+                    section = Section::ALL[selected];
+                }
+            },
+            |ui| {
+                let button = Button::new("")
+                    .icon(IconKind::Settings)
+                    .variant(ButtonVariant::Ghost)
+                    .size(ButtonSize::Icon);
+                settings = ui.add(button).ir_tooltip("Settings").clicked();
+            },
+        );
+        if section != self.section {
+            self.show_section(section);
         }
-        let mut selected = Section::ALL
-            .iter()
-            .position(|s| *s == self.section)
-            .unwrap_or(0);
-        let labels = Section::ALL.iter().map(|s| s.label());
-        if ui.add(Tabs::new(&mut selected, labels)).changed() {
-            self.show_section(Section::ALL[selected]);
-        }
-        ui.add_space(spacing::SM);
-        let settings = Button::new("Settings")
-            .variant(ButtonVariant::Secondary)
-            .size(ButtonSize::Sm);
-        if ui.add(settings).clicked() {
+        if settings {
             self.open_settings();
         }
     }
@@ -783,6 +810,27 @@ mod tests {
             let _ = self.ctx.run(input, |ctx| app.ui(ctx));
         }
 
+        fn frame_with(&mut self, events: Vec<egui::Event>) {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1100.0, 720.0),
+                )),
+                // A real keyboard reports held modifiers on the input itself too.
+                modifiers: events
+                    .iter()
+                    .find_map(|e| match e {
+                        egui::Event::Key { modifiers, .. } => Some(*modifiers),
+                        _ => None,
+                    })
+                    .unwrap_or_default(),
+                events,
+                ..Default::default()
+            };
+            let app = &mut self.app;
+            let _ = self.ctx.run(input, |ctx| app.ui(ctx));
+        }
+
         fn push(&mut self, event: Event) {
             self.events.send(event).unwrap();
             self.frame();
@@ -960,6 +1008,63 @@ mod tests {
     }
 
     // ---- sending ----
+
+    fn enter(modifiers: egui::Modifiers) -> Vec<egui::Event> {
+        [true, false]
+            .into_iter()
+            .map(|pressed| egui::Event::Key {
+                key: egui::Key::Enter,
+                physical_key: Some(egui::Key::Enter),
+                pressed,
+                repeat: false,
+                modifiers,
+            })
+            .collect()
+    }
+
+    /// A rig with an open story and the chat input focused.
+    fn rig_with_focused_input() -> Rig {
+        let mut rig = Rig::new();
+        rig.push(Event::Transcript(transcript(1, "Harbor")));
+        rig.frame();
+        let id = rig.app.chat.input_id.expect("the input was drawn");
+        rig.ctx.memory_mut(|m| m.request_focus(id));
+        rig.frame();
+        rig
+    }
+
+    #[test]
+    fn enter_in_the_message_box_sends_the_message() {
+        let mut rig = rig_with_focused_input();
+        rig.app.chat.input = "I wave.".into();
+        rig.frame_with(enter(egui::Modifiers::NONE));
+        assert_eq!(rig.sent(), [r#"Send("I wave.")"#]);
+        assert!(rig.app.chat.input.is_empty());
+    }
+
+    #[test]
+    fn shift_enter_does_not_send() {
+        let mut rig = rig_with_focused_input();
+        rig.app.chat.input = "First line".into();
+        rig.frame_with(enter(egui::Modifiers::SHIFT));
+        let sent = rig.sent();
+        assert!(sent.is_empty(), "{sent:?}");
+        let input = &rig.app.chat.input;
+        assert!(
+            input.contains("First line") && input.contains(char::from(10)),
+            "{input:?}"
+        );
+    }
+
+    #[test]
+    fn enter_without_focus_in_the_message_box_sends_nothing() {
+        let mut rig = Rig::new();
+        rig.push(Event::Transcript(transcript(1, "Harbor")));
+        rig.app.chat.input = "Stay.".into();
+        rig.frame_with(enter(egui::Modifiers::NONE));
+        assert!(rig.sent().is_empty());
+        assert_eq!(rig.app.chat.input, "Stay.");
+    }
 
     #[test]
     fn messages_and_safe_commands_are_sent_immediately() {

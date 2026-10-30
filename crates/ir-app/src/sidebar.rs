@@ -1,15 +1,12 @@
 //! The sidebar: the list that belongs to the section chosen in the top navigation.
 
 use eframe::egui::Ui;
-use ir_ui::components::{Button, ButtonSize, ButtonVariant, Label, ScrollArea};
+use ir_ui::components::{Button, ButtonVariant, IconKind, Label, ListItem, MenuItem, ScrollArea};
 use ir_ui::spacing;
 
 use crate::app::{App, Confirm, Section};
 use crate::backend::Request;
 use crate::characters::{CharacterForm, WorldForm};
-
-/// Width of the small icon buttons next to list rows.
-const ICON_WIDTH: f32 = 32.0;
 
 /// Draw the sidebar for the current section.
 pub fn show(app: &mut App, ui: &mut Ui) {
@@ -32,6 +29,7 @@ fn heading(ui: &mut Ui, text: &str) {
 fn create_button(ui: &mut Ui, text: &str) -> bool {
     ui.add(
         Button::new(text)
+            .icon(IconKind::Plus)
             .variant(ButtonVariant::Outline)
             .fill_width(true),
     )
@@ -43,32 +41,18 @@ fn empty(ui: &mut Ui, text: &str) {
     ui.add(Label::new(text).small().muted());
 }
 
-/// A list row with a delete button at its right edge. Returns `(row clicked, delete clicked)`.
-fn row(ui: &mut Ui, text: &str, selected: bool) -> (bool, bool) {
-    let (mut open, mut delete) = (false, false);
-    ui.horizontal(|ui| {
-        let width = (ui.available_width() - ICON_WIDTH - ui.spacing().item_spacing.x).max(0.0);
-        // A scope, not `allocate_ui`, so the row is exactly as tall as its button.
-        ui.scope(|ui| {
-            ui.set_max_width(width);
-            let variant = if selected {
-                ButtonVariant::Secondary
-            } else {
-                ButtonVariant::Ghost
-            };
-            open = ui
-                .add(Button::new(text).variant(variant).fill_width(true))
-                .clicked();
-        });
-        delete = ui
-            .add(
-                Button::new("\u{d7}")
-                    .variant(ButtonVariant::Ghost)
-                    .size(ButtonSize::Icon),
-            )
-            .clicked();
+/// A list row whose three-dots menu holds a red delete item. Returns `(row clicked, delete
+/// chosen)`.
+fn row(ui: &mut Ui, id: impl std::hash::Hash, text: &str, selected: bool) -> (bool, bool) {
+    let out = ListItem::new(id, text).selected(selected).show(ui, |ui| {
+        ui.add(
+            MenuItem::new("Delete")
+                .icon(IconKind::Trash)
+                .destructive(true),
+        )
+        .clicked()
     });
-    (open, delete)
+    (out.clicked, out.menu == Some(true))
 }
 
 fn sessions(app: &mut App, ui: &mut Ui) {
@@ -81,7 +65,12 @@ fn sessions(app: &mut App, ui: &mut Ui) {
     }
     let active = app.transcript.as_ref().map(|t| t.session.id);
     for session in app.sessions.clone() {
-        let (open, delete) = row(ui, &session.name, active == Some(session.id));
+        let (open, delete) = row(
+            ui,
+            ("session", session.id.0),
+            &session.name,
+            active == Some(session.id),
+        );
         if open {
             app.backend.send(Request::OpenSession(session.id));
         }
@@ -107,7 +96,7 @@ fn characters(app: &mut App, ui: &mut Ui) {
             .character_form
             .as_ref()
             .is_some_and(|f| f.path.as_ref() == Some(&entry.path));
-        let (open, delete) = row(ui, &entry.item.name, editing);
+        let (open, delete) = row(ui, ("character", &entry.path), &entry.item.name, editing);
         if open {
             app.character_form = Some(CharacterForm::from_character(
                 entry.path.clone(),
@@ -136,7 +125,7 @@ fn worlds(app: &mut App, ui: &mut Ui) {
             .world_form
             .as_ref()
             .is_some_and(|f| f.path.as_ref() == Some(&entry.path));
-        let (open, delete) = row(ui, &entry.item.name, editing);
+        let (open, delete) = row(ui, ("world", &entry.path), &entry.item.name, editing);
         if open {
             app.world_form = Some(WorldForm::from_lorebook(entry.path.clone(), &entry.item));
         }

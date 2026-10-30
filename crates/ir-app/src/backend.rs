@@ -389,9 +389,6 @@ impl Actor {
                 Err(e) => self.error(e),
             }
         }
-        if let Err(e) = self.library.seed_examples() {
-            self.error(format!("Could not create the example library: {e}"));
-        }
         self.reload_library();
         self.emit_settings();
         self.emit_sessions();
@@ -1084,9 +1081,34 @@ mod tests {
         dir: TempDir,
     }
 
+    const MIRA: &str = r#"
+name: "Mira Valen"
+description: "A cartographer and reluctant adventurer."
+personality: [curious, sarcastic]
+speaking_style: "Dry, short sentences."
+greeting: "Ah, another one who got lost?"
+"#;
+
+    const COAST: &str = r#"
+name: "The Misty Coast"
+setting: "A coastal region where constant fog makes navigation nearly impossible."
+entries:
+  - keys: ["lighthouse", "keeper"]
+    content: "The Karrow lighthouse has been guarded by an order for centuries."
+  - keys: ["fogglass"]
+    content: "Fogglass is a rare mineral that briefly clears fog."
+"#;
+
     impl Rig {
         fn start(name: &str, mock: Arc<Mock>, with_key: bool, settings_file: bool) -> Self {
             let dir = TempDir::new(name);
+            let library = Library::new(dir.0.join("library"));
+            library
+                .save_character(None, &Character::from_yaml(MIRA).unwrap())
+                .unwrap();
+            library
+                .save_world(None, &Lorebook::from_yaml(COAST).unwrap())
+                .unwrap();
             let secrets = Arc::new(MemoryStore::default());
             if with_key {
                 secrets.set("openai-compatible", "test-key").unwrap();
@@ -1094,7 +1116,7 @@ mod tests {
             let provider_mock = mock.clone();
             let services = Services {
                 db: Db::open_in_memory().unwrap(),
-                library: Library::new(dir.0.join("library")),
+                library,
                 settings_path: settings_file.then(|| dir.0.join("settings.toml")),
                 secrets: secrets.clone(),
                 provider: Arc::new(move |_, _| Ok(provider_mock.clone() as Arc<dyn LlmProvider>)),
@@ -1166,13 +1188,17 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn init_seeds_the_library_and_reports_settings_and_no_sessions() {
+    async fn init_reports_the_library_settings_and_no_sessions() {
         let rig = Rig::start("init", Mock::new(&["x"]), true, false);
         let (characters, worlds) = rig.wait_for(|e| match e {
             Event::Library { characters, worlds } => Some((characters.len(), worlds.len())),
             _ => None,
         });
-        assert_eq!((characters, worlds), (2, 1));
+        assert_eq!(
+            (characters, worlds),
+            (1, 1),
+            "the library holds what the tests put in it"
+        );
         let key = rig.wait_for(|e| match e {
             Event::Settings { key_available, .. } => Some(*key_available),
             _ => None,
@@ -1446,7 +1472,7 @@ mod tests {
             Event::Library { characters, .. } => Some(characters.len()),
             _ => None,
         });
-        assert_eq!(initial, 2);
+        assert_eq!(initial, 1);
 
         let bo = Character::from_yaml("name: Bo\ngreeting: Hi.").unwrap();
         rig.backend.send(Request::SaveCharacter {
@@ -1454,7 +1480,7 @@ mod tests {
             character: bo,
         });
         let characters = rig.wait_for(|e| match e {
-            Event::Library { characters, .. } if characters.len() == 3 => Some(characters.clone()),
+            Event::Library { characters, .. } if characters.len() == 2 => Some(characters.clone()),
             _ => None,
         });
         let path = characters
@@ -1466,7 +1492,7 @@ mod tests {
 
         rig.backend.send(Request::DeleteCharacter(path));
         rig.wait_for(|e| {
-            matches!(e, Event::Library { characters, .. } if characters.len() == 2).then_some(())
+            matches!(e, Event::Library { characters, .. } if characters.len() == 1).then_some(())
         });
 
         rig.backend.send(Request::SaveCharacter {
