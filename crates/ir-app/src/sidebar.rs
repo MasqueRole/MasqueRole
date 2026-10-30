@@ -1,30 +1,46 @@
-//! The sidebar: sessions, characters, and worlds.
+//! The sidebar: the list that belongs to the section chosen in the top navigation.
 
 use eframe::egui::Ui;
 use ir_ui::components::{Button, ButtonSize, ButtonVariant, Label, ScrollArea};
 use ir_ui::spacing;
 
-use crate::app::{App, Confirm, Screen};
+use crate::app::{App, Confirm, Section};
 use crate::backend::Request;
 use crate::characters::{CharacterForm, WorldForm};
 
 /// Width of the small icon buttons next to list rows.
 const ICON_WIDTH: f32 = 32.0;
 
-/// Draw the sidebar.
+/// Draw the sidebar for the current section.
 pub fn show(app: &mut App, ui: &mut Ui) {
     ScrollArea::vertical().id_salt("sidebar").show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = spacing::XS;
-        sessions(app, ui);
-        characters(app, ui);
-        worlds(app, ui);
+        match app.section {
+            Section::Stories | Section::Tree => sessions(app, ui),
+            Section::Characters => characters(app, ui),
+            Section::Worlds => worlds(app, ui),
+        }
     });
 }
 
 fn heading(ui: &mut Ui, text: &str) {
-    ui.add_space(spacing::MD);
+    ui.add_space(spacing::XS);
     ui.add(Label::new(text).small().muted());
     ui.add_space(spacing::XS);
+}
+
+fn create_button(ui: &mut Ui, text: &str) -> bool {
+    ui.add(
+        Button::new(text)
+            .variant(ButtonVariant::Outline)
+            .fill_width(true),
+    )
+    .clicked()
+}
+
+fn empty(ui: &mut Ui, text: &str) {
+    ui.add_space(spacing::SM);
+    ui.add(Label::new(text).small().muted());
 }
 
 /// A list row with a delete button at its right edge. Returns `(row clicked, delete clicked)`.
@@ -56,22 +72,17 @@ fn row(ui: &mut Ui, text: &str, selected: bool) -> (bool, bool) {
 }
 
 fn sessions(app: &mut App, ui: &mut Ui) {
-    heading(ui, "SESSIONS");
-    if ui
-        .add(
-            Button::new("New session")
-                .variant(ButtonVariant::Outline)
-                .fill_width(true),
-        )
-        .clicked()
-    {
+    heading(ui, "STORIES");
+    if create_button(ui, "New session") {
         app.open_new_session();
+    }
+    if app.sessions.is_empty() {
+        empty(ui, "No stories yet.");
     }
     let active = app.transcript.as_ref().map(|t| t.session.id);
     for session in app.sessions.clone() {
         let (open, delete) = row(ui, &session.name, active == Some(session.id));
         if open {
-            app.screen = Screen::Chat;
             app.backend.send(Request::OpenSession(session.id));
         }
         if delete {
@@ -85,22 +96,20 @@ fn sessions(app: &mut App, ui: &mut Ui) {
 
 fn characters(app: &mut App, ui: &mut Ui) {
     heading(ui, "CHARACTERS");
-    if ui
-        .add(
-            Button::new("New character")
-                .variant(ButtonVariant::Outline)
-                .fill_width(true),
-        )
-        .clicked()
-    {
-        app.screen = Screen::Character(CharacterForm::new());
+    if create_button(ui, "New character") {
+        app.character_form = Some(CharacterForm::new());
+    }
+    if app.characters.is_empty() {
+        empty(ui, "No characters yet.");
     }
     for entry in app.characters.clone() {
-        let editing =
-            matches!(&app.screen, Screen::Character(f) if f.path.as_ref() == Some(&entry.path));
+        let editing = app
+            .character_form
+            .as_ref()
+            .is_some_and(|f| f.path.as_ref() == Some(&entry.path));
         let (open, delete) = row(ui, &entry.item.name, editing);
         if open {
-            app.screen = Screen::Character(CharacterForm::from_character(
+            app.character_form = Some(CharacterForm::from_character(
                 entry.path.clone(),
                 &entry.item,
             ));
@@ -116,22 +125,20 @@ fn characters(app: &mut App, ui: &mut Ui) {
 
 fn worlds(app: &mut App, ui: &mut Ui) {
     heading(ui, "WORLDS");
-    if ui
-        .add(
-            Button::new("New world")
-                .variant(ButtonVariant::Outline)
-                .fill_width(true),
-        )
-        .clicked()
-    {
-        app.screen = Screen::World(WorldForm::new());
+    if create_button(ui, "New world") {
+        app.world_form = Some(WorldForm::new());
+    }
+    if app.worlds.is_empty() {
+        empty(ui, "No worlds yet.");
     }
     for entry in app.worlds.clone() {
-        let editing =
-            matches!(&app.screen, Screen::World(f) if f.path.as_ref() == Some(&entry.path));
+        let editing = app
+            .world_form
+            .as_ref()
+            .is_some_and(|f| f.path.as_ref() == Some(&entry.path));
         let (open, delete) = row(ui, &entry.item.name, editing);
         if open {
-            app.screen = Screen::World(WorldForm::from_lorebook(entry.path.clone(), &entry.item));
+            app.world_form = Some(WorldForm::from_lorebook(entry.path.clone(), &entry.item));
         }
         if delete {
             app.confirm = Some(Confirm::DeleteWorld {

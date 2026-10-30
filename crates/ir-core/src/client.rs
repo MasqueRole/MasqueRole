@@ -146,7 +146,8 @@ pub const PRESETS: &[ProviderPreset] = &[
         id: "openai-compatible",
         name: "Custom (OpenAI-compatible)",
         base_url: "",
-        key_required: true,
+        // Most custom endpoints are local servers; one that wants a key answers 401.
+        key_required: false,
     },
     ProviderPreset {
         id: "xai",
@@ -764,6 +765,7 @@ mod tests {
             .all(|p| p.base_url.is_empty() || p.base_url.starts_with("http")));
         assert!(!find_preset("ollama").unwrap().key_required);
         assert!(find_preset("xai").unwrap().key_required);
+        assert!(!find_preset("openai-compatible").unwrap().key_required);
         assert!(find_preset("nope").is_none());
         // The default provider setting must be a known preset.
         assert!(find_preset(&ApiSettings::default().provider).is_some());

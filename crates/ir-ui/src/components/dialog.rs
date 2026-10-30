@@ -6,7 +6,7 @@ use egui::{Align, Context, Frame, Id, Layout, Margin, Modal, RichText, Stroke, U
 
 use crate::theme::{spacing, ThemeExt, BORDER_WIDTH};
 
-/// Width of the dialog body, in logical pixels.
+/// Default width of the dialog body, in logical pixels.
 const DIALOG_WIDTH: f32 = 420.0;
 
 /// A modal dialog over a dimmed backdrop. It closes on Escape or a click outside it.
@@ -18,6 +18,7 @@ pub struct Dialog {
     id: Id,
     title: String,
     description: Option<String>,
+    width: f32,
 }
 
 impl Dialog {
@@ -27,7 +28,14 @@ impl Dialog {
             id: Id::new(id_salt),
             title: title.into(),
             description: None,
+            width: DIALOG_WIDTH,
         }
+    }
+
+    /// The width of the dialog body, in logical pixels. For dialogs holding a form.
+    pub fn width(mut self, width: f32) -> Self {
+        self.width = width;
+        self
     }
 
     /// Explanatory text below the title.
@@ -58,7 +66,7 @@ impl Dialog {
             .frame(frame)
             .backdrop_color(t.scrim)
             .show(ctx, |ui| {
-                ui.set_width(DIALOG_WIDTH);
+                ui.set_width(self.width);
                 ui.spacing_mut().item_spacing.y = spacing::SM;
                 ui.label(
                     RichText::new(&self.title)

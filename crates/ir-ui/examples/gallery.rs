@@ -7,8 +7,8 @@
 use eframe::egui;
 use ir_ui::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ChatBubble, Checkbox, Dialog,
-    FormField, Input, Label, LabelTone, Panel, Popover, ScrollArea, Select, Separator, Slider,
-    Switch, Tabs, Textarea, Toast, Toasts, TooltipExt, TreeNode, TreeNodeState,
+    FormField, Icon, Input, Island, Label, LabelTone, Panel, Popover, ScrollArea, Select,
+    Separator, Slider, Switch, Tabs, Textarea, Toast, Toasts, TooltipExt, TreeNode, TreeNodeState,
 };
 use ir_ui::{spacing, Theme, ThemeExt, ThemeMode};
 
@@ -28,6 +28,7 @@ struct Gallery {
     node_selected: bool,
     dialog_open: bool,
     toasts: Toasts,
+    logo: Option<egui::TextureHandle>,
 }
 
 impl Gallery {
@@ -56,7 +57,22 @@ impl Gallery {
             node_selected: false,
             dialog_open,
             toasts,
+            logo: None,
         }
+    }
+
+    /// The app logo, decoded on first use.
+    fn logo(&mut self, ctx: &egui::Context) -> Option<&egui::TextureHandle> {
+        if self.logo.is_none() {
+            let png = include_bytes!("../../../assets/logo.png");
+            let icon = eframe::icon_data::from_png_bytes(png).ok()?;
+            let image = egui::ColorImage::from_rgba_unmultiplied(
+                [icon.width as usize, icon.height as usize],
+                &icon.rgba,
+            );
+            self.logo = Some(ctx.load_texture("logo", image, egui::TextureOptions::LINEAR));
+        }
+        self.logo.as_ref()
     }
 
     fn section(ui: &mut egui::Ui, title: &str) {
@@ -258,6 +274,17 @@ impl Gallery {
             });
         });
 
+        Self::section(ui, "Icon");
+        ui.add(
+            Label::new("A white texture, painted in the foreground color.")
+                .muted()
+                .small(),
+        );
+        let ctx = ui.ctx().clone();
+        if let Some(logo) = self.logo(&ctx) {
+            ui.add(Icon::new(logo).width(96.0));
+        }
+
         Self::section(ui, "Dialog and Toast");
         ui.horizontal(|ui| {
             if ui.add(Button::new("Open dialog")).clicked() {
@@ -351,29 +378,28 @@ impl Gallery {
 
 impl eframe::App for Gallery {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        Panel::top("top").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.add(Label::new("ir-ui gallery").heading());
-                ui.add_space(spacing::LG);
-                for (label, mode) in [
-                    ("System", ThemeMode::System),
-                    ("Light", ThemeMode::Light),
-                    ("Dark", ThemeMode::Dark),
-                ] {
-                    let variant = if self.mode == mode {
-                        ButtonVariant::Default
-                    } else {
-                        ButtonVariant::Outline
-                    };
-                    if ui
-                        .add(Button::new(label).variant(variant).size(ButtonSize::Sm))
-                        .clicked()
-                    {
-                        self.mode = mode;
-                        Theme::set_mode(ctx, mode);
-                    }
+        // The header doubles as the Island example.
+        Island::new("top").show(ctx, |ui| {
+            ui.add(Label::new("ir-ui gallery").heading());
+            ui.add_space(spacing::LG);
+            for (label, mode) in [
+                ("System", ThemeMode::System),
+                ("Light", ThemeMode::Light),
+                ("Dark", ThemeMode::Dark),
+            ] {
+                let variant = if self.mode == mode {
+                    ButtonVariant::Default
+                } else {
+                    ButtonVariant::Outline
+                };
+                if ui
+                    .add(Button::new(label).variant(variant).size(ButtonSize::Sm))
+                    .clicked()
+                {
+                    self.mode = mode;
+                    Theme::set_mode(ctx, mode);
                 }
-            });
+            }
         });
 
         Panel::central().show(ctx, |ui| {

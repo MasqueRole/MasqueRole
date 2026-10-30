@@ -1294,9 +1294,15 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_missing_key_is_reported_before_any_request() {
+    async fn a_missing_key_is_reported_before_any_request_when_the_provider_needs_one() {
         let rig = Rig::start("nokey", Mock::new(&["x"]), false, false);
         rig.start_story();
+        let mut settings = Settings::default();
+        settings.api.provider = "xai".into();
+        rig.backend.send(Request::SaveSettings {
+            settings,
+            api_key: None,
+        });
         rig.backend.send(Request::Send("Hello.".into()));
         let error = rig.wait_for(|e| match e {
             Event::Error(m) => Some(m.clone()),
@@ -1304,6 +1310,23 @@ mod tests {
         });
         assert!(error.contains("No API key"), "{error}");
         assert!(rig.mock.seen.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn local_and_custom_providers_work_without_a_key() {
+        for provider in ["openai-compatible", "ollama"] {
+            let rig = Rig::start("nokey-local", Mock::new(&["Welcome."]), false, false);
+            rig.start_story();
+            let mut settings = Settings::default();
+            settings.api.provider = provider.into();
+            rig.backend.send(Request::SaveSettings {
+                settings,
+                api_key: None,
+            });
+            rig.backend.send(Request::Send("Hello.".into()));
+            let t = rig.wait_for_transcript(|t| t.nodes.len() == 3);
+            assert_eq!(t.nodes[2].content, "Welcome.", "{provider}");
+        }
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

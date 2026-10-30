@@ -4,10 +4,17 @@ use eframe::egui::Ui;
 use ir_core::client::PRESETS;
 use ir_core::settings::{NodeLabel, Settings};
 use ir_ui::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, FormField, Input, Label, Select, Slider,
-    Switch,
+    Badge, BadgeVariant, Button, ButtonVariant, Card, FormField, Input, Select, Slider, Switch,
+    Tabs,
 };
-use ir_ui::spacing;
+use ir_ui::{spacing, ThemeMode};
+
+/// The theme choices, in the order the tabs show them.
+const THEMES: [(&str, ThemeMode); 3] = [
+    ("System", ThemeMode::System),
+    ("Light", ThemeMode::Light),
+    ("Dark", ThemeMode::Dark),
+];
 
 /// What the settings screen asks the app to do besides saving.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -21,7 +28,7 @@ pub enum SettingsAction {
 fn key_status(key_required: bool, key_available: bool) -> (&'static str, BadgeVariant) {
     match (key_available, key_required) {
         (true, _) => ("A key is available", BadgeVariant::Secondary),
-        (false, false) => ("No key needed", BadgeVariant::Outline),
+        (false, false) => ("No key (optional)", BadgeVariant::Outline),
         (false, true) => ("No key", BadgeVariant::Destructive),
     }
 }
@@ -34,6 +41,8 @@ pub struct SettingsForm {
     provider: usize,
     /// A new API key. Empty keeps the stored one.
     pub api_key: String,
+    /// The color theme. It applies at once and is not part of the saved settings.
+    pub theme: ThemeMode,
     node_label: usize,
     temperature: f64,
     max_tokens: f64,
@@ -52,6 +61,7 @@ impl SettingsForm {
                 .position(|p| p.id == settings.api.provider)
                 .unwrap_or(0),
             api_key: String::new(),
+            theme: ThemeMode::System,
             node_label: usize::from(settings.tree.node_label == NodeLabel::Manual),
             temperature: f64::from(settings.api.temperature),
             max_tokens: f64::from(settings.api.max_tokens),
@@ -98,7 +108,23 @@ impl SettingsForm {
     /// Draw the form. Returns an action if a button other than save or cancel was pressed.
     pub fn show(&mut self, key_available: bool, ui: &mut Ui) -> Option<SettingsAction> {
         let mut action = None;
-        ui.add(Label::new("Settings").heading());
+
+        Card::new()
+            .header(|ui| Card::title(ui, "Appearance"))
+            .content(|ui| {
+                let mut index = THEMES
+                    .iter()
+                    .position(|(_, m)| *m == self.theme)
+                    .unwrap_or(0);
+                FormField::new("Theme")
+                    .help("System follows your operating system.")
+                    .show(ui, |ui| {
+                        ui.add(Tabs::new(&mut index, THEMES.iter().map(|(name, _)| *name)))
+                    });
+                self.theme = THEMES[index].1;
+            })
+            .show(ui);
+        ui.add_space(spacing::LG);
 
         Card::new()
             .header(|ui| {
@@ -318,7 +344,7 @@ mod tests {
         );
         assert_eq!(
             key_status(false, false),
-            ("No key needed", BadgeVariant::Outline)
+            ("No key (optional)", BadgeVariant::Outline)
         );
         assert_eq!(key_status(true, true).1, BadgeVariant::Secondary);
         assert_eq!(key_status(false, true).0, "A key is available");
