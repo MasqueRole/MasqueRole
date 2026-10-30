@@ -5,6 +5,7 @@
 pub mod cards;
 pub mod character;
 pub mod client;
+pub mod commands;
 pub mod context;
 pub mod db;
 pub mod lorebook;
