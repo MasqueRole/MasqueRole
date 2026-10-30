@@ -294,8 +294,7 @@ InfiniteRoleplay/
 ├── characters/                 # Example character cards
 ├── worlds/                     # Example lorebooks
 ├── prompts/                    # System prompts & style profiles
-├── .agent/
-│   └── AGENTS.md               # Step-by-step build instructions for AI agents
+├── AGENTS.md                   # Step-by-step build instructions for AI agents
 └── README.md
 ```
 
@@ -322,7 +321,7 @@ Contributions are welcome!
 3. Commit your changes
 4. Open a pull request
 
-Please describe your changes clearly, run `cargo fmt` and `cargo clippy` before submitting, and keep UI code out of `ir-core`, and build new screens from `ir-ui` components. AI coding agents should follow [`.agent/AGENTS.md`](.agent/AGENTS.md).
+Please describe your changes clearly, run `cargo fmt` and `cargo clippy` before submitting, and keep UI code out of `ir-core`, and build new screens from `ir-ui` components. AI coding agents should follow [`AGENTS.md`](AGENTS.md).
 
 ## Usage Notes
 

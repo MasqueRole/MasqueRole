@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = ["crates/ir-core", "crates/ir-ui", "crates/ir-app"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/baicore/InfiniteRoleplay"
+
+[workspace.dependencies]
+eframe = "0.31"
+egui = "0.31"
+anyhow = "1"

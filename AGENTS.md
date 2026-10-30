@@ -1,6 +1,6 @@
 # AGENTS.md: Build Instructions for AI Agents
 
-This file tells an AI coding agent how to build InfiniteRoleplay step by step. Read it fully before writing code. The project vision, features, and configuration are described in the [README](../README.md); this file is about *how to build it*.
+This file tells an AI coding agent how to build InfiniteRoleplay step by step. Read it fully before writing code. The project vision, features, and configuration are described in the [README](README.md); this file is about *how to build it*.
 
 ## Ground Rules
 

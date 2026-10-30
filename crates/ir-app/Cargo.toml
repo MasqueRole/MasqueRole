@@ -1,0 +1,13 @@
+[package]
+name = "ir-app"
+description = "InfiniteRoleplay desktop app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ir-core = { path = "../ir-core" }
+ir-ui = { path = "../ir-ui" }
+eframe.workspace = true
+anyhow.workspace = true
