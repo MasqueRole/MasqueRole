@@ -16,6 +16,14 @@ This file tells an AI coding agent how to work on InfiniteRoleplay. Read it full
 
 **Pull the latest version from `main` first** (`git pull origin main`), so you build on the current code and avoid conflicts later.
 
+## Branches and Merging — The Last Step Is Always Human
+
+**Never push directly to `main`.** Work on a branch, push that branch, and stop. Merging into `main` (and tagging a release) is done by a human after review; an AI agent never does the last step.
+
+## Tutorial Screenshots
+
+The first-run tutorial shows screenshots of the app (`assets/tutorial/`, one 1100x720 PNG per tutorial page, in `crates/ir-app/src/tutorial.rs`). **Whenever a change alters how the app looks, retake the screenshots** so they match, and adjust the tutorial text if it no longer fits. Take them from the running app with demo data (point `IR_DATA_DIR` at a demo folder), in the dark theme, with the window's inner size at 1100x720.
+
 ## Definition of Done (for every change)
 
 Run these before every commit; all must pass with no warnings:
@@ -41,6 +49,7 @@ InfiniteRoleplay/
 │   └── ir-app/                 # Desktop app: screens composed from ir-ui components
 ├── characters/                 # Example character cards (YAML)
 ├── worlds/                     # Example lorebooks (YAML)
+├── docs/                       # GitHub Pages site (empty for now)
 └── prompts/                    # System prompts & style profiles
 ```
 
