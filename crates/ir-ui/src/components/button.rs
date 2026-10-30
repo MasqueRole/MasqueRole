@@ -2,7 +2,7 @@
 
 use egui::{Color32, CursorIcon, FontId, Response, Sense, Stroke, StrokeKind, Ui, Widget};
 
-use crate::theme::{spacing, ThemeExt};
+use crate::theme::{spacing, ThemeExt, BORDER_WIDTH, RING_WIDTH};
 
 /// Visual style of a [`Button`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -134,7 +134,7 @@ impl Widget for Button {
                 } else {
                     t.foreground
                 },
-                Stroke::new(1.0, t.input),
+                Stroke::new(BORDER_WIDTH, t.input),
             ),
             ButtonVariant::Ghost => (
                 if hovered || pressed {
@@ -172,11 +172,16 @@ impl Widget for Button {
             painter.hline(
                 text_pos.x..=text_pos.x + galley.size().x,
                 y,
-                Stroke::new(1.0, fg),
+                Stroke::new(BORDER_WIDTH, fg),
             );
         }
         if enabled && response.has_focus() {
-            painter.rect_stroke(rect, radius, Stroke::new(2.0, t.ring), StrokeKind::Outside);
+            painter.rect_stroke(
+                rect,
+                radius,
+                Stroke::new(RING_WIDTH, t.ring),
+                StrokeKind::Outside,
+            );
         }
 
         if enabled {

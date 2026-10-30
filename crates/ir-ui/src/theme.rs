@@ -5,6 +5,15 @@
 
 use egui::{Color32, Context, CornerRadius, FontFamily, FontId, Stroke, TextStyle, Ui, Visuals};
 
+/// Width of borders and separators, in logical pixels.
+///
+/// Typed constants, not bare literals: `Stroke::new` is generic over its width, and newer
+/// Rust versions reject an untyped float literal there.
+pub const BORDER_WIDTH: f32 = 1.0;
+
+/// Width of the focus ring and selection outline, in logical pixels.
+pub const RING_WIDTH: f32 = 2.0;
+
 /// The spacing scale in logical pixels. Use only these values.
 pub mod spacing {
     /// 4 px.
@@ -292,39 +301,39 @@ impl Theme {
         v.extreme_bg_color = self.background;
         v.faint_bg_color = self.muted;
         v.code_bg_color = self.muted;
-        v.window_stroke = Stroke::new(1.0, self.border);
+        v.window_stroke = Stroke::new(BORDER_WIDTH, self.border);
         v.window_corner_radius = self.corner_lg();
         v.menu_corner_radius = self.corner_md();
         v.hyperlink_color = self.foreground;
         v.selection.bg_fill = Self::mix(self.background, self.ring, 0.45);
-        v.selection.stroke = Stroke::new(2.0, self.ring);
+        v.selection.stroke = Stroke::new(RING_WIDTH, self.ring);
 
         let radius = self.corner_md();
         let w = &mut v.widgets;
         w.noninteractive.bg_fill = self.card;
         w.noninteractive.weak_bg_fill = self.card;
-        w.noninteractive.bg_stroke = Stroke::new(1.0, self.border);
-        w.noninteractive.fg_stroke = Stroke::new(1.0, self.foreground);
+        w.noninteractive.bg_stroke = Stroke::new(BORDER_WIDTH, self.border);
+        w.noninteractive.fg_stroke = Stroke::new(BORDER_WIDTH, self.foreground);
 
         w.inactive.bg_fill = self.secondary;
         w.inactive.weak_bg_fill = self.secondary;
         w.inactive.bg_stroke = Stroke::NONE;
-        w.inactive.fg_stroke = Stroke::new(1.0, self.secondary_foreground);
+        w.inactive.fg_stroke = Stroke::new(BORDER_WIDTH, self.secondary_foreground);
 
         w.hovered.bg_fill = self.accent;
         w.hovered.weak_bg_fill = self.accent;
-        w.hovered.bg_stroke = Stroke::new(1.0, self.border);
-        w.hovered.fg_stroke = Stroke::new(1.0, self.accent_foreground);
+        w.hovered.bg_stroke = Stroke::new(BORDER_WIDTH, self.border);
+        w.hovered.fg_stroke = Stroke::new(BORDER_WIDTH, self.accent_foreground);
 
         w.active.bg_fill = Self::mix(self.accent, self.foreground, 0.08);
         w.active.weak_bg_fill = w.active.bg_fill;
-        w.active.bg_stroke = Stroke::new(1.0, self.ring);
-        w.active.fg_stroke = Stroke::new(1.0, self.accent_foreground);
+        w.active.bg_stroke = Stroke::new(BORDER_WIDTH, self.ring);
+        w.active.fg_stroke = Stroke::new(BORDER_WIDTH, self.accent_foreground);
 
         w.open.bg_fill = self.accent;
         w.open.weak_bg_fill = self.accent;
-        w.open.bg_stroke = Stroke::new(1.0, self.border);
-        w.open.fg_stroke = Stroke::new(1.0, self.accent_foreground);
+        w.open.bg_stroke = Stroke::new(BORDER_WIDTH, self.border);
+        w.open.fg_stroke = Stroke::new(BORDER_WIDTH, self.accent_foreground);
 
         for state in [
             &mut w.noninteractive,

@@ -2,7 +2,7 @@
 
 use egui::{Frame, Margin, Response, RichText, Stroke, Ui};
 
-use crate::theme::{spacing, ThemeExt};
+use crate::theme::{spacing, ThemeExt, BORDER_WIDTH};
 
 type Area<'a> = Box<dyn FnOnce(&mut Ui) + 'a>;
 
@@ -73,7 +73,7 @@ impl<'a> Card<'a> {
         let t = ui.ir_theme();
         let frame = Frame::new()
             .fill(t.card)
-            .stroke(Stroke::new(1.0, t.border))
+            .stroke(Stroke::new(BORDER_WIDTH, t.border))
             .corner_radius(t.corner_lg())
             .inner_margin(Margin::same(spacing::XL as i8));
         frame

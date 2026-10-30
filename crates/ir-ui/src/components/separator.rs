@@ -2,7 +2,7 @@
 
 use egui::{Response, Sense, Stroke, Ui, Widget};
 
-use crate::theme::ThemeExt;
+use crate::theme::{ThemeExt, BORDER_WIDTH};
 
 /// A 1 px line in the border color.
 #[derive(Clone, Copy, Debug)]
@@ -31,7 +31,7 @@ impl Widget for Separator {
             egui::vec2(ui.available_width(), 1.0)
         };
         let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
-        let stroke = Stroke::new(1.0, t.border);
+        let stroke = Stroke::new(BORDER_WIDTH, t.border);
         if self.vertical {
             ui.painter().vline(rect.center().x, rect.y_range(), stroke);
         } else {

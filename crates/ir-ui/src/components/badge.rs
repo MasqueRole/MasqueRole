@@ -2,7 +2,7 @@
 
 use egui::{Color32, FontId, Response, Sense, Stroke, StrokeKind, Ui, Widget};
 
-use crate::theme::{spacing, ThemeExt};
+use crate::theme::{spacing, ThemeExt, BORDER_WIDTH};
 
 /// Visual style of a [`Badge`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -61,7 +61,7 @@ impl Widget for Badge {
             BadgeVariant::Outline => (
                 Color32::TRANSPARENT,
                 t.foreground,
-                Stroke::new(1.0, t.border),
+                Stroke::new(BORDER_WIDTH, t.border),
             ),
             BadgeVariant::Destructive => (t.destructive, t.destructive_foreground, Stroke::NONE),
         };
