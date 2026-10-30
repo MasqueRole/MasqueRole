@@ -79,12 +79,12 @@ The code is split into a UI-independent **core library** and a thin **GUI app**.
 
 ### Download
 
-Installers for Windows (`.exe`) and Linux (`.deb`, `.AppImage`) are built by the release workflow and attached to each version on the [Releases](https://github.com/baicore/InfiniteRoleplay/releases) page. Until the first version is tagged, build from source.
+Installers for Windows (`.exe`) and Linux (`.deb`, `.AppImage`) are built by the release workflow and attached to each version on the [Releases](https://github.com/RoleplayHarness/InfiniteRoleplay/releases) page. Until the first version is tagged, build from source.
 
 ### Build from source
 
 ```bash
-git clone https://github.com/baicore/InfiniteRoleplay.git
+git clone https://github.com/RoleplayHarness/InfiniteRoleplay.git
 cd InfiniteRoleplay
 
 cargo run -p ir-app               # run in development mode
@@ -329,7 +329,7 @@ InfiniteRoleplay/
 
 Contributions are welcome!
 
-1. Fork [baicore/InfiniteRoleplay](https://github.com/baicore/InfiniteRoleplay)
+1. Fork [RoleplayHarness/InfiniteRoleplay](https://github.com/RoleplayHarness/InfiniteRoleplay)
 2. Create a feature branch (`git checkout -b feature/my-feature`)
 3. Commit your changes
 4. Open a pull request

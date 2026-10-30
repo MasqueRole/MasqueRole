@@ -5,10 +5,10 @@
 # cargo-packager silently ignores a root-level config without a package name.
 name = "ir-app"
 product-name = "InfiniteRoleplay"
-identifier = "io.github.baicore.infiniteroleplay"
+identifier = "io.github.roleplayharness.infiniteroleplay"
 version = "0.1.0"
 description = "Endless, consistent roleplay with the AI model of your choice."
-authors = ["baicore"]
+authors = ["RoleplayHarness"]
 license-file = "LICENSE"
 out-dir = "dist"
 binaries-dir = "target/release"

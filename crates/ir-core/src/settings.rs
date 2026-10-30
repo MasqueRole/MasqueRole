@@ -203,7 +203,7 @@ impl Default for TreeSettings {
 impl Settings {
     /// The platform data directory for the app.
     pub fn data_dir() -> Result<PathBuf, SettingsError> {
-        ProjectDirs::from("", "baicore", crate::APP_NAME)
+        ProjectDirs::from("", "RoleplayHarness", crate::APP_NAME)
             .map(|dirs| dirs.data_dir().to_path_buf())
             .ok_or(SettingsError::NoDataDir)
     }
