@@ -14,8 +14,8 @@ use ir_core::db::{NodeId, Session, SessionId};
 use ir_core::lorebook::Lorebook;
 use ir_core::settings::Settings;
 use ir_ui::components::{
-    Button, ButtonSize, ButtonVariant, Card, Dialog, FormField, Icon, Input, Panel, ScrollArea,
-    Select, Tabs, Toast, Toasts,
+    Button, ButtonSize, ButtonVariant, Card, Dialog, FormField, Icon, Input, Island, Panel,
+    ScrollArea, Select, Tabs, Toast, Toasts,
 };
 use ir_ui::{spacing, Theme, ThemeMode};
 
@@ -316,7 +316,9 @@ impl App {
 
     /// Open the settings overlay.
     pub fn open_settings(&mut self) {
-        self.settings_form = Some(SettingsForm::new(&self.settings));
+        let mut form = SettingsForm::new(&self.settings);
+        form.theme = self.theme_mode;
+        self.settings_form = Some(form);
     }
 
     /// Switch to `section`. The tree starts with a fresh view every time it is opened.
@@ -468,7 +470,7 @@ impl App {
             self.tree_view.sync(self.tree.as_ref(), self.tree_version);
         }
 
-        Panel::top("top-bar").show(ctx, |ui| self.top_bar(ui, ctx));
+        Island::new("top-bar").show(ctx, |ui| self.top_bar(ui));
         Panel::side("sidebar", SIDEBAR_WIDTH).show(ctx, |ui| sidebar::show(self, ui));
         if self.has_footer() {
             Panel::bottom("footer").show(ctx, |ui| self.footer(ui));
@@ -479,53 +481,27 @@ impl App {
         self.toasts.show(ctx);
     }
 
-    fn top_bar(&mut self, ui: &mut Ui, ctx: &Context) {
-        ui.horizontal(|ui| {
-            if let Some(logo) = &self.logo {
-                ui.add(Icon::new(logo).width(LOGO_WIDTH));
-                ui.add_space(spacing::SM);
-            }
-            let mut selected = Section::ALL
-                .iter()
-                .position(|s| *s == self.section)
-                .unwrap_or(0);
-            let labels = Section::ALL.iter().map(|s| s.label());
-            if ui.add(Tabs::new(&mut selected, labels)).changed() {
-                self.show_section(Section::ALL[selected]);
-            }
-
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if ui
-                    .add(
-                        Button::new("Settings")
-                            .variant(ButtonVariant::Secondary)
-                            .size(ButtonSize::Sm),
-                    )
-                    .clicked()
-                {
-                    self.open_settings();
-                }
-                // Added right to left, so the order here is the reverse of how it reads.
-                for (label, mode) in [
-                    ("Dark", ThemeMode::Dark),
-                    ("Light", ThemeMode::Light),
-                    ("System", ThemeMode::System),
-                ] {
-                    let variant = if self.theme_mode == mode {
-                        ButtonVariant::Default
-                    } else {
-                        ButtonVariant::Outline
-                    };
-                    if ui
-                        .add(Button::new(label).variant(variant).size(ButtonSize::Sm))
-                        .clicked()
-                    {
-                        self.theme_mode = mode;
-                        Theme::set_mode(ctx, mode);
-                    }
-                }
-            });
-        });
+    /// The content of the floating island: logo, section tabs, and the settings button.
+    fn top_bar(&mut self, ui: &mut Ui) {
+        if let Some(logo) = &self.logo {
+            ui.add(Icon::new(logo).width(LOGO_WIDTH));
+            ui.add_space(spacing::SM);
+        }
+        let mut selected = Section::ALL
+            .iter()
+            .position(|s| *s == self.section)
+            .unwrap_or(0);
+        let labels = Section::ALL.iter().map(|s| s.label());
+        if ui.add(Tabs::new(&mut selected, labels)).changed() {
+            self.show_section(Section::ALL[selected]);
+        }
+        ui.add_space(spacing::SM);
+        let settings = Button::new("Settings")
+            .variant(ButtonVariant::Secondary)
+            .size(ButtonSize::Sm);
+        if ui.add(settings).clicked() {
+            self.open_settings();
+        }
     }
 
     fn has_footer(&self) -> bool {
@@ -662,6 +638,10 @@ impl App {
                 });
             });
 
+        if form.theme != self.theme_mode {
+            self.theme_mode = form.theme;
+            Theme::set_mode(ctx, form.theme);
+        }
         if action == Some(SettingsAction::RemoveKey) {
             self.backend.send(Request::DeleteApiKey);
         }
@@ -1162,6 +1142,28 @@ mod tests {
         rig.app.settings_form = None;
         rig.frame();
         assert!(rig.sent().is_empty());
+    }
+
+    #[test]
+    fn the_theme_is_chosen_in_the_settings_overlay_and_applies_at_once() {
+        let mut rig = Rig::new();
+        rig.app.open_settings();
+        assert_eq!(
+            rig.app.settings_form.as_ref().map(|f| f.theme),
+            Some(ThemeMode::System)
+        );
+        if let Some(form) = &mut rig.app.settings_form {
+            form.theme = ThemeMode::Dark;
+        }
+        rig.frame();
+        assert_eq!(rig.app.theme_mode, ThemeMode::Dark);
+        assert!(rig.ctx.style().visuals.dark_mode);
+        rig.app.open_settings();
+        assert_eq!(
+            rig.app.settings_form.as_ref().map(|f| f.theme),
+            Some(ThemeMode::Dark),
+            "the form starts from the current theme"
+        );
     }
 
     // ---- sections ----

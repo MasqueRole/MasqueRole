@@ -7,8 +7,8 @@
 use eframe::egui;
 use ir_ui::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ChatBubble, Checkbox, Dialog,
-    FormField, Icon, Input, Label, LabelTone, Panel, Popover, ScrollArea, Select, Separator,
-    Slider, Switch, Tabs, Textarea, Toast, Toasts, TooltipExt, TreeNode, TreeNodeState,
+    FormField, Icon, Input, Island, Label, LabelTone, Panel, Popover, ScrollArea, Select,
+    Separator, Slider, Switch, Tabs, Textarea, Toast, Toasts, TooltipExt, TreeNode, TreeNodeState,
 };
 use ir_ui::{spacing, Theme, ThemeExt, ThemeMode};
 
@@ -378,29 +378,28 @@ impl Gallery {
 
 impl eframe::App for Gallery {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        Panel::top("top").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.add(Label::new("ir-ui gallery").heading());
-                ui.add_space(spacing::LG);
-                for (label, mode) in [
-                    ("System", ThemeMode::System),
-                    ("Light", ThemeMode::Light),
-                    ("Dark", ThemeMode::Dark),
-                ] {
-                    let variant = if self.mode == mode {
-                        ButtonVariant::Default
-                    } else {
-                        ButtonVariant::Outline
-                    };
-                    if ui
-                        .add(Button::new(label).variant(variant).size(ButtonSize::Sm))
-                        .clicked()
-                    {
-                        self.mode = mode;
-                        Theme::set_mode(ctx, mode);
-                    }
+        // The header doubles as the Island example.
+        Island::new("top").show(ctx, |ui| {
+            ui.add(Label::new("ir-ui gallery").heading());
+            ui.add_space(spacing::LG);
+            for (label, mode) in [
+                ("System", ThemeMode::System),
+                ("Light", ThemeMode::Light),
+                ("Dark", ThemeMode::Dark),
+            ] {
+                let variant = if self.mode == mode {
+                    ButtonVariant::Default
+                } else {
+                    ButtonVariant::Outline
+                };
+                if ui
+                    .add(Button::new(label).variant(variant).size(ButtonSize::Sm))
+                    .clicked()
+                {
+                    self.mode = mode;
+                    Theme::set_mode(ctx, mode);
                 }
-            });
+            }
         });
 
         Panel::central().show(ctx, |ui| {
