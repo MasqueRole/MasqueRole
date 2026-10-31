@@ -6,7 +6,7 @@
 name = "ir-app"
 product-name = "InfiniteRoleplay"
 identifier = "io.github.roleplayharness.infiniteroleplay"
-version = "0.5.2"
+version = "0.6.0"
 description = "Endless, consistent roleplay with the AI model of your choice."
 authors = ["RoleplayHarness"]
 license-file = "LICENSE"

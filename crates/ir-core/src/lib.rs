@@ -13,6 +13,7 @@ pub mod memory;
 pub mod redact;
 pub mod settings;
 pub mod tree;
+pub mod update;
 
 pub use client::{LlmError, LlmProvider};
 pub use settings::{Settings, SettingsError};

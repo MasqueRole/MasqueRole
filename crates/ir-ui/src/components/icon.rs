@@ -62,11 +62,19 @@ pub enum IconKind {
     Pen,
     /// A question mark in a circle: help.
     Help,
+    /// A line along the bottom: minimize the window.
+    Minimize,
+    /// Four corner brackets pointing out: enter full screen.
+    Fullscreen,
+    /// Four corner brackets pointing in: leave full screen.
+    ExitFullscreen,
+    /// An arrow into a tray: download, update.
+    Download,
 }
 
 impl IconKind {
     /// Every icon, for galleries and tests.
-    pub const ALL: [IconKind; 23] = [
+    pub const ALL: [IconKind; 27] = [
         IconKind::Settings,
         IconKind::Trash,
         IconKind::More,
@@ -90,6 +98,10 @@ impl IconKind {
         IconKind::Database,
         IconKind::Pen,
         IconKind::Help,
+        IconKind::Minimize,
+        IconKind::Fullscreen,
+        IconKind::ExitFullscreen,
+        IconKind::Download,
     ];
 }
 
@@ -302,6 +314,21 @@ fn drawing(kind: IconKind) -> Drawing {
             .open(&arc((12.0, 10.0), 2.75, PI, PI * 2.5))
             .open(&[(12.0, 12.75), (12.0, 14.5)])
             .dot((12.0, 17.5), 1.1),
+        IconKind::Minimize => d.open(&[(5.0, 18.0), (19.0, 18.0)]),
+        IconKind::Fullscreen => d
+            .open(&[(4.0, 9.0), (4.0, 4.0), (9.0, 4.0)])
+            .open(&[(15.0, 4.0), (20.0, 4.0), (20.0, 9.0)])
+            .open(&[(20.0, 15.0), (20.0, 20.0), (15.0, 20.0)])
+            .open(&[(9.0, 20.0), (4.0, 20.0), (4.0, 15.0)]),
+        IconKind::ExitFullscreen => d
+            .open(&[(4.0, 9.0), (9.0, 9.0), (9.0, 4.0)])
+            .open(&[(15.0, 4.0), (15.0, 9.0), (20.0, 9.0)])
+            .open(&[(20.0, 15.0), (15.0, 15.0), (15.0, 20.0)])
+            .open(&[(9.0, 20.0), (9.0, 15.0), (4.0, 15.0)]),
+        IconKind::Download => d
+            .open(&[(12.0, 4.0), (12.0, 15.0)])
+            .open(&[(7.0, 10.0), (12.0, 15.0), (17.0, 10.0)])
+            .open(&[(4.0, 16.0), (4.0, 20.0), (20.0, 20.0), (20.0, 16.0)]),
         IconKind::Image => d
             .closed(&[(3.0, 5.0), (21.0, 5.0), (21.0, 19.0), (3.0, 19.0)])
             .circle((9.0, 10.0), 1.75)

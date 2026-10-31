@@ -21,6 +21,7 @@ use ir_core::lorebook::{LoreEntry, Lorebook};
 use ir_core::memory;
 use ir_core::settings::{self, SecretStore, Settings};
 use ir_core::tree::{StoryTree, Turn};
+use ir_core::update::{self, Release};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::sync::Notify;
 
@@ -71,6 +72,19 @@ pub fn default_provider_factory() -> ProviderFactory {
         let client = OpenAiCompatible::new(ProviderConfig::from_settings(&settings.api, key))?;
         Ok(Arc::new(client) as Arc<dyn LlmProvider>)
     })
+}
+
+/// Download and start the installer. Returns whether the app should quit now; `false` means
+/// the release page was opened instead because there is no installer for this system.
+async fn install(release: &Release) -> Result<bool, update::UpdateError> {
+    let Some(asset) = &release.asset else {
+        update::open_page(&release.page_url)?;
+        return Ok(false);
+    };
+    let dir = std::env::temp_dir().join("InfiniteRoleplay-update");
+    let path = update::download(asset, &dir).await?;
+    update::launch_installer(&path)?;
+    Ok(true)
 }
 
 /// A story as the UI shows it: the path from the first message to the current one.
@@ -152,6 +166,12 @@ pub enum Request {
 
     /// Remember that the first-run tutorial has been shown, so it does not open again.
     MarkTutorialSeen,
+    /// Ask GitHub whether a newer release exists. The answer arrives as
+    /// [`Event::UpdateAvailable`]; without one, nothing is sent.
+    CheckUpdate,
+    /// Download and start the installer of `release`, then ask the UI to quit. A release
+    /// without an installer for this system opens its page instead.
+    InstallUpdate(Release),
     /// Let the user choose a picture for the editor `target`. The result arrives as
     /// [`Event::ImagePicked`].
     PickImage(ImageTarget),
@@ -239,6 +259,12 @@ pub enum Event {
     Info(String),
     /// Something went wrong.
     Error(String),
+    /// A newer release is published.
+    UpdateAvailable(Release),
+    /// Installing the update failed or was handed to the browser; the button is usable again.
+    UpdateStopped,
+    /// The installer is running: close the app so it can replace the files.
+    Quit,
 }
 
 /// The handle the UI uses to talk to the backend.
@@ -276,6 +302,8 @@ pub struct Services {
     pub provider: ProviderFactory,
     /// Lets the user choose a picture.
     pub picker: ImagePicker,
+    /// The address of the newest-release description. `None` turns update checks off.
+    pub update_url: Option<String>,
     /// Redraws the UI.
     pub wake: Wake,
 }
@@ -294,6 +322,7 @@ pub fn spawn(
         secrets: services.secrets,
         provider: services.provider,
         picker: services.picker,
+        update_url: services.update_url,
         wake: services.wake,
         settings: Settings::default(),
         session: None,
@@ -315,6 +344,7 @@ struct Actor {
     secrets: Secrets,
     provider: ProviderFactory,
     picker: ImagePicker,
+    update_url: Option<String>,
     wake: Wake,
     settings: Settings,
     session: Option<SessionId>,
@@ -406,6 +436,8 @@ impl Actor {
                 self.delete_item(&path, image);
             }
             Request::PickImage(target) => self.pick_image(target),
+            Request::CheckUpdate => self.check_update(),
+            Request::InstallUpdate(release) => self.install_update(release),
             Request::MarkTutorialSeen => {
                 if !self.settings.ui.tutorial_seen {
                     self.settings.ui.tutorial_seen = true;
@@ -568,6 +600,41 @@ impl Actor {
                 Err(message) => Event::Error(message),
             };
             let _ = events.send(event);
+            wake();
+        });
+    }
+
+    fn check_update(&self) {
+        let Some(url) = self.update_url.clone() else {
+            return;
+        };
+        let (events, wake) = (self.events.clone(), self.wake.clone());
+        tokio::spawn(async move {
+            match update::check(&url, update::CURRENT_VERSION, std::env::consts::OS).await {
+                Ok(Some(release)) => {
+                    let _ = events.send(Event::UpdateAvailable(release));
+                    wake();
+                }
+                Ok(None) => {}
+                // A missing connection is normal; the check is quiet.
+                Err(e) => tracing::info!("update check failed: {e}"),
+            }
+        });
+    }
+
+    fn install_update(&self, release: Release) {
+        let (events, wake) = (self.events.clone(), self.wake.clone());
+        tokio::spawn(async move {
+            let result = install(&release).await;
+            let _ = events.send(match result {
+                Ok(true) => Event::Quit,
+                Ok(false) => Event::UpdateStopped,
+                Err(e) => {
+                    tracing::warn!("update failed: {e}");
+                    let _ = events.send(Event::Error(format!("Update failed: {e}")));
+                    Event::UpdateStopped
+                }
+            });
             wake();
         });
     }
@@ -1336,6 +1403,7 @@ entries:
                 secrets: secrets.clone(),
                 provider: Arc::new(move |_, _| Ok(provider_mock.clone() as Arc<dyn LlmProvider>)),
                 picker,
+                update_url: None,
                 wake: Arc::new(|| {}),
             };
             let (backend, events) = spawn(&tokio::runtime::Handle::current(), services);

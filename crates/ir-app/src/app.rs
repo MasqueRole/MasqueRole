@@ -7,18 +7,21 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc;
 
-use eframe::egui::{Align, ColorImage, Context, Layout, TextureHandle, TextureOptions, Ui};
+use eframe::egui::{
+    Align, ColorImage, Context, Layout, TextureHandle, TextureOptions, Ui, ViewportCommand,
+};
 use ir_core::cards::Card as _;
 use ir_core::character::Character;
 use ir_core::commands;
 use ir_core::db::{NodeId, Session, SessionId};
 use ir_core::lorebook::Lorebook;
 use ir_core::settings::Settings;
+use ir_core::update::Release;
 use ir_ui::components::{
     Button, ButtonSize, ButtonVariant, Card, Dialog, FormField, IconKind, Input, Logo, Panel,
-    ScrollArea, Select, Tabs, Toast, Toasts, TooltipExt, TopBar,
+    ScrollArea, Select, Tabs, Toast, Toasts, TooltipExt, TopBar, WindowAction, WindowControls,
 };
-use ir_ui::{Theme, ThemeMode};
+use ir_ui::{spacing, Theme, ThemeMode};
 
 use crate::backend::{Backend, Event, ImageTarget, Request, Transcript, TreeData};
 use crate::characters::{CharacterForm, WorldForm};
@@ -239,6 +242,12 @@ pub struct App {
     tree_watching: bool,
     logo: Option<TextureHandle>,
     logo_tried: bool,
+    /// A newer release, once the backend has found one.
+    update: Option<Release>,
+    /// Whether the installer is being downloaded.
+    updating: bool,
+    /// Set when the installer has started and the window should close.
+    quit: bool,
 }
 
 impl App {
@@ -279,6 +288,9 @@ impl App {
             tree_watching: false,
             logo: None,
             logo_tried: false,
+            update: None,
+            updating: false,
+            quit: false,
         }
     }
 
@@ -358,6 +370,9 @@ impl App {
             }
             Event::Info(message) => self.toasts.push(Toast::new(message)),
             Event::Error(message) => self.toasts.push(Toast::destructive(message)),
+            Event::UpdateAvailable(release) => self.update = Some(release),
+            Event::UpdateStopped => self.updating = false,
+            Event::Quit => self.quit = true,
         }
     }
 
@@ -565,6 +580,9 @@ impl App {
             self.tree_view.sync(self.tree.as_ref(), self.tree_version);
         }
 
+        if self.quit {
+            ctx.send_viewport_cmd(ViewportCommand::Close);
+        }
         self.top_bar(ctx);
         Panel::side("sidebar", SIDEBAR_WIDTH).show(ctx, |ui| sidebar::show(self, ui));
         Panel::surface(ctx);
@@ -577,15 +595,38 @@ impl App {
         self.toasts.show(ctx);
     }
 
-    /// The top bar: the logo at the left, the section tabs in the middle, and the settings
-    /// button at the right.
+    /// The top bar: the window buttons, the "Update now" button when there is an update,
+    /// and the logo at the left, the section tabs in the middle, and the settings button at
+    /// the right. The window has no system title bar, so dragging the bar moves it.
     fn top_bar(&mut self, ctx: &Context) {
         let mut section = self.section;
-        let (mut settings, mut help) = (false, false);
+        let (mut settings, mut help, mut update_now) = (false, false, false);
+        let mut window_action = None;
+        let fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
         let logo = self.logo.clone();
-        TopBar::new("top-bar").show(
+        let update = self.update.as_ref().map(|r| r.version.clone());
+        let updating = self.updating;
+        let bar = TopBar::new("top-bar").show(
             ctx,
             |ui| {
+                window_action = WindowControls::new(fullscreen).show(ui);
+                if let Some(version) = &update {
+                    ui.add_space(spacing::SM);
+                    let label = if updating {
+                        "Updating..."
+                    } else {
+                        "Update now"
+                    };
+                    let button = Button::new(label)
+                        .icon(IconKind::Download)
+                        .size(ButtonSize::Sm)
+                        .enabled(!updating);
+                    update_now = ui
+                        .add(button)
+                        .ir_tooltip(format!("Version {version} is available"))
+                        .clicked();
+                    ui.add_space(spacing::SM);
+                }
                 if let Some(logo) = &logo {
                     ui.add(Logo::new(logo).width(LOGO_WIDTH));
                 }
@@ -613,6 +654,26 @@ impl App {
                 help = ui.add(button).ir_tooltip("Tutorial").clicked();
             },
         );
+        if let Some(action) = window_action {
+            ctx.send_viewport_cmd(match action {
+                WindowAction::Close => ViewportCommand::Close,
+                WindowAction::Minimize => ViewportCommand::Minimized(true),
+                WindowAction::ToggleFullscreen => ViewportCommand::Fullscreen(!fullscreen),
+            });
+        }
+        if bar.drag_started {
+            ctx.send_viewport_cmd(ViewportCommand::StartDrag);
+        }
+        if bar.double_clicked {
+            let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+            ctx.send_viewport_cmd(ViewportCommand::Maximized(!maximized));
+        }
+        if update_now && !self.updating {
+            if let Some(release) = self.update.clone() {
+                self.updating = true;
+                self.backend.send(Request::InstallUpdate(release));
+            }
+        }
         if section != self.section {
             self.show_section(section);
         }
@@ -1131,6 +1192,51 @@ mod tests {
         rig.push(Event::Info("Saved.".into()));
         rig.push(Event::Error("Boom".into()));
         assert_eq!(rig.app.toasts.len(), 2);
+    }
+
+    // ---- updates ----
+
+    fn release() -> Release {
+        Release {
+            version: "9.9.9".into(),
+            page_url: "https://example.test/r".into(),
+            asset: None,
+        }
+    }
+
+    #[test]
+    fn a_found_update_is_kept_and_drawn_without_installing_anything() {
+        let mut rig = Rig::new();
+        rig.push(Event::UpdateAvailable(release()));
+        rig.frame();
+        assert_eq!(rig.app.update, Some(release()));
+        assert!(!rig.app.updating);
+        assert!(
+            rig.requests.try_recv().is_err(),
+            "nothing is sent by itself"
+        );
+    }
+
+    #[test]
+    fn a_stopped_update_makes_the_button_usable_again() {
+        let mut rig = Rig::new();
+        rig.app.updating = true;
+        rig.push(Event::UpdateStopped);
+        assert!(!rig.app.updating);
+    }
+
+    #[test]
+    fn quit_closes_the_window() {
+        let mut rig = Rig::new();
+        rig.events.send(Event::Quit).unwrap();
+        let app = &mut rig.app;
+        let output = rig.ctx.run(Default::default(), |ctx| app.ui(ctx));
+        let closes = output.viewport_output.values().any(|v| {
+            v.commands
+                .iter()
+                .any(|c| matches!(c, ViewportCommand::Close))
+        });
+        assert!(closes);
     }
 
     // ---- sending ----
