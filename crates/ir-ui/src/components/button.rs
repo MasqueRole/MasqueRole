@@ -157,6 +157,13 @@ impl Widget for Button {
 
         let hovered = enabled && response.hovered();
         let pressed = enabled && response.is_pointer_button_down_on();
+        // A press gives a little, like a real button. Links are text and stay put.
+        let rect = if is_link {
+            rect
+        } else {
+            let scale = crate::motion::press_scale(ui.ctx(), response.id.with("press"), pressed);
+            rect.scale_from_center(scale)
+        };
         let (mut bg, mut fg, mut stroke) = match self.variant {
             ButtonVariant::Default => (
                 shade(t.primary, t.background, hovered, pressed),
@@ -346,5 +353,49 @@ mod tests {
                 }
             });
         });
+    }
+
+    #[test]
+    fn a_press_shrinks_the_button_a_little_and_reduced_motion_does_not() {
+        let size_while_pressed = |reduced: bool| {
+            let ctx = egui::Context::default();
+            crate::Theme::apply(&ctx);
+            crate::motion::set_reduced(&ctx, reduced);
+            let mut rect = egui::Rect::NOTHING;
+            let mut painted = Vec::new();
+            for frame in 0..4 {
+                let events = if frame == 0 {
+                    vec![]
+                } else {
+                    vec![
+                        egui::Event::PointerMoved(rect.center()),
+                        egui::Event::PointerButton {
+                            pos: rect.center(),
+                            button: egui::PointerButton::Primary,
+                            pressed: true,
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                    ]
+                };
+                let input = egui::RawInput {
+                    time: Some(f64::from(frame) * 0.05),
+                    events,
+                    ..Default::default()
+                };
+                let output = ctx.run(input, |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        rect = ui.add(Button::new("Press me")).rect;
+                    });
+                });
+                painted.push(format!("{:?}", output.shapes));
+            }
+            painted
+        };
+        // The pressed frames paint something different from the resting one, unless motion
+        // is reduced, where the button only changes color.
+        let normal = size_while_pressed(false);
+        assert_ne!(normal[0], normal[3]);
+        let reduced = size_while_pressed(true);
+        assert_ne!(reduced[0], reduced[3], "the color still changes");
     }
 }

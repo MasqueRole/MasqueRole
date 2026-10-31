@@ -55,6 +55,9 @@ impl Widget for RailButton {
         let t = ui.ir_theme();
         let (rect, response) = ui.allocate_exact_size(Vec2::splat(BUTTON_SIZE), Sense::click());
         let hovered = response.hovered() && self.enabled;
+        let pressed = self.enabled && response.is_pointer_button_down_on();
+        let scale = crate::motion::press_scale(ui.ctx(), response.id.with("press"), pressed);
+        let rect = rect.scale_from_center(scale);
         let fill = if self.selected {
             t.accent
         } else if hovered {

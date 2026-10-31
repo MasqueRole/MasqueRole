@@ -264,10 +264,7 @@ impl TreeView {
             ui.add(Label::new("Story tree").heading());
             if let Some(data) = data {
                 let count = data.nodes.len();
-                ui.add(
-                    Badge::new(format!("{count} node{}", if count == 1 { "" } else { "s" }))
-                        .variant(BadgeVariant::Secondary),
-                );
+                ui.add(Badge::new(format::plural(count, "node")).variant(BadgeVariant::Secondary));
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let small = |text: &str| {

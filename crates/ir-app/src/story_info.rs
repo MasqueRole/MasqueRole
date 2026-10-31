@@ -139,16 +139,21 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         if ui.add(back).clicked() {
             app.story_info = false;
         }
-        ui.add(Label::new(&transcript.session.name).heading());
+        let room = ui.available_width();
+        ui.add(
+            Label::new(&transcript.session.name)
+                .heading()
+                .max_width(room),
+        );
     });
     ui.add_space(spacing::SM);
     ScrollArea::vertical().id_salt("story-info").show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = spacing::MD;
         ui.add(
             Label::new(format!(
-                "{} messages \u{b7} {} storylines \u{b7} ~{} tokens used",
-                transcript.nodes.len(),
-                transcript.branches.len().max(1),
+                "{} \u{b7} {} \u{b7} ~{} tokens used",
+                format::plural(transcript.nodes.len(), "message"),
+                format::plural(transcript.branches.len().max(1), "storyline"),
                 format::tokens(transcript.session.tokens_used)
             ))
             .small()

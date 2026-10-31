@@ -111,9 +111,11 @@ impl Widget for TreeNode {
         let (rect, response) = ui.allocate_exact_size(Vec2::splat(SIZE), Sense::click());
         response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, &self.title));
 
-        let grow = ui.ctx().animate_value_with_time(
+        let grow = crate::motion::eased(
+            ui.ctx(),
             response.id.with("grow"),
-            f32::from(u8::from(response.hovered() || self.selected)),
+            response.hovered() || self.selected,
+            GROW_TIME,
             GROW_TIME,
         );
         let radius = SIZE / 2.0 * (1.0 + HOVER_GROWTH * grow);

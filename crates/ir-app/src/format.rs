@@ -3,6 +3,16 @@
 use ir_core::commands::CommandOutput;
 use ir_core::db::{Node, NodeId};
 
+/// `1 message`, `2 messages`: the count with `noun` in the right number. `noun` takes a plain
+/// `s` in the plural.
+pub fn plural(count: usize, noun: &str) -> String {
+    if count == 1 {
+        format!("1 {noun}")
+    } else {
+        format!("{count} {noun}s")
+    }
+}
+
 /// A message from the app itself, shown in the chat but not part of the story.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Notice {
@@ -393,5 +403,12 @@ mod tests {
         assert_eq!(preview(&node(1, "a\n  b")), "a b");
         let long = preview(&node(1, &"word ".repeat(40)));
         assert!(long.chars().count() <= 60 && long.ends_with('\u{2026}'));
+    }
+
+    #[test]
+    fn counts_agree_with_their_noun() {
+        assert_eq!(plural(0, "message"), "0 messages");
+        assert_eq!(plural(1, "message"), "1 message");
+        assert_eq!(plural(2, "storyline"), "2 storylines");
     }
 }

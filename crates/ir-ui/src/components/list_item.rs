@@ -108,6 +108,9 @@ impl<'a> ListItem<'a> {
         job.wrap.max_rows = 1;
         job.wrap.break_anywhere = true;
         let galley = ui.painter().layout_job(job);
+        if galley.elided {
+            row.clone().on_hover_text(self.label);
+        }
         let text_color = if self.selected {
             t.secondary_foreground
         } else {

@@ -206,6 +206,7 @@ logging = false           # write infiniteroleplay.log next to settings.toml (af
 | `tree.auto_checkpoint`     | Create a story-tree node after every turn                      |
 | `tree.node_label`          | `auto` = short AI-generated label, `manual` = ask every time   |
 | `debug.logging`            | Write a debug log for bug reports. API keys are removed from it |
+| `ui.reduce_motion`         | Turn off movement and scaling in the interface (fades stay)     |
 | `limits.token_limit_enabled` | Stop a story from generating once it reaches the limit        |
 | `limits.token_limit`       | Estimated tokens one story may use (prompts, responses, summaries) |
 
