@@ -3,34 +3,37 @@
 //! The tree grows from the top down. Nodes are the design system's `TreeNode`, colored dots
 //! that open a card with the title and date on hover, painted inside an egui `Scene`, which
 //! gives panning (drag or scroll) and zooming (Ctrl+scroll or pinch) for free. Click a node
-//! to open it: the dot grows into a card with the whole message and the buttons to jump there
-//! or collapse its branch. Click the dot again to jump, or use the card's close button.
+//! to open it: the node grows into a card with the whole message and the buttons to jump there
+//! or collapse its branch. Click the node again to jump, or use the card's close button.
 //! Right-click a node for the same actions.
 
 use std::collections::{HashMap, HashSet};
 
+use eframe::egui::epaint::CubicBezierShape;
 use eframe::egui::text::LayoutJob;
 use eframe::egui::{
     Align, CornerRadius, FontId, Id, Key, Layout, Pos2, Rect, Scene, Sense, Shadow, Shape, Stroke,
     StrokeKind, Ui, UiBuilder, Vec2,
 };
 use ir_core::db::{Node, NodeId, NodeKind};
-use ir_ui::components::tree_node::{bottom_anchor, top_anchor, SIZE as NODE_SIZE};
+use ir_ui::components::tree_node::{
+    left_anchor, right_anchor, HEIGHT as NODE_HEIGHT, WIDTH as NODE_WIDTH,
+};
 use ir_ui::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, IconKind, Label, TooltipExt, TreeNode,
     TreeNodeState,
 };
-use ir_ui::{motion, spacing, Theme, ThemeExt, BORDER_WIDTH, RING_WIDTH};
+use ir_ui::{motion, spacing, Theme, ThemeExt, RING_WIDTH};
 
 use crate::backend::TreeData;
 use crate::format;
 use crate::tree_layout::{self, Placed, TreeLayout};
 
-/// Horizontal distance between neighbouring nodes of a level: a dot plus the gap.
-const COLUMN_WIDTH: f32 = NODE_SIZE + spacing::XL;
+/// Horizontal distance between levels: a node plus the gap the curves of the edges cross.
+const COLUMN_WIDTH: f32 = NODE_WIDTH + 2.0 * spacing::XXL;
 
-/// Vertical distance between levels: a dot plus the gap for edges.
-const ROW_HEIGHT: f32 = NODE_SIZE + spacing::XXL;
+/// Vertical distance between the nodes of a level: a node plus the gap.
+const ROW_HEIGHT: f32 = NODE_HEIGHT + spacing::MD;
 
 /// The zoom limits of the canvas.
 const MIN_ZOOM: f32 = 0.15;
@@ -45,7 +48,7 @@ const DEFAULT_VIEW: Vec2 = Vec2::new(1000.0, 600.0);
 /// Space kept around the tree when fitting it into view.
 const FIT_MARGIN: f32 = 60.0;
 
-/// Size of the card an opened dot grows into, in scene units.
+/// Size of the card an opened node grows into, in scene units.
 const CARD_WIDTH: f32 = 300.0;
 const CARD_HEIGHT: f32 = 212.0;
 
@@ -166,7 +169,7 @@ impl TreeView {
 
     /// Where a node's top-left corner is on the canvas.
     fn position(placed: &Placed) -> Pos2 {
-        Pos2::new(placed.row * COLUMN_WIDTH, placed.depth as f32 * ROW_HEIGHT)
+        Pos2::new(placed.depth as f32 * COLUMN_WIDTH, placed.row * ROW_HEIGHT)
     }
 
     /// The canvas size of the view, or a default before it has been measured.
@@ -181,7 +184,7 @@ impl TreeView {
     /// Pan so `id` is in the middle of the view, keeping the zoom.
     pub fn center_on(&mut self, id: NodeId) {
         if let Some(placed) = self.layout.get(id) {
-            let middle = Self::position(placed) + Vec2::splat(NODE_SIZE / 2.0);
+            let middle = Self::position(placed) + Vec2::new(NODE_WIDTH / 2.0, NODE_HEIGHT / 2.0);
             self.scene_rect = Rect::from_center_size(middle, self.view_size());
         }
     }
@@ -204,8 +207,8 @@ impl TreeView {
             return;
         }
         let size = Vec2::new(
-            self.layout.rows.max(1.0) * COLUMN_WIDTH,
-            (self.layout.max_depth as f32 + 1.0) * ROW_HEIGHT,
+            (self.layout.max_depth as f32 + 1.0) * COLUMN_WIDTH,
+            self.layout.rows.max(1.0) * ROW_HEIGHT,
         );
         let bounds = Rect::from_min_size(Pos2::ZERO, size).expand(FIT_MARGIN);
         self.scene_rect = bounds;
@@ -304,7 +307,7 @@ impl TreeView {
                     }
                 }
                 ui.add(
-                    Label::new("Click a dot to open it. Drag to pan. Ctrl+scroll to zoom.")
+                    Label::new("Click a node to open it. Drag to pan. Ctrl+scroll to zoom.")
                         .small()
                         .muted(),
                 );
@@ -320,7 +323,7 @@ impl TreeView {
         let mut scene_rect = self.scene_rect;
         let mut card_action = CardAction::default();
 
-        // The opened dot grows into a card, and the card shrinks back into the dot.
+        // The opened node grows into a card, and the card shrinks back into the node.
         if let Some(selected) = self.selected {
             self.shown = Some(selected);
             if ui.input(|i| i.key_pressed(Key::Escape)) {
@@ -343,32 +346,33 @@ impl TreeView {
             .show(ui, &mut scene_rect, |ui| {
                 // Only what is in (or near) view is drawn, so very large stories stay fast.
                 let visible = ui.clip_rect().expand(COLUMN_WIDTH);
-                let current_path = Stroke::new(RING_WIDTH, t.foreground);
-                let other = Stroke::new(BORDER_WIDTH, t.muted_foreground);
+                let current_path = Stroke::new(RING_WIDTH, t.tree_path);
+                let other = Stroke::new(RING_WIDTH, t.muted_foreground.gamma_multiply(0.6));
 
                 // Edges first, so the nodes cover their ends.
                 for placed in &self.layout.placed {
                     let Some(parent) = placed.parent.and_then(|p| self.layout.get(p)) else {
                         continue;
                     };
-                    let node_rect =
-                        |p: &Placed| Rect::from_min_size(Self::position(p), Vec2::splat(NODE_SIZE));
-                    let from = bottom_anchor(node_rect(parent));
-                    let to = top_anchor(node_rect(placed));
+                    let node_rect = |p: &Placed| {
+                        Rect::from_min_size(Self::position(p), Vec2::new(NODE_WIDTH, NODE_HEIGHT))
+                    };
+                    let from = right_anchor(node_rect(parent));
+                    let to = left_anchor(node_rect(placed));
                     if !visible.intersects(Rect::from_two_pos(from, to)) {
                         continue;
                     }
-                    let bend = from.y + (to.y - from.y) / 2.0;
                     let on_path = self.path.contains(&placed.id) && self.path.contains(&parent.id);
-                    ui.painter().add(Shape::line(
-                        vec![from, Pos2::new(from.x, bend), Pos2::new(to.x, bend), to],
+                    ui.painter().add(Self::edge(
+                        from,
+                        to,
                         if on_path { current_path } else { other },
                     ));
                 }
 
                 for placed in &self.layout.placed {
                     let origin = Self::position(placed);
-                    let area = Rect::from_min_size(origin, Vec2::splat(NODE_SIZE));
+                    let area = Rect::from_min_size(origin, Vec2::new(NODE_WIDTH, NODE_HEIGHT));
                     if !visible.intersects(area) {
                         continue;
                     }
@@ -460,8 +464,25 @@ struct CardAction {
 }
 
 impl TreeView {
-    /// Draw the card of node `id`, `opened` of the way open (0 is the dot, 1 the whole card).
-    /// It grows out of the dot's corner, so the dot seems to open up.
+    /// An edge from `from` (the right side of a parent) to `to` (the left side of a child): a
+    /// smooth S-shaped curve that leaves and arrives horizontally.
+    fn edge(from: Pos2, to: Pos2, stroke: Stroke) -> Shape {
+        let reach = (to.x - from.x) / 2.0;
+        Shape::CubicBezier(CubicBezierShape::from_points_stroke(
+            [
+                from,
+                Pos2::new(from.x + reach, from.y),
+                Pos2::new(to.x - reach, to.y),
+                to,
+            ],
+            false,
+            eframe::egui::Color32::TRANSPARENT,
+            stroke,
+        ))
+    }
+
+    /// Draw the card of node `id`, `opened` of the way open (0 is the node, 1 the whole card).
+    /// It grows out of the node's corner, so the node seems to open up.
     fn card(&self, ui: &mut Ui, data: &TreeData, id: NodeId, opened: f32) -> CardAction {
         let mut action = CardAction::default();
         let (Some(placed), Some(node)) = (
@@ -471,22 +492,20 @@ impl TreeView {
             return action;
         };
         let t = ui.ir_theme();
-        let dot = Rect::from_min_size(Self::position(placed), Vec2::splat(NODE_SIZE));
-        let full = Rect::from_min_size(dot.min, Vec2::new(CARD_WIDTH, CARD_HEIGHT));
+        let closed =
+            Rect::from_min_size(Self::position(placed), Vec2::new(NODE_WIDTH, NODE_HEIGHT));
+        let full = Rect::from_min_size(closed.min, Vec2::new(CARD_WIDTH, CARD_HEIGHT));
         let grown = |from: f32, to: f32| eframe::egui::lerp(from..=to, opened);
         let rect = Rect::from_min_max(
-            dot.min,
-            Pos2::new(grown(dot.max.x, full.max.x), grown(dot.max.y, full.max.y)),
+            closed.min,
+            Pos2::new(
+                grown(closed.max.x, full.max.x),
+                grown(closed.max.y, full.max.y),
+            ),
         );
-        let radius = CornerRadius::same(grown(NODE_SIZE / 2.0, f32::from(t.radius_lg)) as u8);
+        let radius =
+            CornerRadius::same(grown(f32::from(t.radius_md), f32::from(t.radius_lg)) as u8);
         let here = data.current == Some(id);
-        let dot_color = if here {
-            t.tree_current
-        } else if self.path.contains(&id) {
-            t.tree_explored
-        } else {
-            t.tree_open
-        };
 
         let painter = ui.painter();
         painter.add(
@@ -502,11 +521,11 @@ impl TreeView {
         painter.rect(
             rect,
             radius,
-            Theme::mix(dot_color, t.popover, opened),
-            Stroke::new(BORDER_WIDTH, t.border.gamma_multiply(opened)),
+            Theme::mix(t.muted, t.popover, opened),
+            Stroke::new(RING_WIDTH, t.tree_path),
             StrokeKind::Inside,
         );
-        // Clicks on the card stay on the card instead of reaching the dot underneath.
+        // Clicks on the card stay on the card instead of reaching the node underneath.
         ui.interact(rect, Id::new("tree-card-body"), Sense::click_and_drag());
 
         if opened < CARD_CONTENT_FROM {
@@ -724,7 +743,7 @@ mod tests {
         view.sync(Some(&data), 1);
         assert!(!view.is_collapsed(NodeId(3)));
         let placed = *view.layout.get(NodeId(9)).expect("revealed");
-        let middle = TreeView::position(&placed) + Vec2::splat(NODE_SIZE / 2.0);
+        let middle = TreeView::position(&placed) + Vec2::new(NODE_WIDTH / 2.0, NODE_HEIGHT / 2.0);
         assert_eq!(view.scene_rect.center(), middle, "and centered on");
 
         // Branches that do not hide it stay collapsed.
@@ -740,7 +759,7 @@ mod tests {
     fn the_view_starts_centered_on_the_current_node_once() {
         let (mut view, data) = synced();
         let placed = *view.layout.get(NodeId(9)).unwrap();
-        let middle = TreeView::position(&placed) + Vec2::splat(NODE_SIZE / 2.0);
+        let middle = TreeView::position(&placed) + Vec2::new(NODE_WIDTH / 2.0, NODE_HEIGHT / 2.0);
         assert_eq!(view.scene_rect.center(), middle);
 
         // New data later does not pull the view away from where the user put it.
@@ -756,7 +775,7 @@ mod tests {
         let mut data = data();
         data.current = None;
         view.sync(Some(&data), 1);
-        assert!(view.scene_rect.height() > 4.0 * ROW_HEIGHT);
+        assert!(view.scene_rect.width() > 4.0 * COLUMN_WIDTH);
     }
 
     #[test]
@@ -816,15 +835,28 @@ mod tests {
     }
 
     #[test]
-    fn the_tree_grows_downward_and_siblings_sit_side_by_side() {
+    fn the_tree_grows_to_the_right_and_siblings_stack_in_a_column() {
         let (view, _) = synced();
         let at = |id| TreeView::position(view.layout.get(NodeId(id)).unwrap());
-        // A child is one level below its parent, and the two children of 2 share a level.
-        assert!(at(2).y > at(1).y);
-        assert_eq!(at(3).y, at(4).y);
-        assert!(at(3).x != at(4).x);
+        // A child is one column right of its parent, and the two children of 2 share one.
+        assert!(at(2).x > at(1).x);
+        assert_eq!(at(3).x, at(4).x);
+        assert!(at(3).y != at(4).y);
         // A parent sits between its children.
-        assert!(at(2).x >= at(3).x.min(at(4).x) && at(2).x <= at(3).x.max(at(4).x));
+        assert!(at(2).y >= at(3).y.min(at(4).y) && at(2).y <= at(3).y.max(at(4).y));
+    }
+
+    #[test]
+    fn an_edge_is_a_curve_that_leaves_and_arrives_horizontally() {
+        let (from, to) = (Pos2::new(0.0, 0.0), Pos2::new(100.0, 80.0));
+        let Shape::CubicBezier(curve) = TreeView::edge(from, to, Stroke::NONE) else {
+            panic!("an edge is a curve");
+        };
+        assert_eq!(curve.points[0], from);
+        assert_eq!(curve.points[3], to);
+        assert_eq!(curve.points[1].y, from.y, "it leaves level with the parent");
+        assert_eq!(curve.points[2].y, to.y, "and arrives level with the child");
+        assert!(curve.points[1].x > from.x && curve.points[2].x < to.x);
     }
 
     // ---- drawing ----

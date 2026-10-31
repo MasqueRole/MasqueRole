@@ -284,9 +284,9 @@ graph TD
     class D,E,G,I open;
 ```
 
-*The tree grows from the top down. Every node is a dot: gold for the current position, green for the path you took, and gray for alternative branches. Hover a dot to see its title and date.*
+*The tree grows from left to right, with a curved line from every node to its replies. The line of the path you took is blue. Every node is a card with a date pill: gold for the current position, green for the path you took, and gray for alternative branches. Hover a card to see its whole title.*
 
-In the app, the tree is an interactive view drawn with egui: click a dot and it opens into a card with the whole message and the buttons to jump there or collapse its branch. Scroll and drag to navigate large trees, and press Escape to close the card. The `/tree` command prints a text version:
+In the app, the tree is an interactive view drawn with egui: click a node and it opens into a larger card with the whole message and the buttons to jump there or collapse its branch. Scroll and drag to navigate large trees, and press Escape to close the card. The `/tree` command prints a text version:
 
 ```
 ● Start

@@ -3,6 +3,14 @@
 All notable changes to MasqueRole. The project follows [Semantic Versioning](https://semver.org).
 This file lists only the current and the previous version.
 
+## [0.8.2] - 2026-10-31
+
+### Changed
+
+- **Story tree:** the tree grows from left to right again, now with smooth curved lines from every node to its replies. The line of the path you took is blue, the others are gray, and the node you opened has a blue outline.
+- **Tree nodes:** nodes are cards again, with the title and a date pill, all of the same size so the columns stay tidy. Hovering a card shows its whole title and where it stands (where you are now, on the path you took, or another branch). A collapsed branch shows how many nodes it hides in front of the title.
+- Opening a node still grows it into a larger card with the whole message and the buttons to jump or collapse.
+
 ## [0.8.1] - 2026-10-31
 
 ### Added
@@ -16,17 +24,3 @@ This file lists only the current and the previous version.
 - **Lore entries and example dialogue:** the forms inside boxes are gone. Entries are single lines with edit and delete buttons, and editing one opens an overlay with the keyword beans and the text. *Add entry* and *Add example* open the same overlay.
 - **Close button:** the cross of the window's close button is red.
 - **Red:** the red of the dark theme is brighter (`#dc2626`, as in the light theme), so the close button's cross, delete buttons, and error toasts read clearly.
-
-## [0.8.0] - 2026-10-31
-
-### Added
-
-- **Press feedback:** buttons and the rail icons shrink a little while pressed and settle back faster than they pressed, so the interface feels like it heard you.
-- **Reduce motion:** a new switch in Settings, General (`ui.reduce_motion`). Nothing moves or scales with it on; fades and color changes stay.
-- **Worst-case check:** the design-system gallery has a *Demo data / Worst case* toggle with long names, emoji, unbreakable links, and counts of one. New tests draw every screen with 1,000 stories and very long names.
-
-### Changed
-
-- **Motion:** all movement shares one strong ease-out curve (`ir_ui::motion`). The message buttons, tree dots, and toasts use it. Toasts slide up and fade in, and leave the same way, a little faster.
-- **Long text:** a long story title, world name, or character name in the chat header is cut with an ellipsis, and hovering shows the whole name. The same goes for names cut in the sidebar lists.
-- **Counts:** "1 message", "1 storyline", and "1 node" instead of "1 messages" and so on.
