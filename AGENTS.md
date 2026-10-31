@@ -1,6 +1,6 @@
 # AGENTS.md: Build Instructions for AI Agents
 
-This file tells an AI coding agent how to work on InfiniteRoleplay. Read it fully before writing code. The project vision, features, and configuration are described in the [README](README.md); this file is about *how to build and change it*.
+This file tells an AI coding agent how to work on MasqueRole. Read it fully before writing code. The project vision, features, and configuration are described in the [README](README.md); this file is about *how to build and change it*.
 
 ## Ground Rules
 
@@ -50,7 +50,7 @@ Then commit with a short, descriptive message (imperative mood, e.g. `Add story 
 ## Target Workspace Layout
 
 ```
-InfiniteRoleplay/
+MasqueRole/
 ├── Cargo.toml                  # Workspace manifest
 ├── crates/
 │   ├── ir-core/                # Logic only: provider client, memory, tree, db, settings

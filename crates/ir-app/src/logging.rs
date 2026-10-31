@@ -13,7 +13,7 @@ use tracing_subscriber::util::SubscriberInitExt as _;
 use tracing_subscriber::Layer as _;
 
 /// Name of the log file inside the data directory.
-pub const LOG_FILE: &str = "infiniteroleplay.log";
+pub const LOG_FILE: &str = "masquerole.log";
 
 /// A log that grows beyond this many bytes is moved aside at the next start.
 const MAX_LOG_BYTES: u64 = 5 * 1024 * 1024;
@@ -110,7 +110,7 @@ mod tests {
         std::fs::write(&path, vec![b'x'; (MAX_LOG_BYTES + 1) as usize]).unwrap();
         drop(open_log(&path).unwrap());
         assert_eq!(std::fs::metadata(&path).unwrap().len(), 0);
-        assert!(dir.join("infiniteroleplay.log.old").exists());
+        assert!(dir.join("masquerole.log.old").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

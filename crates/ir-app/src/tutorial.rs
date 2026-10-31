@@ -22,7 +22,7 @@ struct Page {
 
 const PAGES: &[Page] = &[
     Page {
-        title: "Welcome to InfiniteRoleplay",
+        title: "Welcome to MasqueRole",
         text: "Stories that never run out of room. This short tour shows the main parts: Stories, Characters, Worlds, and the Tree are the icons in the rail at the left (hover one to see its name), and each has its own list next to it.",
         screenshot: include_bytes!("../../../assets/tutorial/01-overview.png"),
     },

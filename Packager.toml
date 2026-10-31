@@ -4,8 +4,8 @@
 #   cargo packager --release --formats deb,appimage # Linux
 # cargo-packager silently ignores a root-level config without a package name.
 name = "ir-app"
-product-name = "InfiniteRoleplay"
-identifier = "io.github.roleplayharness.infiniteroleplay"
+product-name = "MasqueRole"
+identifier = "io.github.roleplayharness.masquerole"
 version = "0.8.1"
 description = "Endless, consistent roleplay with the AI model of your choice."
 authors = ["RoleplayHarness"]

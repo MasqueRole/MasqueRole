@@ -5,7 +5,7 @@ use egui::Ui;
 use super::button::{Button, ButtonSize, ButtonVariant};
 use super::icon::IconKind;
 use super::tooltip::TooltipExt;
-use crate::theme::spacing;
+use crate::theme::{spacing, ThemeExt};
 
 /// What the user asked of the window.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,16 +59,14 @@ impl WindowControls {
                     buttons.reverse();
                 }
                 for (icon, tip, this) in buttons {
-                    // Close is red, so it cannot be mistaken for the others.
-                    let variant = if this == WindowAction::Close {
-                        ButtonVariant::Destructive
-                    } else {
-                        ButtonVariant::Ghost
-                    };
-                    let button = Button::new("")
+                    let mut button = Button::new("")
                         .icon(icon)
-                        .variant(variant)
+                        .variant(ButtonVariant::Ghost)
                         .size(ButtonSize::Icon);
+                    // Only the cross of the close button is red.
+                    if this == WindowAction::Close {
+                        button = button.tint(ui.ir_theme().destructive);
+                    }
                     if ui.add(button).ir_tooltip(tip).clicked() {
                         action = Some(this);
                     }

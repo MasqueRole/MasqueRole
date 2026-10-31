@@ -81,7 +81,7 @@ async fn install(release: &Release) -> Result<bool, update::UpdateError> {
         update::open_page(&release.page_url)?;
         return Ok(false);
     };
-    let dir = std::env::temp_dir().join("InfiniteRoleplay-update");
+    let dir = std::env::temp_dir().join("MasqueRole-update");
     let path = update::download(asset, &dir).await?;
     update::launch_installer(&path)?;
     Ok(true)

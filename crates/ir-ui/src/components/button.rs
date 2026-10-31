@@ -48,6 +48,7 @@ pub struct Button {
     enabled: bool,
     fill_width: bool,
     icon: Option<IconKind>,
+    tint: Option<egui::Color32>,
 }
 
 impl Button {
@@ -60,7 +61,15 @@ impl Button {
             enabled: true,
             fill_width: false,
             icon: None,
+            tint: None,
         }
+    }
+
+    /// Draw the icon and text in this color instead of the variant's, in every state. For a
+    /// ghost button that should only look dangerous in its glyph.
+    pub fn tint(mut self, color: egui::Color32) -> Self {
+        self.tint = Some(color);
+        self
     }
 
     /// Show an icon before the text. With an empty text and [`ButtonSize::Icon`], the
@@ -208,6 +217,9 @@ impl Widget for Button {
             ),
             ButtonVariant::Link => (Color32::TRANSPARENT, t.primary, Stroke::NONE),
         };
+        if let Some(color) = self.tint {
+            fg = color;
+        }
         if !enabled {
             bg = bg.gamma_multiply(0.5);
             fg = fg.gamma_multiply(0.5);
