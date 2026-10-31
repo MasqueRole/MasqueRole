@@ -4,7 +4,7 @@
 //! conversation into the message list sent to the provider, trimming to fit
 //! `max_context_tokens`.
 //!
-//! Token counts are estimates (about four characters per token), not a real tokenizer, so
+//! Token counts are estimates from a script-aware heuristic, not a real tokenizer, so
 //! leave some headroom in `max_context_tokens`.
 
 use crate::character::Character;
@@ -19,9 +19,53 @@ pub const MESSAGE_OVERHEAD_TOKENS: usize = 4;
 /// The newest messages that are never trimmed: the latest exchange.
 pub const MIN_KEPT_MESSAGES: usize = 2;
 
-/// Estimate the tokens in `text`: one per four characters, rounded up.
+/// Tokens the reply primes: every request ends with the start of the assistant's turn.
+pub const REPLY_PRIMING_TOKENS: usize = 3;
+
+/// What a letter or digit adds to the token count of the word it belongs to.
+fn char_weight(c: char) -> f32 {
+    match c {
+        c if c.is_ascii_alphabetic() => 0.22,
+        c if c.is_ascii_digit() => 0.34,
+        _ => 0.5,
+    }
+}
+
+/// Han, kana, and hangul: tokenizers spend about one token on each character.
+fn is_wide_script(c: char) -> bool {
+    matches!(c as u32,
+        0x1100..=0x11FF | 0x2E80..=0x9FFF | 0xA960..=0xA97F | 0xAC00..=0xD7FF | 0xF900..=0xFAFF
+        | 0xFF00..=0xFFEF | 0x20000..=0x2FFFF)
+}
+
+/// Estimate the tokens in `text`.
+///
+/// This is still an estimate, but it follows how real tokenizers behave instead of
+/// dividing by a constant: a run of ASCII letters costs about one token per five characters
+/// (at least one), digits about one per three, accented and non-Latin letters about one per
+/// two, every CJK character one, and each punctuation mark or symbol one. Spaces are free
+/// because they merge into the next word; a line break costs one.
 pub fn estimate_tokens(text: &str) -> usize {
-    text.chars().count().div_ceil(4)
+    fn flush(run: &mut f32, total: &mut usize) {
+        if *run > 0.0 {
+            *total += (run.ceil() as usize).max(1);
+            *run = 0.0;
+        }
+    }
+    let mut total = 0usize;
+    let mut run = 0.0f32;
+    for c in text.chars() {
+        if c.is_alphanumeric() && !is_wide_script(c) {
+            run += char_weight(c);
+            continue;
+        }
+        flush(&mut run, &mut total);
+        if c == '\n' || is_wide_script(c) || !c.is_whitespace() {
+            total += 1;
+        }
+    }
+    flush(&mut run, &mut total);
+    total
 }
 
 /// Estimate the tokens a message costs, including framing.
@@ -352,8 +396,15 @@ mod tests {
         assert_eq!(estimate_tokens(""), 0);
         assert_eq!(estimate_tokens("abcd"), 1);
         assert_eq!(estimate_tokens("abcde"), 2);
-        // Counts characters, not bytes.
-        assert_eq!(estimate_tokens("\u{e9}\u{e9}\u{e9}\u{e9}"), 1);
+        // Spaces merge into the next word; words and punctuation count separately.
+        assert_eq!(estimate_tokens("a b c"), 3);
+        assert_eq!(estimate_tokens("Hi, there!"), 5);
+        assert_eq!(estimate_tokens("12345"), 2);
+        assert_eq!(estimate_tokens("a\nb"), 3);
+        // Counts characters, not bytes: accented letters cost half a token each.
+        assert_eq!(estimate_tokens("\u{e9}\u{e9}\u{e9}\u{e9}"), 2);
+        // CJK text costs a token per character, far more than a quarter.
+        assert_eq!(estimate_tokens("\u{4f60}\u{597d}\u{4e16}\u{754c}"), 4);
         assert_eq!(
             message_tokens(&ChatMessage::user("abcd")),
             1 + MESSAGE_OVERHEAD_TOKENS

@@ -2003,7 +2003,7 @@ checksum = "791930b43c0d5973160d90a8f3894509f2b273430f5c5c73b668636d0287c5c0"
 
 [[package]]
 name = "ir-app"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2022,7 +2022,7 @@ dependencies = [
 
 [[package]]
 name = "ir-core"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "bytes",
  "directories",
@@ -2041,7 +2041,7 @@ dependencies = [
 
 [[package]]
 name = "ir-ui"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "eframe",
  "egui",

@@ -1078,7 +1078,12 @@ impl Actor {
         };
         self.add_usage(
             session,
-            prompt.messages.iter().map(context::message_tokens).sum(),
+            prompt
+                .messages
+                .iter()
+                .map(context::message_tokens)
+                .sum::<usize>()
+                + context::REPLY_PRIMING_TOKENS,
         );
         let cancel = Arc::new(Notify::new());
         self.cancel = Some(cancel.clone());

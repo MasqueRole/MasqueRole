@@ -33,7 +33,6 @@ pub struct ChatBubble {
     text: String,
     streaming: bool,
     tag: Option<String>,
-    selected: bool,
 }
 
 impl ChatBubble {
@@ -44,7 +43,6 @@ impl ChatBubble {
             text: text.into(),
             streaming: false,
             tag: None,
-            selected: false,
         }
     }
 
@@ -73,12 +71,6 @@ impl ChatBubble {
     /// reached with a command.
     pub fn tag(mut self, tag: impl Into<String>) -> Self {
         self.tag = Some(tag.into());
-        self
-    }
-
-    /// Outline the bubble, to show that it is the message the user picked.
-    pub fn selected(mut self, selected: bool) -> Self {
-        self.selected = selected;
         self
     }
 
@@ -147,11 +139,6 @@ impl Widget for ChatBubble {
                         .color(t.muted_foreground),
                 );
             }
-            let stroke = if self.selected {
-                Stroke::new(BORDER_WIDTH * 2.0, t.ring)
-            } else {
-                stroke
-            };
             let frame = Frame::new()
                 .fill(fill)
                 .stroke(stroke)

@@ -7,6 +7,7 @@ use egui::{
     Stroke, Vec2,
 };
 
+use super::common::transition;
 use super::icon::{self, IconKind};
 use crate::theme::{spacing, ThemeExt, BORDER_WIDTH};
 
@@ -108,9 +109,13 @@ fn row(ui: &mut egui::Ui, item: &Suggestion) -> bool {
     let (rect, response) =
         ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW_HEIGHT), Sense::click());
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &item.title));
-    if response.hovered() || response.has_focus() {
-        ui.painter().rect_filled(rect, t.corner_md(), t.accent);
-    }
+    let fill = if response.hovered() || response.has_focus() {
+        t.accent
+    } else {
+        Color32::TRANSPARENT
+    };
+    let fill = transition(ui, response.id.with("fill"), fill);
+    ui.painter().rect_filled(rect, t.corner_md(), fill);
     let icon_rect = Rect::from_center_size(
         Pos2::new(rect.left() + spacing::SM + ICON_SIZE / 2.0, rect.center().y),
         Vec2::splat(ICON_SIZE),

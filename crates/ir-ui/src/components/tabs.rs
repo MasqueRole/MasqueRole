@@ -5,7 +5,7 @@ use egui::{
     Response, Sense, Ui, Widget, WidgetInfo, WidgetType,
 };
 
-use super::common::focus_ring;
+use super::common::{focus_ring, transition};
 use super::icon::{self, IconKind};
 use crate::theme::{spacing, ThemeExt};
 
@@ -106,20 +106,27 @@ impl Widget for Tabs<'_> {
                             selected = i;
                         }
 
-                        if self.pills {
+                        let fill = if self.pills {
                             if active {
-                                ui.painter().rect_filled(rect, radius, t.secondary);
+                                t.secondary
                             } else if r.hovered() {
-                                ui.painter().rect_filled(rect, radius, t.muted);
+                                t.muted
+                            } else {
+                                Color32::TRANSPARENT
                             }
                         } else if active {
-                            ui.painter().rect_filled(rect, radius, t.background);
-                        }
+                            t.background
+                        } else {
+                            Color32::TRANSPARENT
+                        };
+                        let fill = transition(ui, r.id.with("fill"), fill);
+                        ui.painter().rect_filled(rect, radius, fill);
                         let color = if active || r.hovered() {
                             t.foreground
                         } else {
                             t.muted_foreground
                         };
+                        let color = transition(ui, r.id.with("text"), color);
                         let content_width = icon_width + galley.size().x;
                         let start_x = rect.center().x - content_width / 2.0;
                         if let Some(kind) = icon {

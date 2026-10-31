@@ -116,6 +116,8 @@ The code is split into a UI-independent **core library** and a thin **GUI app**.
 
 **To use the app:** An API key for any supported provider and an internet connection, or a locally running model (e.g. Ollama or LM Studio) that needs no key and no internet.
 
+> **Paid providers can get expensive.** Hosted providers bill every request, and a long story sends a lot of text with each message. The app shows a warning when you pick one. Neither InfiniteRoleplay nor its creators are liable for API costs, including unexpectedly high ones. Set a token limit (see `[limits]` below) and watch your provider's usage page.
+
 **To build from source:**
 
 - [Rust](https://rustup.rs) (stable toolchain, edition 2021 or newer)
@@ -187,7 +189,7 @@ show_tree_on_branch = true
 
 [limits]
 token_limit_enabled = false   # stop a story once it has used about token_limit tokens
-token_limit = 200000          # estimated tokens per story
+token_limit = 200000          # estimated tokens per story (an estimate, not your provider's bill)
 
 [debug]
 logging = false           # write infiniteroleplay.log next to settings.toml (after a restart)

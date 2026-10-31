@@ -86,36 +86,58 @@ struct MessageAction {
     copy: Option<String>,
 }
 
-/// The buttons under the picked message: branch from it, and copy its text.
-fn message_actions(ui: &mut Ui, node: &ir_core::db::Node, action: &mut MessageAction) {
+/// How long the buttons under a picked message take to fade in or out, in seconds.
+const ACTIONS_FADE: f32 = 0.18;
+
+/// How far above their place the buttons start, in logical pixels.
+const ACTIONS_SLIDE: f32 = spacing::SM;
+
+/// The buttons under the picked message: branch from it, and copy its text. They fade in
+/// from above when the message is picked and fade out when it is not any more.
+fn message_actions(
+    ui: &mut Ui,
+    node: &ir_core::db::Node,
+    picked: bool,
+    action: &mut MessageAction,
+) {
+    let id = egui::Id::new(("message-actions", node.id.0));
+    let shown = ui.ctx().animate_bool_with_time(id, picked, ACTIONS_FADE);
+    if shown <= 0.0 {
+        return;
+    }
     let layout = match node.kind {
         NodeKind::User => egui::Layout::right_to_left(egui::Align::Center),
         _ => egui::Layout::left_to_right(egui::Align::Center),
     };
-    // A fixed height: a layout without one would take all the room below the message.
-    let size = egui::vec2(ui.available_width(), BUTTON_COLUMN);
-    ui.allocate_ui_with_layout(size, layout, |ui| {
-        let button = |icon| {
-            Button::new("")
-                .icon(icon)
-                .variant(ButtonVariant::Ghost)
-                .size(ButtonSize::Icon)
-        };
-        if ui
-            .add(button(IconKind::Branch))
-            .ir_tooltip("Branch from here")
-            .clicked()
-        {
-            action.branch = Some(node.id);
-        }
-        if ui
-            .add(button(IconKind::Copy))
-            .ir_tooltip("Copy the message")
-            .clicked()
-        {
-            action.copy = Some(node.content.clone());
-        }
-    });
+    // The row grows while it fades in, so the messages below move down with it.
+    let (slot, _) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), BUTTON_COLUMN * shown),
+        egui::Sense::hover(),
+    );
+    let top = slot.min - egui::vec2(0.0, ACTIONS_SLIDE * (1.0 - shown));
+    let rect = egui::Rect::from_min_size(top, egui::vec2(slot.width(), BUTTON_COLUMN));
+    let mut row = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(layout));
+    row.set_opacity(shown);
+    let button = |icon| {
+        Button::new("")
+            .icon(icon)
+            .variant(ButtonVariant::Ghost)
+            .size(ButtonSize::Icon)
+    };
+    if row
+        .add(button(IconKind::Branch))
+        .ir_tooltip("Branch from here")
+        .clicked()
+    {
+        action.branch = Some(node.id);
+    }
+    if row
+        .add(button(IconKind::Copy))
+        .ir_tooltip("Copy the message")
+        .clicked()
+    {
+        action.copy = Some(node.content.clone());
+    }
 }
 
 /// Draw the story. Without a session, draw the welcome card.
@@ -155,9 +177,6 @@ pub fn body(app: &mut App, ui: &mut Ui) {
             let badge = ui.add(Badge::new(name).variant(BadgeVariant::Outline));
             clickable(ui, badge);
         }
-        if let Some(donut) = usage_donut(&app.settings, transcript.session.tokens_used) {
-            ui.add(donut);
-        }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let info = Button::new("")
                 .icon(IconKind::Info)
@@ -194,12 +213,10 @@ pub fn body(app: &mut App, ui: &mut Ui) {
                     ),
                     NodeKind::Narrator | NodeKind::System => ChatBubble::narrator(&node.content),
                 };
-                if ui.add(bubble.tag(tag).selected(picked)).clicked() {
+                if ui.add(bubble.tag(tag)).clicked() {
                     action.pick = Some(node.id);
                 }
-                if picked {
-                    message_actions(ui, node, &mut action);
-                }
+                message_actions(ui, node, picked, &mut action);
             }
             if app.chat.generating {
                 let text = &app.chat.streaming;
@@ -323,11 +340,23 @@ fn composer(app: &mut App, ui: &mut Ui) {
     let generating = app.chat.generating;
     let (mut send, mut stop) = (false, false);
     let mut input_rect = egui::Rect::NOTHING;
+    let donut = app
+        .transcript
+        .as_ref()
+        .and_then(|t| usage_donut(&app.settings, t.session.tokens_used));
     FloatingBar::new(COMPOSER).show(ui.ctx(), ui.max_rect(), |ui| {
-        // The buttons stay at the top right however tall the text grows.
+        // The token monitor stays at the top left and the buttons at the top right, however
+        // tall the text grows.
         ui.horizontal_top(|ui| {
-            let width =
-                (ui.available_width() - BUTTON_COLUMN - ui.spacing().item_spacing.x).max(0.0);
+            let spacing = ui.spacing().item_spacing.x;
+            if let Some(donut) = donut {
+                ui.allocate_ui_with_layout(
+                    egui::vec2(BUTTON_COLUMN, BUTTON_COLUMN),
+                    egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                    |ui| ui.add(donut),
+                );
+            }
+            let width = (ui.available_width() - BUTTON_COLUMN - spacing).max(0.0);
             ui.allocate_ui(egui::vec2(width, 0.0), |ui| {
                 // Enter sends and Shift+Enter starts a new line. The key must be taken before
                 // the text field sees it, or the field would insert a line break.

@@ -5,6 +5,7 @@ use std::hash::Hash;
 use egui::text::LayoutJob;
 use egui::{Color32, CornerRadius, CursorIcon, FontId, Id, Pos2, Rect, Sense, Ui, Vec2};
 
+use super::common::transition;
 use super::icon::{self, IconKind};
 use super::popover::Popover;
 use crate::theme::{spacing, ThemeExt};
@@ -81,11 +82,15 @@ impl<'a> ListItem<'a> {
 
         let hovered = row.hovered() || (self.menu && dots.hovered());
         let pill = CornerRadius::same(u8::MAX);
-        if self.selected {
-            ui.painter().rect_filled(rect, t.corner_lg(), t.secondary);
+        let row_fill = if self.selected {
+            t.secondary
         } else if hovered || menu_open {
-            ui.painter().rect_filled(rect, t.corner_lg(), t.muted);
-        }
+            t.muted
+        } else {
+            Color32::TRANSPARENT
+        };
+        let row_fill = transition(ui, self.id.with("fill"), row_fill);
+        ui.painter().rect_filled(rect, t.corner_lg(), row_fill);
 
         let show_dots = self.menu && (hovered || self.selected || menu_open);
         let label_right = if show_dots {
@@ -118,9 +123,13 @@ impl<'a> ListItem<'a> {
         );
 
         if show_dots {
-            if dots.hovered() || menu_open {
-                ui.painter().rect_filled(dots_rect, pill, t.accent);
-            }
+            let dots_fill = if dots.hovered() || menu_open {
+                t.accent
+            } else {
+                Color32::TRANSPARENT
+            };
+            let dots_fill = transition(ui, self.id.with("dots-fill"), dots_fill);
+            ui.painter().rect_filled(dots_rect, pill, dots_fill);
             icon::paint(
                 ui.painter(),
                 Rect::from_center_size(dots_rect.center(), Vec2::splat(ICON_SIZE)),
