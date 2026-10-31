@@ -28,7 +28,7 @@ const PAGES: &[Page] = &[
     },
     Page {
         title: "Connect a provider",
-        text: "Click the gear at the top right and open the Provider tab. Choose a provider and paste your API key. Local models, such as Ollama, need no key at all.",
+        text: "Click the gear in the top bar and open the Provider tab. Choose a provider and paste your API key. Local models, such as Ollama, need no key at all.",
         screenshot: include_bytes!("../../../assets/tutorial/02-provider.png"),
     },
     Page {
