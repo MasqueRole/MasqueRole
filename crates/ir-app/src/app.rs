@@ -1,7 +1,7 @@
 //! The application: window layout, sections, and the event loop.
 //!
-//! The top navigation picks a section (stories, characters, worlds, or the story tree).
-//! Each section has its own sidebar list and main area. Settings open as an overlay.
+//! The icon rail at the left picks a section (stories, characters, worlds, or the story
+//! tree). Each section has its own sidebar list, which can be collapsed, and main area. Settings open as an overlay.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -19,9 +19,10 @@ use ir_core::settings::Settings;
 use ir_core::update::Release;
 use ir_ui::components::{
     Button, ButtonSize, ButtonVariant, Card, Dialog, FormField, IconKind, Input, Logo, Panel,
-    ScrollArea, Select, Tabs, Toast, Toasts, TooltipExt, TopBar, WindowAction, WindowControls,
+    RailButton, ScrollArea, Select, Toast, Toasts, TooltipExt, TopBar, WindowAction,
+    WindowControls, RAIL_WIDTH,
 };
-use ir_ui::{Theme, ThemeMode};
+use ir_ui::{spacing, Theme, ThemeMode};
 
 use crate::backend::{Backend, Event, ImageTarget, Request, Transcript, TreeData};
 use crate::characters::{CharacterForm, WorldForm};
@@ -147,6 +148,8 @@ pub struct ChatState {
     pub input_id: Option<eframe::egui::Id>,
     /// Whether the pointer was over the command suggestions last frame.
     pub suggestions_hovered: bool,
+    /// The message the user clicked, which shows its action buttons.
+    pub selected: Option<NodeId>,
 }
 
 /// The new-session dialog.
@@ -242,6 +245,10 @@ pub struct App {
     tree_watching: bool,
     logo: Option<TextureHandle>,
     logo_tried: bool,
+    /// Whether the inner sidebar, the list next to the rail, is shown.
+    pub sidebar_open: bool,
+    /// Whether the story info page replaces the chat.
+    pub story_info: bool,
     /// A newer release, once the backend has found one.
     update: Option<Release>,
     /// Whether the installer is being downloaded.
@@ -288,6 +295,8 @@ impl App {
             tree_watching: false,
             logo: None,
             logo_tried: false,
+            sidebar_open: true,
+            story_info: false,
             update: None,
             updating: false,
             quit: false,
@@ -353,6 +362,8 @@ impl App {
                 if !same {
                     self.notices.clear();
                     self.chat.streaming.clear();
+                    self.chat.selected = None;
+                    self.story_info = false;
                 }
                 self.transcript = Some(transcript);
             }
@@ -389,7 +400,7 @@ impl App {
 
     /// The texture of a stored picture, loaded on first use. `None` when there is no such
     /// picture or it cannot be read.
-    fn picture(&mut self, ctx: &Context, name: &str) -> Option<TextureHandle> {
+    pub(crate) fn picture(&mut self, ctx: &Context, name: &str) -> Option<TextureHandle> {
         if let Some(cached) = self.pictures.get(name) {
             return cached.clone();
         }
@@ -584,7 +595,10 @@ impl App {
             ctx.send_viewport_cmd(ViewportCommand::Close);
         }
         self.top_bar(ctx);
-        Panel::side("sidebar", SIDEBAR_WIDTH).show(ctx, |ui| sidebar::show(self, ui));
+        Panel::rail("rail", RAIL_WIDTH).show(ctx, |ui| self.rail(ui));
+        if self.sidebar_open {
+            Panel::side("sidebar", SIDEBAR_WIDTH).show(ctx, |ui| sidebar::show(self, ui));
+        }
         Panel::surface(ctx);
         if self.has_footer() {
             Panel::bottom("footer").show(ctx, |ui| self.footer(ui));
@@ -595,12 +609,48 @@ impl App {
         self.toasts.show(ctx);
     }
 
-    /// The top bar: the logo at the left and the section tabs in the middle. At the right,
+    /// The icon rail: one button per section, then the marketplace and the sidebar toggle at
+    /// the bottom. It shows icons only; the tooltips carry the names.
+    fn rail(&mut self, ui: &mut Ui) {
+        ui.spacing_mut().item_spacing.y = spacing::SM;
+        let mut section = self.section;
+        for candidate in Section::ALL {
+            let button = RailButton::new(candidate.icon()).selected(self.section == candidate);
+            if ui.add(button).ir_tooltip(candidate.label()).clicked() {
+                section = candidate;
+            }
+        }
+        ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
+            ui.spacing_mut().item_spacing.y = spacing::SM;
+            let (icon, tip) = if self.sidebar_open {
+                (IconKind::Sidebar, "Hide the list")
+            } else {
+                (IconKind::Sidebar, "Show the list")
+            };
+            let toggle = RailButton::new(icon).selected(self.sidebar_open);
+            if ui.add(toggle).ir_tooltip(tip).clicked() {
+                self.sidebar_open = !self.sidebar_open;
+            }
+            let store = RailButton::new(IconKind::Store).enabled(false);
+            if ui
+                .add(store)
+                .ir_tooltip("Marketplace: coming soon")
+                .clicked()
+            {
+                self.toasts
+                    .push(Toast::new("The marketplace is coming soon."));
+            }
+        });
+        if section != self.section {
+            self.show_section(section);
+        }
+    }
+
+    /// The top bar: the logo at the left. At the right,
     /// from left to right: the tutorial and settings buttons, the "Update now" button when
     /// there is an update, and the window buttons. The window has no system title bar, so
     /// dragging the bar moves it.
     fn top_bar(&mut self, ctx: &Context) {
-        let mut section = self.section;
         let (mut settings, mut help, mut update_now) = (false, false, false);
         let mut window_action = None;
         let fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
@@ -614,15 +664,7 @@ impl App {
                     ui.add(Logo::new(logo).width(LOGO_WIDTH));
                 }
             },
-            |ui| {
-                let mut selected = Section::ALL.iter().position(|s| *s == section).unwrap_or(0);
-                let tabs = Tabs::new(&mut selected, Section::ALL.iter().map(|s| s.label()))
-                    .icons(Section::ALL.iter().map(|s| s.icon()))
-                    .pills(true);
-                if ui.add(tabs).changed() {
-                    section = Section::ALL[selected];
-                }
-            },
+            |_| {},
             |ui| {
                 // Right to left: the window buttons are rightmost, then the update button.
                 window_action = WindowControls::new(fullscreen).show(ui);
@@ -673,9 +715,6 @@ impl App {
                 self.updating = true;
                 self.backend.send(Request::InstallUpdate(release));
             }
-        }
-        if section != self.section {
-            self.show_section(section);
         }
         if settings {
             self.open_settings();
@@ -1071,6 +1110,7 @@ mod tests {
                 node(3, NodeKind::Narrator, None, "Fog rolls in."),
             ],
             characters: vec!["Mira".into()],
+            branches: Vec::new(),
         }
     }
 
@@ -1237,6 +1277,107 @@ mod tests {
                 .any(|c| matches!(c, ViewportCommand::Close))
         });
         assert!(closes);
+    }
+
+    // ---- rail, sidebar, and story info ----
+
+    fn two_storylines() -> Transcript {
+        let mut t = transcript(1, "Harbor");
+        t.session.world = Some("The Misty Coast".into());
+        let branch = |tip: i64, label: &str, current: bool| ir_core::tree::Branch {
+            tip: NodeId(tip),
+            label: label.into(),
+            depth: 3,
+            forked_at: Some(NodeId(1)),
+            contains_current: current,
+        };
+        t.branches = vec![
+            branch(3, "Follow her", true),
+            branch(4, "Stay behind", false),
+        ];
+        t
+    }
+
+    #[test]
+    fn every_section_draws_with_the_sidebar_open_or_collapsed() {
+        for open in [true, false] {
+            let mut rig = Rig::new();
+            rig.push(Event::Transcript(two_storylines()));
+            rig.app.sidebar_open = open;
+            for section in Section::ALL {
+                rig.app.show_section(section);
+                rig.frame();
+                rig.frame();
+            }
+        }
+    }
+
+    #[test]
+    fn the_story_info_page_draws_the_world_and_the_characters_of_the_story() {
+        let mut rig = Rig::new();
+        let mira = Character::from_yaml(
+            "name: Mira
+description: A cartographer.
+personality: [curious]
+greeting: Hi.
+",
+        )
+        .unwrap();
+        let world = Lorebook::from_yaml(
+            "name: The Misty Coast
+setting: Fog.
+entries:
+  - keys: [lighthouse]
+    content: Old.
+",
+        )
+        .unwrap();
+        rig.push(Event::Library {
+            characters: vec![Entry {
+                path: "mira.yaml".into(),
+                item: mira,
+            }],
+            worlds: vec![Entry {
+                path: "coast.yaml".into(),
+                item: world,
+            }],
+            images_dir: std::env::temp_dir(),
+        });
+        rig.push(Event::Transcript(two_storylines()));
+        rig.app.story_info = true;
+        rig.frame();
+        rig.frame();
+        assert!(rig.app.story_info, "stays open until the user goes back");
+        // A world or character that left the library is explained instead of breaking.
+        rig.push(Event::Library {
+            characters: Vec::new(),
+            worlds: Vec::new(),
+            images_dir: std::env::temp_dir(),
+        });
+        rig.frame();
+    }
+
+    #[test]
+    fn opening_another_story_closes_the_info_page_and_the_picked_message() {
+        let mut rig = Rig::new();
+        rig.push(Event::Transcript(transcript(1, "Harbor")));
+        rig.app.story_info = true;
+        rig.app.chat.selected = Some(NodeId(2));
+        rig.push(Event::Transcript(transcript(1, "Harbor")));
+        assert!(rig.app.story_info, "the same story keeps its page");
+        rig.push(Event::Transcript(transcript(2, "Lighthouse")));
+        assert!(!rig.app.story_info);
+        assert_eq!(rig.app.chat.selected, None);
+    }
+
+    #[test]
+    fn a_picked_message_draws_its_buttons() {
+        let mut rig = Rig::new();
+        rig.push(Event::Transcript(transcript(1, "Harbor")));
+        for id in 1..=3 {
+            rig.app.chat.selected = Some(NodeId(id));
+            rig.frame();
+        }
     }
 
     // ---- sending ----
@@ -1612,7 +1753,10 @@ mod tests {
 
     /// A folder with one valid picture, announced to the app like the backend would.
     fn rig_with_a_picture() -> (Rig, PathBuf) {
-        let dir = std::env::temp_dir().join(format!("ir-app-pictures-{}", std::process::id()));
+        // One folder per call: tests run in parallel and each removes its own folder.
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("ir-app-pictures-{}-{n}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("ok.png"), png_bytes()).unwrap();
         std::fs::write(dir.join("broken.png"), b"not a png").unwrap();

@@ -31,6 +31,7 @@ pub struct ListItemOutput<R> {
 pub struct ListItem<'a> {
     label: &'a str,
     selected: bool,
+    menu: bool,
     id: Id,
 }
 
@@ -40,6 +41,7 @@ impl<'a> ListItem<'a> {
         Self {
             label,
             selected: false,
+            menu: true,
             id: Id::new(id_salt),
         }
     }
@@ -47,6 +49,12 @@ impl<'a> ListItem<'a> {
     /// Whether this is the row being viewed or edited.
     pub fn selected(mut self, selected: bool) -> Self {
         self.selected = selected;
+        self
+    }
+
+    /// Show the three-dots menu (the default). A row without it only reacts to clicks.
+    pub fn menu(mut self, menu: bool) -> Self {
+        self.menu = menu;
         self
     }
 
@@ -69,9 +77,9 @@ impl<'a> ListItem<'a> {
         // Added after the row, so it is on top and takes the clicks inside its rect.
         let dots = ui.interact(dots_rect, self.id.with("dots"), Sense::click());
         let popover = Popover::new(self.id.with("menu")).min_width(MENU_WIDTH);
-        let menu_open = popover.is_open(ui);
+        let menu_open = self.menu && popover.is_open(ui);
 
-        let hovered = row.hovered() || dots.hovered();
+        let hovered = row.hovered() || (self.menu && dots.hovered());
         let pill = CornerRadius::same(u8::MAX);
         if self.selected {
             ui.painter().rect_filled(rect, t.corner_lg(), t.secondary);
@@ -79,7 +87,7 @@ impl<'a> ListItem<'a> {
             ui.painter().rect_filled(rect, t.corner_lg(), t.muted);
         }
 
-        let show_dots = hovered || self.selected || menu_open;
+        let show_dots = self.menu && (hovered || self.selected || menu_open);
         let label_right = if show_dots {
             dots_rect.left() - spacing::XS
         } else {
@@ -120,13 +128,17 @@ impl<'a> ListItem<'a> {
                 IconKind::More,
             );
         }
-        if dots.hovered() || row.hovered() {
+        if (self.menu && dots.hovered()) || row.hovered() {
             ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
         }
 
-        let menu = popover.show(ui, &dots, menu);
+        let menu = if self.menu {
+            popover.show(ui, &dots, menu)
+        } else {
+            None
+        };
         ListItemOutput {
-            clicked: row.clicked() && !dots.clicked(),
+            clicked: row.clicked() && !(self.menu && dots.clicked()),
             menu,
         }
     }

@@ -149,8 +149,8 @@ cargo packager --release --formats deb,appimage  # Linux
 
 1. Launch InfiniteRoleplay. A short **tutorial** with screenshots opens the first time; reopen it any time with the question mark button next to Settings.
 2. Click **Settings** (top right) and choose a **provider** and paste your API key (not needed for local models).
-3. Open **Characters** (and, optionally, **Worlds**) in the top navigation to create or edit them. Each section has its own list in the sidebar.
-4. Go to **Stories**, press the **+** button, and start writing. Press **Enter** to send and **Shift+Enter** for a new line. Type **/** to see the commands, and click one to use it. **Tree** shows the branches of the open story.
+3. Open **Characters** (and, optionally, **Worlds**) with the icons in the rail at the left to create or edit them. Each section has its own list next to the rail, which the sidebar button at the bottom of the rail hides.
+4. Go to **Stories**, press the **+** button, and start writing. Press **Enter** to send and **Shift+Enter** for a new line. Type **/** to see the commands, and click one to use it. **Tree** shows the branches of the open story. Click a message to branch from it or copy it, and click the story title for its world and characters.
 
 For development, you can also provide the key through the `IR_API_KEY` environment variable. Set `IR_DATA_DIR` to keep settings, sessions, and the library in another folder (a portable install or a clean test profile).
 
@@ -327,6 +327,7 @@ Everything is also available through buttons and menus in the UI. In the chat in
 | `/memory`              | Show stored facts                        |
 | `/forget <id>`         | Remove a fact                            |
 | `/summary`             | Show the current summary                 |
+| `/compact`             | Summarize all but the last two messages  |
 | `/char <name>`         | Switch or add a character                |
 | `/style <profile>`     | Switch style profile                     |
 | `/narrator on\|off`    | Toggle narrator mode                     |
@@ -402,4 +403,4 @@ Released under the [MIT License](LICENSE).
 
 ---
 
-<p align="center">Made for stories that never end. ♾️</p>
+<p align="center">Made for stories that never end.</p>

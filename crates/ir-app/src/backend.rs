@@ -20,7 +20,7 @@ use ir_core::db::{Db, NewNode, Node, NodeId, Session, SessionId};
 use ir_core::lorebook::{LoreEntry, Lorebook};
 use ir_core::memory;
 use ir_core::settings::{self, SecretStore, Settings};
-use ir_core::tree::{StoryTree, Turn};
+use ir_core::tree::{Branch, StoryTree, Turn};
 use ir_core::update::{self, Release};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::sync::Notify;
@@ -96,6 +96,9 @@ pub struct Transcript {
     pub nodes: Vec<Node>,
     /// The names of the characters in the scene.
     pub characters: Vec<String>,
+    /// Every storyline of the session, each ending at a tip. The sidebar lists them as
+    /// sub-chats of the story.
+    pub branches: Vec<Branch>,
 }
 
 /// Every node of a story, for the tree view.
@@ -145,6 +148,9 @@ pub enum Request {
     WatchTree(bool),
     /// Move the story to a node of the story tree.
     JumpTo(NodeId),
+    /// Move to a node and start a new storyline there: what is written next becomes another
+    /// continuation of it.
+    BranchFrom(NodeId),
     /// Save a character, to `path` if given, else to a new file.
     SaveCharacter {
         /// The file to overwrite.
@@ -406,6 +412,7 @@ impl Actor {
                 }
             }
             Request::JumpTo(node) => self.jump_to(node),
+            Request::BranchFrom(node) => self.branch_from(node),
             Request::DeleteApiKey => {
                 match self.secrets.delete(&self.settings.api.provider) {
                     Ok(()) => self.emit(Event::Info("API key removed.".into())),
@@ -694,10 +701,12 @@ impl Actor {
                 .into_iter()
                 .map(|c| c.name)
                 .collect();
+            let branches = StoryTree::new(&self.db, id).branches().unwrap_or_default();
             Ok(Transcript {
                 session,
                 nodes,
                 characters,
+                branches,
             })
         })();
         match result {
@@ -745,6 +754,88 @@ impl Actor {
             }
             Err(e) => self.error(e),
         }
+    }
+
+    fn branch_from(&mut self, node: NodeId) {
+        let Some(session) = self.session else { return };
+        if self.cancel.is_some() {
+            self.error("Wait for the response to finish, or stop it first.");
+            return;
+        }
+        let tree = StoryTree::new(&self.db, session);
+        match tree.jump(node).and_then(|_| tree.branch(None)) {
+            Ok(point) => {
+                self.emit_transcript();
+                self.emit_sessions();
+                self.emit(Event::Notice(format::notice(&CommandOutput::Branched(
+                    point,
+                ))));
+            }
+            Err(e) => self.error(e),
+        }
+    }
+
+    /// `/compact`: summarize everything before the newest two messages. The summary arrives
+    /// as [`Request::SummaryReady`], like the automatic ones.
+    fn compact(&self, session: SessionId) {
+        let plan = (|| -> Result<Option<memory::SummaryJob>, String> {
+            let db_err = |e: ir_core::db::DbError| e.to_string();
+            let Some(current) = self.db.session(session).map_err(db_err)?.current_node_id else {
+                return Ok(None);
+            };
+            let path = self.db.path_to_root(current).map_err(db_err)?;
+            let summary = self.db.summary_at(current).map_err(db_err)?;
+            Ok(memory::plan_compact(&path, summary.as_ref()))
+        })();
+        let job = match plan {
+            Ok(Some(job)) => job,
+            Ok(None) => {
+                return self.emit(Event::Notice(Notice::plain(
+                    "There is nothing to compact yet. The newest two messages always stay.",
+                )))
+            }
+            Err(e) => return self.error(e),
+        };
+        if self.limit_reached(session) {
+            return self.error("This story has reached the token limit.");
+        }
+        let provider = match self.provider() {
+            Ok(provider) => provider,
+            Err(e) => return self.error(e),
+        };
+        self.add_usage(session, job.estimated_tokens());
+        self.emit(Event::Notice(Notice::plain(format!(
+            "Compacting {} messages...",
+            job.message_count
+        ))));
+        let (requests, events, wake) = (
+            self.requests.clone(),
+            self.events.clone(),
+            self.wake.clone(),
+        );
+        tokio::spawn(async move {
+            match memory::summarize(provider.as_ref(), &job).await {
+                Ok(text) => {
+                    let _ = requests.send(Request::Usage {
+                        session,
+                        tokens: context::estimate_tokens(&text),
+                    });
+                    let _ = requests.send(Request::SummaryReady {
+                        node: job.through_node,
+                        text,
+                    });
+                    let _ = events.send(Event::Info(format!(
+                        "Compacted {} messages.",
+                        job.message_count
+                    )));
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "compacting failed");
+                    let _ = events.send(Event::Error(format!("Could not compact: {e}")));
+                }
+            }
+            wake();
+        });
     }
 
     fn create_session(&mut self, name: &str, world: Option<String>, character: Option<String>) {
@@ -867,6 +958,7 @@ impl Actor {
                 self.emit_sessions();
                 match output {
                     CommandOutput::Regenerate { .. } => self.start_generation(),
+                    CommandOutput::Compact => self.compact(active),
                     other => self.emit(Event::Notice(format::notice(&other))),
                 }
             }
@@ -2098,5 +2190,59 @@ entries:
             _ => None,
         });
         assert!(error.contains("#9999"), "{error}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn compact_summarizes_all_but_the_newest_two_messages() {
+        let rig = Rig::start("compact", Mock::new(&["Reply."]), true, false);
+        rig.start_story();
+        rig.chat("One.");
+        rig.chat("Two.");
+        let t = rig.chat("Three.");
+        assert_eq!(t.nodes.len(), 7);
+        rig.backend.send(Request::Send("/compact".into()));
+        let info = rig.wait_for(|e| match e {
+            Event::Info(m) => Some(m.clone()),
+            Event::Error(e) => panic!("unexpected error: {e}"),
+            _ => None,
+        });
+        assert_eq!(info, "Compacted 5 messages.");
+        // The summary is stored at the fifth message, so the last two stay untouched.
+        rig.backend.send(Request::Send("/summary".into()));
+        let notice = rig.wait_for(|e| match e {
+            Event::Notice(n) if n.text.contains("Mira likes maps") => Some(n.text.clone()),
+            _ => None,
+        });
+        assert!(notice.contains("Mira likes maps"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn compact_on_a_short_story_does_nothing_but_say_so() {
+        let rig = Rig::start("compact-short", Mock::new(&["Reply."]), true, false);
+        rig.start_story();
+        rig.backend.send(Request::Send("/compact".into()));
+        let notice = rig.wait_for(|e| match e {
+            Event::Notice(n) => Some(n.text.clone()),
+            _ => None,
+        });
+        assert!(notice.contains("nothing to compact"), "{notice}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn branching_from_a_message_starts_a_new_storyline_listed_as_a_branch() {
+        let rig = Rig::start("branch-from", Mock::new(&["Reply."]), true, false);
+        let first = rig.start_story().nodes[0].id;
+        let t = rig.chat("Hello.");
+        assert_eq!(t.branches.len(), 1);
+
+        rig.backend.send(Request::BranchFrom(first));
+        let notice = rig.wait_for(|e| match e {
+            Event::Notice(n) => Some(n.text.clone()),
+            _ => None,
+        });
+        assert!(notice.contains("new storyline"), "{notice}");
+        let t = rig.chat("Another path.");
+        assert_eq!(t.branches.len(), 2, "the old storyline and the new one");
+        assert_eq!(t.nodes.len(), 3);
     }
 }
