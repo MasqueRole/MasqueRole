@@ -2,13 +2,29 @@
 
 use std::time::Duration;
 
-use egui::{Align2, Area, Context, Frame, Id, Margin, Order, RichText, Stroke};
+use egui::{
+    Align2, Area, Color32, Context, FontId, Frame, Id, Margin, Order, Rect, RichText, Sense,
+    Shadow, Stroke, Vec2,
+};
 
 use super::button::{Button, ButtonSize, ButtonVariant};
+use super::icon::{self, IconKind};
 use crate::theme::{spacing, ThemeExt, BORDER_WIDTH};
 
 /// Width of a toast, in logical pixels.
 const TOAST_WIDTH: f32 = 320.0;
+
+/// Diameter of the round badge behind the icon.
+const BADGE_SIZE: f32 = 32.0;
+
+/// Size of the icon in the badge.
+const ICON_SIZE: f32 = 16.0;
+
+/// Width reserved for the close button.
+const CLOSE_SIZE: f32 = 32.0;
+
+/// Seconds a new toast takes to fade in.
+const FADE_IN_SECONDS: f32 = 0.2;
 
 /// How long a normal toast stays, in seconds.
 const DEFAULT_SECONDS: f64 = 4.0;
@@ -32,6 +48,7 @@ pub struct Toast {
     title: String,
     description: Option<String>,
     kind: ToastKind,
+    icon: Option<IconKind>,
     seconds: f64,
 }
 
@@ -42,6 +59,7 @@ impl Toast {
             title: title.into(),
             description: None,
             kind: ToastKind::Default,
+            icon: None,
             seconds: DEFAULT_SECONDS,
         }
     }
@@ -59,6 +77,21 @@ impl Toast {
     pub fn description(mut self, description: impl Into<String>) -> Self {
         self.description = Some(description.into());
         self
+    }
+
+    /// The icon that says what happened, such as a copy or save icon. Without one a neutral
+    /// toast shows an info icon and an error toast a warning icon.
+    pub fn icon(mut self, icon: IconKind) -> Self {
+        self.icon = Some(icon);
+        self
+    }
+
+    /// The icon that is shown.
+    pub fn icon_kind(&self) -> IconKind {
+        self.icon.unwrap_or(match self.kind {
+            ToastKind::Default => IconKind::Info,
+            ToastKind::Destructive => IconKind::Warning,
+        })
     }
 
     /// How long the toast stays, in seconds.
@@ -152,30 +185,70 @@ impl Toasts {
             .show(ctx, |ui| {
                 ui.spacing_mut().item_spacing.y = spacing::SM;
                 for entry in &self.entries {
-                    let border = match entry.toast.kind {
-                        ToastKind::Default => t.border,
+                    // A new toast fades in.
+                    let shown = ctx.animate_value_with_time(
+                        Id::new(("ir-ui-toast", entry.id)),
+                        1.0,
+                        FADE_IN_SECONDS,
+                    );
+                    let accent = match entry.toast.kind {
+                        ToastKind::Default => t.foreground,
                         ToastKind::Destructive => t.destructive,
                     };
-                    Frame::new()
+                    let mut frame_ui = ui.new_child(
+                        egui::UiBuilder::new()
+                            .max_rect(ui.available_rect_before_wrap())
+                            .layout(*ui.layout()),
+                    );
+                    frame_ui.set_opacity(shown);
+                    let response = Frame::new()
                         .fill(t.popover)
-                        .stroke(Stroke::new(BORDER_WIDTH, border))
+                        .stroke(Stroke::new(BORDER_WIDTH, t.border))
                         .corner_radius(t.corner_lg())
                         .inner_margin(Margin::same(spacing::LG as i8))
-                        .show(ui, |ui| {
+                        .shadow(Shadow {
+                            offset: [0, 4],
+                            blur: 16,
+                            spread: 0,
+                            color: Color32::from_black_alpha(if t.is_dark { 90 } else { 28 }),
+                        })
+                        .show(&mut frame_ui, |ui| {
                             ui.set_width(TOAST_WIDTH);
-                            ui.horizontal_top(|ui| {
+                            ui.horizontal(|ui| {
+                                // The icon sits in a round badge tinted with its color.
+                                let (badge, _) =
+                                    ui.allocate_exact_size(Vec2::splat(BADGE_SIZE), Sense::hover());
+                                ui.painter().circle_filled(
+                                    badge.center(),
+                                    BADGE_SIZE / 2.0,
+                                    accent.gamma_multiply(0.16),
+                                );
+                                icon::paint(
+                                    ui.painter(),
+                                    Rect::from_center_size(badge.center(), Vec2::splat(ICON_SIZE)),
+                                    accent,
+                                    entry.toast.icon_kind(),
+                                );
                                 ui.vertical(|ui| {
-                                    ui.set_width(TOAST_WIDTH - 2.0 * spacing::XL);
+                                    ui.set_width(
+                                        TOAST_WIDTH
+                                            - BADGE_SIZE
+                                            - CLOSE_SIZE
+                                            - 2.0 * ui.spacing().item_spacing.x,
+                                    );
                                     ui.spacing_mut().item_spacing.y = spacing::XS;
-                                    let color = match entry.toast.kind {
-                                        ToastKind::Default => t.foreground,
-                                        ToastKind::Destructive => t.destructive,
-                                    };
+                                    if entry.toast.description.is_none() {
+                                        // One line: center it next to the round badge.
+                                        let line = ui.fonts(|f| {
+                                            f.row_height(&FontId::proportional(t.text_sm))
+                                        });
+                                        ui.add_space(((BADGE_SIZE - line) / 2.0).max(0.0));
+                                    }
                                     ui.label(
                                         RichText::new(&entry.toast.title)
                                             .size(t.text_sm)
                                             .strong()
-                                            .color(color),
+                                            .color(t.foreground),
                                     );
                                     if let Some(description) = &entry.toast.description {
                                         ui.label(
@@ -185,14 +258,17 @@ impl Toasts {
                                         );
                                     }
                                 });
-                                let close = Button::new("\u{d7}")
+                                let close = Button::new("")
+                                    .icon(IconKind::Close)
                                     .variant(ButtonVariant::Ghost)
                                     .size(ButtonSize::Icon);
                                 if ui.add(close).clicked() {
                                     dismissed.push(entry.id);
                                 }
                             });
-                        });
+                        })
+                        .response;
+                    ui.advance_cursor_after_rect(response.rect);
                 }
             });
         self.entries.retain(|e| !dismissed.contains(&e.id));
@@ -249,6 +325,20 @@ mod tests {
         assert_eq!(t.description.as_deref(), Some("Add one in Settings"));
         assert_eq!(t.seconds, 0.0, "negative durations are clamped");
         assert_eq!(Toast::new("x").kind(), ToastKind::Default);
+    }
+
+    #[test]
+    fn a_toast_shows_the_icon_of_what_happened_or_one_for_its_kind() {
+        assert_eq!(Toast::new("x").icon_kind(), IconKind::Info);
+        assert_eq!(Toast::destructive("x").icon_kind(), IconKind::Warning);
+        assert_eq!(
+            Toast::new("x").icon(IconKind::Save).icon_kind(),
+            IconKind::Save
+        );
+        assert_eq!(
+            Toast::destructive("x").icon(IconKind::Trash).icon_kind(),
+            IconKind::Trash
+        );
     }
 
     #[test]

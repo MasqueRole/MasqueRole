@@ -145,7 +145,7 @@ impl Theme {
             scrim: Color32::from_black_alpha(110),
             tree_current: rgb(0xf5c542),
             tree_explored: rgb(0x8fd694),
-            tree_open: rgb(0xd4d4d8),
+            tree_open: rgb(0x71717a),
             ..Self::scale()
         }
     }
@@ -175,7 +175,7 @@ impl Theme {
             scrim: Color32::from_black_alpha(170),
             tree_current: rgb(0xf5c542),
             tree_explored: rgb(0x4f9e5a),
-            tree_open: rgb(0x52525b),
+            tree_open: rgb(0x71717a),
             ..Self::scale()
         }
     }

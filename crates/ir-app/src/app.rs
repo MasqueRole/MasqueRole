@@ -638,7 +638,7 @@ impl App {
                 .clicked()
             {
                 self.toasts
-                    .push(Toast::new("The marketplace is coming soon."));
+                    .push(Toast::new("The marketplace is coming soon.").icon(IconKind::Store));
             }
         });
         if section != self.section {

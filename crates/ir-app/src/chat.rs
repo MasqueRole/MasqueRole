@@ -248,7 +248,8 @@ pub fn body(app: &mut App, ui: &mut Ui) {
     }
     if let Some(text) = action.copy {
         ui.ctx().copy_text(text);
-        app.toasts.push(Toast::new("Copied to the clipboard."));
+        app.toasts
+            .push(Toast::new("Copied to the clipboard.").icon(IconKind::Copy));
     }
     composer(app, ui);
 }

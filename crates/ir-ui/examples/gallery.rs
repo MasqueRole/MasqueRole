@@ -47,7 +47,11 @@ impl Gallery {
     ) -> Self {
         let mut toasts = Toasts::new();
         if show_toasts {
-            toasts.push(Toast::new("Session saved").description("Everything is stored locally."));
+            toasts.push(
+                Toast::new("Session saved")
+                    .icon(IconKind::Save)
+                    .description("Everything is stored locally."),
+            );
             toasts.push(Toast::destructive("Could not reach the provider").seconds(3600.0));
         }
         Self {
@@ -482,8 +486,11 @@ impl Gallery {
                 .add(Button::new("Show toast").variant(ButtonVariant::Outline))
                 .clicked()
             {
-                self.toasts
-                    .push(Toast::new("Session saved").description("Everything is stored locally."));
+                self.toasts.push(
+                    Toast::new("Session saved")
+                        .icon(IconKind::Save)
+                        .description("Everything is stored locally."),
+                );
             }
             if ui
                 .add(Button::new("Show error toast").variant(ButtonVariant::Destructive))
@@ -525,17 +532,17 @@ impl Gallery {
             ui.add(
                 TreeNode::new("Current node")
                     .state(TreeNodeState::Current)
-                    .tag("30 Oct 14:32"),
+                    .date("30 Oct 14:32"),
             );
             ui.add(
                 TreeNode::new("On the path")
                     .state(TreeNodeState::Explored)
-                    .tag("30 Oct 14:30"),
+                    .date("30 Oct 14:30"),
             );
             ui.add(
                 TreeNode::new("Other branch")
                     .state(TreeNodeState::Open)
-                    .tag("29 Oct 09:05"),
+                    .date("29 Oct 09:05"),
             );
         });
         ui.horizontal(|ui| {

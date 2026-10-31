@@ -1,14 +1,16 @@
 //! The story tree screen: the whole tree drawn on a canvas you can pan and zoom.
 //!
-//! Nodes are the design system's `TreeNode`, painted inside an egui `Scene`, which gives
-//! panning (drag or scroll) and zooming (Ctrl+scroll or pinch) for free. Click a node to
-//! preview it, click it again to jump there. Right-click a node, or use the preview buttons,
-//! to collapse a branch.
+//! The tree grows from the top down. Nodes are the design system's `TreeNode`, colored dots
+//! that open a card with the title and date on hover, painted inside an egui `Scene`, which
+//! gives panning (drag or scroll) and zooming (Ctrl+scroll or pinch) for free. Click a node
+//! to preview it, click it again to jump there. Right-click a node, or use the preview
+//! buttons, to collapse a branch.
 
 use std::collections::{HashMap, HashSet};
 
 use eframe::egui::{Align, Layout, Pos2, Rect, Scene, Shape, Stroke, Ui, UiBuilder, Vec2};
 use ir_core::db::{Node, NodeId, NodeKind};
+use ir_ui::components::tree_node::{bottom_anchor, top_anchor, SIZE as NODE_SIZE};
 use ir_ui::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, IconKind, Label, ScrollArea, TreeNode,
     TreeNodeState,
@@ -19,17 +21,11 @@ use crate::backend::TreeData;
 use crate::format;
 use crate::tree_layout::{self, Placed, TreeLayout};
 
-use ir_ui::components::tree_node::{HEIGHT as NODE_HEIGHT, MAX_WIDTH as NODE_MAX_WIDTH};
+/// Horizontal distance between neighbouring nodes of a level: a dot plus the gap.
+const COLUMN_WIDTH: f32 = NODE_SIZE + spacing::XL;
 
-/// Horizontal distance between columns: a node's widest width plus the gap for edges.
-const COLUMN_WIDTH: f32 = 260.0;
-
-/// Vertical distance between rows: a node's height plus the gap.
-const ROW_HEIGHT: f32 = NODE_HEIGHT + spacing::LG;
-
-/// How far an edge reaches into its parent node, so it appears to leave from the node's edge
-/// whatever the node's width.
-const EDGE_OVERLAP: f32 = 24.0;
+/// Vertical distance between levels: a dot plus the gap for edges.
+const ROW_HEIGHT: f32 = NODE_SIZE + spacing::XXL;
 
 /// The zoom limits of the canvas.
 const MIN_ZOOM: f32 = 0.15;
@@ -154,7 +150,7 @@ impl TreeView {
 
     /// Where a node's top-left corner is on the canvas.
     fn position(placed: &Placed) -> Pos2 {
-        Pos2::new(placed.depth as f32 * COLUMN_WIDTH, placed.row * ROW_HEIGHT)
+        Pos2::new(placed.row * COLUMN_WIDTH, placed.depth as f32 * ROW_HEIGHT)
     }
 
     /// The canvas size of the view, or a default before it has been measured.
@@ -169,8 +165,7 @@ impl TreeView {
     /// Pan so `id` is in the middle of the view, keeping the zoom.
     pub fn center_on(&mut self, id: NodeId) {
         if let Some(placed) = self.layout.get(id) {
-            let middle =
-                Self::position(placed) + Vec2::new(NODE_MAX_WIDTH / 2.0, NODE_HEIGHT / 2.0);
+            let middle = Self::position(placed) + Vec2::splat(NODE_SIZE / 2.0);
             self.scene_rect = Rect::from_center_size(middle, self.view_size());
         }
     }
@@ -193,8 +188,8 @@ impl TreeView {
             return;
         }
         let size = Vec2::new(
-            (self.layout.max_depth as f32 + 1.0) * COLUMN_WIDTH,
-            self.layout.rows.max(1.0) * ROW_HEIGHT,
+            self.layout.rows.max(1.0) * COLUMN_WIDTH,
+            (self.layout.max_depth as f32 + 1.0) * ROW_HEIGHT,
         );
         let bounds = Rect::from_min_size(Pos2::ZERO, size).expand(FIT_MARGIN);
         self.scene_rect = bounds;
@@ -245,17 +240,6 @@ impl TreeView {
             (NodeKind::Character, Some(who)) => format!("{who}: {text}"),
             (NodeKind::User, _) => format!("You: {text}"),
             _ => text,
-        }
-    }
-
-    /// The text on a node in the canvas. A collapsed branch shows how many nodes it hides,
-    /// at the front, because a long label is cut off at the end.
-    pub fn canvas_label(node: &Node, hidden: usize) -> String {
-        let label = Self::node_label(node);
-        if hidden > 0 {
-            format!("[+{hidden}] {label}")
-        } else {
-            label
         }
     }
 
@@ -334,22 +318,24 @@ impl TreeView {
                     let Some(parent) = placed.parent.and_then(|p| self.layout.get(p)) else {
                         continue;
                     };
-                    let from = Self::position(parent) + Vec2::new(EDGE_OVERLAP, NODE_HEIGHT / 2.0);
-                    let to = Self::position(placed) + Vec2::new(0.0, NODE_HEIGHT / 2.0);
+                    let node_rect =
+                        |p: &Placed| Rect::from_min_size(Self::position(p), Vec2::splat(NODE_SIZE));
+                    let from = bottom_anchor(node_rect(parent));
+                    let to = top_anchor(node_rect(placed));
                     if !visible.intersects(Rect::from_two_pos(from, to)) {
                         continue;
                     }
-                    let bend = to.x - (COLUMN_WIDTH - NODE_MAX_WIDTH) / 2.0;
+                    let bend = from.y + (to.y - from.y) / 2.0;
                     let on_path = self.path.contains(&placed.id) && self.path.contains(&parent.id);
                     ui.painter().add(Shape::line(
-                        vec![from, Pos2::new(bend, from.y), Pos2::new(bend, to.y), to],
+                        vec![from, Pos2::new(from.x, bend), Pos2::new(to.x, bend), to],
                         if on_path { current_path } else { other },
                     ));
                 }
 
                 for placed in &self.layout.placed {
                     let origin = Self::position(placed);
-                    let area = Rect::from_min_size(origin, Vec2::new(NODE_MAX_WIDTH, NODE_HEIGHT));
+                    let area = Rect::from_min_size(origin, Vec2::splat(NODE_SIZE));
                     if !visible.intersects(area) {
                         continue;
                     }
@@ -363,9 +349,10 @@ impl TreeView {
                     } else {
                         TreeNodeState::Open
                     };
-                    let widget = TreeNode::new(Self::canvas_label(node, placed.hidden))
+                    let widget = TreeNode::new(Self::node_label(node))
                         .state(state)
-                        .tag(crate::format::timestamp(node.created_at))
+                        .date(crate::format::timestamp(node.created_at))
+                        .hidden(placed.hidden)
                         .bookmarked(node.bookmark.is_some())
                         .selected(self.selected == Some(placed.id));
 
@@ -639,8 +626,7 @@ mod tests {
         view.sync(Some(&data), 1);
         assert!(!view.is_collapsed(NodeId(3)));
         let placed = *view.layout.get(NodeId(9)).expect("revealed");
-        let middle =
-            TreeView::position(&placed) + Vec2::new(NODE_MAX_WIDTH / 2.0, NODE_HEIGHT / 2.0);
+        let middle = TreeView::position(&placed) + Vec2::splat(NODE_SIZE / 2.0);
         assert_eq!(view.scene_rect.center(), middle, "and centered on");
 
         // Branches that do not hide it stay collapsed.
@@ -656,8 +642,7 @@ mod tests {
     fn the_view_starts_centered_on_the_current_node_once() {
         let (mut view, data) = synced();
         let placed = *view.layout.get(NodeId(9)).unwrap();
-        let middle =
-            TreeView::position(&placed) + Vec2::new(NODE_MAX_WIDTH / 2.0, NODE_HEIGHT / 2.0);
+        let middle = TreeView::position(&placed) + Vec2::splat(NODE_SIZE / 2.0);
         assert_eq!(view.scene_rect.center(), middle);
 
         // New data later does not pull the view away from where the user put it.
@@ -673,7 +658,7 @@ mod tests {
         let mut data = data();
         data.current = None;
         view.sync(Some(&data), 1);
-        assert!(view.scene_rect.width() > 4.0 * COLUMN_WIDTH);
+        assert!(view.scene_rect.height() > 4.0 * ROW_HEIGHT);
     }
 
     #[test]
@@ -733,14 +718,15 @@ mod tests {
     }
 
     #[test]
-    fn a_collapsed_branch_shows_its_hidden_count_before_the_text() {
-        let long = node(1, None, NodeKind::User, None, &"word ".repeat(60));
-        assert_eq!(
-            TreeView::canvas_label(&long, 0),
-            TreeView::node_label(&long)
-        );
-        let label = TreeView::canvas_label(&long, 12);
-        assert!(label.starts_with("[+12] You: word"), "{label}");
+    fn the_tree_grows_downward_and_siblings_sit_side_by_side() {
+        let (view, _) = synced();
+        let at = |id| TreeView::position(view.layout.get(NodeId(id)).unwrap());
+        // A child is one level below its parent, and the two children of 2 share a level.
+        assert!(at(2).y > at(1).y);
+        assert_eq!(at(3).y, at(4).y);
+        assert!(at(3).x != at(4).x);
+        // A parent sits between its children.
+        assert!(at(2).x >= at(3).x.min(at(4).x) && at(2).x <= at(3).x.max(at(4).x));
     }
 
     // ---- drawing ----
