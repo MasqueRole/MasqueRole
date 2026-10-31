@@ -10,7 +10,7 @@ use ir_ui::components::{
     Figure, FloatingBar, FormField, Icon, IconKind, Input, Label, LabelTone, ListItem, Logo,
     MenuItem, Panel, Picture, Popover, ScrollArea, Select, Separator, Slider, Suggestion,
     Suggestions, Switch, Tabs, Textarea, Toast, Toasts, TooltipExt, TopBar, TreeNode,
-    TreeNodeState,
+    TreeNodeState, WindowControls,
 };
 use ir_ui::{spacing, Theme, ThemeExt, ThemeMode};
 
@@ -346,6 +346,19 @@ impl Gallery {
                     .icon(IconKind::Settings)
                     .variant(ButtonVariant::Ghost)
                     .size(ButtonSize::Icon),
+            );
+        });
+
+        Self::section(ui, "Window controls");
+        ui.horizontal(|ui| {
+            WindowControls::new(false).show(ui);
+            ui.add_space(24.0);
+            WindowControls::new(true).show(ui);
+            ui.add_space(24.0);
+            ui.add(
+                Button::new("Update now")
+                    .icon(IconKind::Download)
+                    .size(ButtonSize::Sm),
             );
         });
 

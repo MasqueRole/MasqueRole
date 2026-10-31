@@ -12,6 +12,16 @@ use crate::theme::{spacing, ThemeExt};
 /// Height of the row the groups sit in; the height of a pill-style tab strip.
 const ROW_HEIGHT: f32 = 32.0;
 
+/// What the user did to the empty part of the bar, so an app with its own title bar can move
+/// the window.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct BarResponse {
+    /// A drag started on the bar itself, not on a widget in it.
+    pub drag_started: bool,
+    /// The bar itself was double-clicked.
+    pub double_clicked: bool,
+}
+
 /// A bar across the top of the window in the page background color, with one group at the
 /// left edge, one centered, and one at the right edge.
 ///
@@ -37,7 +47,7 @@ impl TopBar {
         left: impl FnOnce(&mut Ui),
         center: impl FnOnce(&mut Ui),
         right: impl FnOnce(&mut Ui),
-    ) {
+    ) -> BarResponse {
         let t = ctx.ir_theme();
         let frame = Frame::new()
             .fill(t.background)
@@ -46,14 +56,20 @@ impl TopBar {
         // from the previous frame. Only the very first frame is off-center.
         let width_id = self.id.with("center-width");
         let known: f32 = ctx.data(|d| d.get_temp(width_id)).unwrap_or(0.0);
+        let mut bar = BarResponse::default();
         TopBottomPanel::top(self.id)
             .frame(frame)
             .show_separator_line(false)
             .show(ctx, |ui| {
-                let (row, _) = ui.allocate_exact_size(
+                let (row, background) = ui.allocate_exact_size(
                     Vec2::new(ui.available_width(), ROW_HEIGHT),
-                    Sense::hover(),
+                    Sense::click_and_drag(),
                 );
+                // Widgets added below sit on top of this, so only the gaps report.
+                bar = BarResponse {
+                    drag_started: background.drag_started(),
+                    double_clicked: background.double_clicked(),
+                };
                 let left_to_right = Layout::left_to_right(Align::Center);
                 ui.scope_builder(UiBuilder::new().max_rect(row).layout(left_to_right), left);
                 ui.scope_builder(
@@ -79,6 +95,7 @@ impl TopBar {
                     ctx.request_repaint();
                 }
             });
+        bar
     }
 }
 
@@ -113,6 +130,42 @@ mod tests {
             (c.center().x - 400.0).abs() < 2.0,
             "centered in 800 px: {c:?}"
         );
+    }
+
+    #[test]
+    fn dragging_the_empty_bar_is_reported() {
+        use egui::{Event, PointerButton};
+        let mut h = Harness::new();
+        let mut left = Rect::NOTHING;
+        let mut dragged = false;
+        let mut run = |h: &mut Harness, events: Vec<Event>| {
+            h.ctx_frame(events, &mut |ctx| {
+                let size = Vec2::new(80.0, 24.0);
+                let bar = TopBar::new("bar").show(
+                    ctx,
+                    |ui| left = ui.allocate_exact_size(size, Sense::click()).0,
+                    |_| {},
+                    |_| {},
+                );
+                dragged |= bar.drag_started;
+            });
+        };
+        run(&mut h, vec![]);
+        run(&mut h, vec![]);
+        let gap = Pos2::new(300.0, 24.0);
+        let button = |pressed| Event::PointerButton {
+            pos: gap,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        run(&mut h, vec![Event::PointerMoved(gap)]);
+        run(&mut h, vec![button(true)]);
+        run(
+            &mut h,
+            vec![Event::PointerMoved(gap + Vec2::new(30.0, 0.0))],
+        );
+        assert!(dragged, "a drag on empty space moves the window");
     }
 
     #[test]

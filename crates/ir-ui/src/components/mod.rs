@@ -33,6 +33,7 @@ pub mod toast;
 pub mod tooltip;
 pub mod top_bar;
 pub mod tree_node;
+pub mod window_controls;
 
 pub use badge::{Badge, BadgeVariant};
 pub use button::{Button, ButtonSize, ButtonVariant};
@@ -62,5 +63,6 @@ pub use tabs::Tabs;
 pub use textarea::Textarea;
 pub use toast::{Toast, ToastKind, Toasts};
 pub use tooltip::{Tooltip, TooltipExt};
-pub use top_bar::TopBar;
+pub use top_bar::{BarResponse, TopBar};
 pub use tree_node::{TreeNode, TreeNodeState};
+pub use window_controls::{WindowAction, WindowControls};

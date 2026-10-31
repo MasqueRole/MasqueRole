@@ -60,6 +60,7 @@ fn run() -> anyhow::Result<()> {
         viewport: {
             let viewport = egui::ViewportBuilder::default()
                 .with_title(APP_NAME)
+                .with_decorations(false)
                 .with_inner_size([1100.0, 720.0])
                 .with_min_inner_size([760.0, 480.0]);
             match branding::window_icon() {
@@ -82,10 +83,12 @@ fn run() -> anyhow::Result<()> {
                 secrets: Arc::new(KeychainStore),
                 provider: default_provider_factory(),
                 picker: default_image_picker(),
+                update_url: Some(ir_core::update::LATEST_RELEASE_URL.to_owned()),
                 wake: Arc::new(move || ctx.request_repaint()),
             };
             let (backend, events) = backend::spawn(runtime.handle(), services);
             backend.send(Request::Init);
+            backend.send(Request::CheckUpdate);
             Ok(Box::new(Shell(App::new(backend, events, Some(runtime)))))
         }),
     )
