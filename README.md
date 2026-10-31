@@ -286,7 +286,7 @@ graph TD
 
 *The tree grows from the top down. Every node is a dot: gold for the current position, green for the path you took, and gray for alternative branches. Hover a dot to see its title and date.*
 
-In the app, the tree is an interactive view drawn with egui: click a node to preview it, and jump there with a second click. Scroll and drag to navigate large trees. The `/tree` command prints a text version:
+In the app, the tree is an interactive view drawn with egui: click a dot and it opens into a card with the whole message and the buttons to jump there or collapse its branch. Scroll and drag to navigate large trees, and press Escape to close the card. The `/tree` command prints a text version:
 
 ```
 ● Start

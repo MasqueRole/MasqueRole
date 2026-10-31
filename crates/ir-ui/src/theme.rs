@@ -167,7 +167,7 @@ impl Theme {
             muted_foreground: rgb(0xa1a1aa),
             accent: rgb(0x27272a),
             accent_foreground: rgb(0xfafafa),
-            destructive: rgb(0x991b1b),
+            destructive: rgb(0xdc2626),
             destructive_foreground: rgb(0xfafafa),
             border: rgb(0x27272a),
             input: rgb(0x3f3f46),

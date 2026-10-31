@@ -3,19 +3,24 @@
 //! The tree grows from the top down. Nodes are the design system's `TreeNode`, colored dots
 //! that open a card with the title and date on hover, painted inside an egui `Scene`, which
 //! gives panning (drag or scroll) and zooming (Ctrl+scroll or pinch) for free. Click a node
-//! to preview it, click it again to jump there. Right-click a node, or use the preview
-//! buttons, to collapse a branch.
+//! to open it: the dot grows into a card with the whole message and the buttons to jump there
+//! or collapse its branch. Click the dot again to jump, or use the card's close button.
+//! Right-click a node for the same actions.
 
 use std::collections::{HashMap, HashSet};
 
-use eframe::egui::{Align, Layout, Pos2, Rect, Scene, Shape, Stroke, Ui, UiBuilder, Vec2};
+use eframe::egui::text::LayoutJob;
+use eframe::egui::{
+    Align, CornerRadius, FontId, Id, Key, Layout, Pos2, Rect, Scene, Sense, Shadow, Shape, Stroke,
+    StrokeKind, Ui, UiBuilder, Vec2,
+};
 use ir_core::db::{Node, NodeId, NodeKind};
 use ir_ui::components::tree_node::{bottom_anchor, top_anchor, SIZE as NODE_SIZE};
 use ir_ui::components::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, IconKind, Label, ScrollArea, TreeNode,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, IconKind, Label, TooltipExt, TreeNode,
     TreeNodeState,
 };
-use ir_ui::{spacing, ThemeExt, BORDER_WIDTH, RING_WIDTH};
+use ir_ui::{motion, spacing, Theme, ThemeExt, BORDER_WIDTH, RING_WIDTH};
 
 use crate::backend::TreeData;
 use crate::format;
@@ -40,8 +45,16 @@ const DEFAULT_VIEW: Vec2 = Vec2::new(1000.0, 600.0);
 /// Space kept around the tree when fitting it into view.
 const FIT_MARGIN: f32 = 60.0;
 
-/// Width of the column of buttons in the preview.
-const PREVIEW_BUTTONS: f32 = 140.0;
+/// Size of the card an opened dot grows into, in scene units.
+const CARD_WIDTH: f32 = 300.0;
+const CARD_HEIGHT: f32 = 212.0;
+
+/// How many lines of the message the card shows.
+const CARD_TEXT_ROWS: usize = 4;
+
+/// The card shows its content once it has opened this far, so the text never spills out of a
+/// card that is still small.
+const CARD_CONTENT_FROM: f32 = 0.55;
 
 /// Width of the right-click menu on a node.
 const CONTEXT_MENU_WIDTH: f32 = 170.0;
@@ -49,6 +62,8 @@ const CONTEXT_MENU_WIDTH: f32 = 170.0;
 /// State of the tree screen.
 pub struct TreeView {
     selected: Option<NodeId>,
+    /// The node whose card is drawn: the selected one, or the one that is still closing.
+    shown: Option<NodeId>,
     collapsed: HashSet<NodeId>,
     /// The part of the canvas in view, in scene units.
     scene_rect: Rect,
@@ -77,6 +92,7 @@ impl TreeView {
     pub fn new() -> Self {
         Self {
             selected: None,
+            shown: None,
             collapsed: HashSet::new(),
             scene_rect: Rect::ZERO,
             layout: TreeLayout::default(),
@@ -212,6 +228,7 @@ impl TreeView {
             Some(id)
         } else {
             self.selected = Some(id);
+            self.shown = Some(id);
             None
         }
     }
@@ -287,7 +304,7 @@ impl TreeView {
                     }
                 }
                 ui.add(
-                    Label::new("Drag to pan. Ctrl+scroll to zoom.")
+                    Label::new("Click a dot to open it. Drag to pan. Ctrl+scroll to zoom.")
                         .small()
                         .muted(),
                 );
@@ -301,6 +318,25 @@ impl TreeView {
         let mut toggled = None;
         let mut jump = None;
         let mut scene_rect = self.scene_rect;
+        let mut card_action = CardAction::default();
+
+        // The opened dot grows into a card, and the card shrinks back into the dot.
+        if let Some(selected) = self.selected {
+            self.shown = Some(selected);
+            if ui.input(|i| i.key_pressed(Key::Escape)) {
+                self.selected = None;
+            }
+        }
+        let opened = motion::eased(
+            ui.ctx(),
+            Id::new("tree-card"),
+            self.selected.is_some(),
+            motion::ENTER_SECONDS,
+            motion::EXIT_SECONDS,
+        );
+        if self.selected.is_none() && opened <= 0.001 {
+            self.shown = None;
+        }
 
         Scene::new()
             .zoom_range(MIN_ZOOM..=MAX_ZOOM)
@@ -393,8 +429,17 @@ impl TreeView {
                         }
                     });
                 }
+
+                if let Some(id) = self.shown.filter(|_| opened > 0.001) {
+                    card_action = self.card(ui, data, id, opened);
+                }
             });
         self.scene_rect = scene_rect;
+        if card_action.close {
+            self.selected = None;
+        }
+        toggled = toggled.or(card_action.toggle);
+        jump = jump.or(card_action.jump);
 
         if let Some(id) = toggled {
             self.toggle_collapse(id);
@@ -404,91 +449,147 @@ impl TreeView {
         }
         jump
     }
+}
 
-    /// Draw the preview of the selected node. Returns the node to jump to, if the user chose
-    /// one with the button.
-    pub fn footer(&mut self, ui: &mut Ui, data: Option<&TreeData>) -> Option<NodeId> {
-        let node = self
-            .selected
-            .zip(data)
-            .and_then(|(id, d)| d.nodes.iter().find(|n| n.id == id));
-        let Some(node) = node else {
+/// What the buttons of the open card asked for.
+#[derive(Default)]
+struct CardAction {
+    jump: Option<NodeId>,
+    toggle: Option<NodeId>,
+    close: bool,
+}
+
+impl TreeView {
+    /// Draw the card of node `id`, `opened` of the way open (0 is the dot, 1 the whole card).
+    /// It grows out of the dot's corner, so the dot seems to open up.
+    fn card(&self, ui: &mut Ui, data: &TreeData, id: NodeId, opened: f32) -> CardAction {
+        let mut action = CardAction::default();
+        let (Some(placed), Some(node)) = (
+            self.layout.get(id),
+            self.index.get(&id).map(|&i| &data.nodes[i]),
+        ) else {
+            return action;
+        };
+        let t = ui.ir_theme();
+        let dot = Rect::from_min_size(Self::position(placed), Vec2::splat(NODE_SIZE));
+        let full = Rect::from_min_size(dot.min, Vec2::new(CARD_WIDTH, CARD_HEIGHT));
+        let grown = |from: f32, to: f32| eframe::egui::lerp(from..=to, opened);
+        let rect = Rect::from_min_max(
+            dot.min,
+            Pos2::new(grown(dot.max.x, full.max.x), grown(dot.max.y, full.max.y)),
+        );
+        let radius = CornerRadius::same(grown(NODE_SIZE / 2.0, f32::from(t.radius_lg)) as u8);
+        let here = data.current == Some(id);
+        let dot_color = if here {
+            t.tree_current
+        } else if self.path.contains(&id) {
+            t.tree_explored
+        } else {
+            t.tree_open
+        };
+
+        let painter = ui.painter();
+        painter.add(
+            Shadow {
+                offset: [0, 4],
+                blur: 16,
+                spread: 0,
+                color: eframe::egui::Color32::from_black_alpha(if t.is_dark { 90 } else { 28 })
+                    .gamma_multiply(opened),
+            }
+            .as_shape(rect, radius),
+        );
+        painter.rect(
+            rect,
+            radius,
+            Theme::mix(dot_color, t.popover, opened),
+            Stroke::new(BORDER_WIDTH, t.border.gamma_multiply(opened)),
+            StrokeKind::Inside,
+        );
+        // Clicks on the card stay on the card instead of reaching the dot underneath.
+        ui.interact(rect, Id::new("tree-card-body"), Sense::click_and_drag());
+
+        if opened < CARD_CONTENT_FROM {
+            return action;
+        }
+        let inner = full.shrink(spacing::MD);
+        let mut content = ui.new_child(
+            UiBuilder::new()
+                .max_rect(inner)
+                .layout(Layout::top_down(Align::Min)),
+        );
+        content.set_clip_rect(rect.intersect(ui.clip_rect()));
+        content.set_opacity((opened - CARD_CONTENT_FROM) / (1.0 - CARD_CONTENT_FROM));
+        let ui = &mut content;
+        ui.spacing_mut().item_spacing.y = spacing::XS;
+        ui.horizontal(|ui| {
+            ui.add(Label::new(Self::node_label(node)).max_width(inner.width() - 2.0 * spacing::XL));
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                let close = Button::new("")
+                    .icon(IconKind::Close)
+                    .variant(ButtonVariant::Ghost)
+                    .size(ButtonSize::Icon);
+                action.close |= ui.add(close).ir_tooltip("Close").clicked();
+            });
+        });
+        ui.horizontal_wrapped(|ui| {
             ui.add(
-                Label::new("Click a node to preview it, and click it again to jump there. Right-click for more.")
+                Label::new(format::timestamp(node.created_at))
                     .small()
                     .muted(),
             );
-            return None;
-        };
-        let current = data.and_then(|d| d.current);
-        let placed = self.layout.get(node.id).copied();
-        let (mut jump, mut toggle, mut close) = (None, false, false);
-
-        ui.horizontal_top(|ui| {
-            let width =
-                (ui.available_width() - PREVIEW_BUTTONS - ui.spacing().item_spacing.x).max(0.0);
-            ui.vertical(|ui| {
-                ui.set_width(width);
-                ui.horizontal(|ui| {
-                    ui.add(Label::new(Self::node_label(node)));
-                    ui.add(Badge::new(format!("#{}", node.id.0)).variant(BadgeVariant::Outline));
-                    if let Some(name) = &node.bookmark {
-                        ui.add(
-                            Badge::new(format!("\u{2605} {name}")).variant(BadgeVariant::Secondary),
-                        );
-                    }
-                    if current == Some(node.id) {
-                        ui.add(Badge::new("current"));
-                    }
-                });
-                ScrollArea::vertical()
-                    .id_salt("tree-preview")
-                    .max_height(5.0 * spacing::XL)
-                    .auto_shrink(true)
-                    .show(ui, |ui| {
-                        ui.add(Label::new(&node.content).small().muted());
-                    });
-            });
-            ui.vertical(|ui| {
-                ui.set_width(PREVIEW_BUTTONS);
-                let here = current == Some(node.id);
-                if ui
-                    .add(Button::new("Jump here").enabled(!here).fill_width(true))
-                    .clicked()
-                {
-                    jump = Some(node.id);
-                }
-                if let Some(placed) = placed.filter(|p| p.has_children) {
-                    let text = if placed.hidden > 0 {
-                        "Expand branch"
-                    } else {
-                        "Collapse branch"
-                    };
-                    toggle = ui
-                        .add(
-                            Button::new(text)
-                                .variant(ButtonVariant::Outline)
-                                .fill_width(true),
-                        )
-                        .clicked();
-                }
-                close = ui
-                    .add(
-                        Button::new("Close preview")
-                            .icon(IconKind::Close)
-                            .variant(ButtonVariant::Ghost)
-                            .fill_width(true),
-                    )
-                    .clicked();
-            });
+            ui.add(Badge::new(format!("#{}", node.id.0)).variant(BadgeVariant::Outline));
+            if let Some(name) = &node.bookmark {
+                ui.add(
+                    Badge::new(format!("\u{2605} {name}"))
+                        .variant(BadgeVariant::Secondary)
+                        .max_width(140.0),
+                );
+            }
+            if here {
+                ui.add(Badge::new("current"));
+            }
         });
-        if toggle {
-            self.toggle_collapse(node.id);
+        let mut text = LayoutJob::simple(
+            node.content.clone(),
+            FontId::proportional(t.text_sm),
+            t.muted_foreground,
+            inner.width(),
+        );
+        text.wrap.max_rows = CARD_TEXT_ROWS;
+        text.wrap.overflow_character = Some('\u{2026}');
+        ui.add(eframe::egui::Label::new(text));
+
+        // The buttons sit at the bottom of the card.
+        let row = Rect::from_min_size(
+            Pos2::new(inner.left(), inner.bottom() - 32.0),
+            Vec2::new(inner.width(), 32.0),
+        );
+        let mut buttons = ui.new_child(
+            UiBuilder::new()
+                .max_rect(row)
+                .layout(Layout::left_to_right(Align::Center)),
+        );
+        if buttons
+            .add(Button::new("Jump here").enabled(!here))
+            .clicked()
+        {
+            action.jump = Some(id);
         }
-        if close {
-            self.selected = None;
+        if placed.has_children {
+            let text = if placed.hidden > 0 {
+                "Expand branch"
+            } else {
+                "Collapse branch"
+            };
+            if buttons
+                .add(Button::new(text).variant(ButtonVariant::Outline))
+                .clicked()
+            {
+                action.toggle = Some(id);
+            }
         }
-        jump
+        action
     }
 }
 
@@ -753,12 +854,56 @@ mod tests {
                     egui::CentralPanel::default().show(ctx, |ui| {
                         assert_eq!(view.body(ui, Some(&data)), None);
                     });
-                    egui::TopBottomPanel::bottom("footer").show(ctx, |ui| {
-                        assert_eq!(view.footer(ui, Some(&data)), None);
-                    });
                 });
             }
         }
+    }
+
+    #[test]
+    fn a_clicked_dot_opens_into_a_card_and_escape_closes_it_again() {
+        let ctx = egui::Context::default();
+        Theme::apply(&ctx);
+        let (mut view, data) = synced();
+        let mut time = 0.0;
+        let mut run = |view: &mut TreeView, events: Vec<egui::Event>| {
+            time += 0.05;
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1000.0, 700.0))),
+                time: Some(time),
+                events,
+                ..Default::default()
+            };
+            let _ = ctx.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    view.body(ui, Some(&data));
+                });
+            });
+        };
+        run(&mut view, vec![]);
+        assert_eq!(view.shown, None, "no card before a click");
+
+        view.click(NodeId(4));
+        assert_eq!(view.shown, Some(NodeId(4)));
+        for _ in 0..12 {
+            run(&mut view, vec![]);
+        }
+        assert_eq!(view.selected(), Some(NodeId(4)), "the card stays open");
+
+        let escape = |pressed| egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: Some(egui::Key::Escape),
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        };
+        run(&mut view, vec![escape(true), escape(false)]);
+        assert_eq!(view.selected(), None);
+        // The card is still drawn while it shrinks back, then it is gone.
+        assert_eq!(view.shown, Some(NodeId(4)));
+        for _ in 0..12 {
+            run(&mut view, vec![]);
+        }
+        assert_eq!(view.shown, None);
     }
 
     #[test]
@@ -776,7 +921,6 @@ mod tests {
             frame(&ctx, &mut |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
                     assert_eq!(view.body(ui, data), None);
-                    assert_eq!(view.footer(ui, data), None);
                 });
             });
         }

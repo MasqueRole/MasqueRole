@@ -7,10 +7,10 @@
 use eframe::egui;
 use ir_ui::components::{
     Alert, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ChatBubble, Checkbox,
-    Dialog, Figure, FloatingBar, FormField, Icon, IconKind, Input, Label, LabelTone, ListItem,
-    Logo, MenuItem, Panel, Picture, Popover, RailButton, ScrollArea, Select, Separator, Slider,
-    Suggestion, Suggestions, Switch, Tabs, Textarea, Toast, Toasts, TooltipExt, TopBar, TreeNode,
-    TreeNodeState, UsageDonut, WindowControls,
+    ChipInput, Dialog, Figure, FloatingBar, FormField, Icon, IconKind, Input, Label, LabelTone,
+    ListItem, Logo, MenuItem, Panel, Picture, Popover, RailButton, ScrollArea, Select, Separator,
+    Slider, Suggestion, Suggestions, Switch, Tabs, Textarea, Toast, Toasts, TooltipExt, TopBar,
+    TreeNode, TreeNodeState, UsageDonut, WindowControls,
 };
 use ir_ui::{spacing, Theme, ThemeExt, ThemeMode};
 
@@ -33,6 +33,8 @@ struct Gallery {
     row_selected: usize,
     node_selected: bool,
     worst: usize,
+    chips: Vec<String>,
+    chip_pending: String,
     dialog_open: bool,
     toasts: Toasts,
     logo: Option<egui::TextureHandle>,
@@ -72,6 +74,8 @@ impl Gallery {
             row_selected: 0,
             node_selected: false,
             worst: 0,
+            chips: vec!["lighthouse".into(), "keeper".into()],
+            chip_pending: String::new(),
             dialog_open,
             toasts,
             logo: None,
@@ -462,6 +466,13 @@ impl Gallery {
             });
             ui.add(ChatBubble::character("Mira", message));
         });
+
+        Self::section(ui, "ChipInput");
+        ui.add(
+            ChipInput::new(&mut self.chips, &mut self.chip_pending)
+                .placeholder("Type a keyword, then a comma")
+                .id_salt("gallery-chips"),
+        );
 
         Self::section(ui, "Picture");
         ui.add(

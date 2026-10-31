@@ -729,7 +729,7 @@ impl App {
         match self.section {
             // The story's message box floats over the page instead of sitting in a footer.
             Section::Stories => false,
-            Section::Tree => self.transcript.is_some(),
+            Section::Tree => false,
             Section::Characters => self.character_form.is_some(),
             Section::Worlds => self.world_form.is_some(),
         }
@@ -738,11 +738,7 @@ impl App {
     fn footer(&mut self, ui: &mut Ui) {
         match self.section {
             Section::Stories => {}
-            Section::Tree => {
-                if let Some(node) = self.tree_view.footer(ui, self.tree.as_ref()) {
-                    self.jump_to(node);
-                }
-            }
+            Section::Tree => {}
             Section::Characters | Section::Worlds => self.editor_footer(ui),
         }
     }

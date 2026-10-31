@@ -59,9 +59,15 @@ impl WindowControls {
                     buttons.reverse();
                 }
                 for (icon, tip, this) in buttons {
+                    // Close is red, so it cannot be mistaken for the others.
+                    let variant = if this == WindowAction::Close {
+                        ButtonVariant::Destructive
+                    } else {
+                        ButtonVariant::Ghost
+                    };
                     let button = Button::new("")
                         .icon(icon)
-                        .variant(ButtonVariant::Ghost)
+                        .variant(variant)
                         .size(ButtonSize::Icon);
                     if ui.add(button).ir_tooltip(tip).clicked() {
                         action = Some(this);
