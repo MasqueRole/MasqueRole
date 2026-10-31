@@ -1,75 +1,72 @@
-//! Tree node: the visual for one node of the story tree.
+//! Tree node: the visual for one node of the story tree, a colored dot.
 
-use egui::text::LayoutJob;
 use egui::{
-    Color32, CornerRadius, CursorIcon, FontId, Pos2, Rect, Response, Sense, Stroke, StrokeKind, Ui,
-    Vec2, Widget, WidgetInfo, WidgetType,
+    Color32, CursorIcon, Pos2, Rect, Response, RichText, Sense, Stroke, Ui, Vec2, Widget,
+    WidgetInfo, WidgetType,
 };
 
-use super::common::focus_ring;
+use super::common::transition;
+use super::icon::{self, IconKind};
 use crate::theme::{spacing, Theme, ThemeExt, BORDER_WIDTH};
 
-/// Height of every node: the label, and the tag below it.
-pub const HEIGHT: f32 = 56.0;
+/// Diameter of every node.
+pub const SIZE: f32 = 32.0;
 
-/// Widest a node grows before its label is cut with an ellipsis.
-pub const MAX_WIDTH: f32 = 200.0;
+/// How much larger a hovered node is drawn, as a fraction of its size.
+const HOVER_GROWTH: f32 = 0.18;
 
-/// Height of the tag.
-const TAG_HEIGHT: f32 = 20.0;
+/// Seconds the dot takes to grow and shrink.
+const GROW_TIME: f32 = 0.12;
 
-/// How much a light theme's tag text is darkened, so gold and green stay readable on gray.
-const LIGHT_TEXT_DARKENING: f32 = 0.55;
+/// Gap between a collapsed branch's dot and the ring around it.
+const RING_GAP: f32 = 3.0;
+
+/// Size of the bookmark mark inside a dot.
+const MARK_SIZE: f32 = 14.0;
+
+/// Widest the hover card gets before its title wraps.
+const CARD_WIDTH: f32 = 260.0;
 
 /// Where a node stands relative to the story.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TreeNodeState {
-    /// The node the story is at now. Its tag is gold.
+    /// The node the story is at now. Its dot is gold.
     Current,
-    /// A node on the path that was taken. Its tag is green.
+    /// A node on the path that was taken. Its dot is green.
     Explored,
-    /// A node on an alternative branch. Its tag is gray.
+    /// A node on an alternative branch. Its dot is gray.
     Open,
 }
 
-/// A clickable node: a gray box with the label, and a tag showing the node's state by its
-/// color. The caller decides what a click means, such as a preview on the first click and a
-/// jump on the second.
+/// A clickable dot, colored by the node's state. Hovering it opens a card with the node's
+/// title and date. The caller decides what a click means, such as a preview on the first
+/// click and a jump on the second.
 #[derive(Clone, Debug)]
 pub struct TreeNode {
-    label: String,
-    tag: String,
+    title: String,
+    date: String,
     state: TreeNodeState,
     bookmarked: bool,
     selected: bool,
-}
-
-/// How a node is painted.
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct NodeColors {
-    fill: Color32,
-    border: Stroke,
-    text: Color32,
-    tag_fill: Color32,
-    tag_border: Color32,
-    tag_text: Color32,
+    hidden: usize,
 }
 
 impl TreeNode {
-    /// An open (alternative) node with this label and no tag text.
-    pub fn new(label: impl Into<String>) -> Self {
+    /// An open (alternative) node with this title, shown in the hover card.
+    pub fn new(title: impl Into<String>) -> Self {
         Self {
-            label: label.into(),
-            tag: String::new(),
+            title: title.into(),
+            date: String::new(),
             state: TreeNodeState::Open,
             bookmarked: false,
             selected: false,
+            hidden: 0,
         }
     }
 
-    /// The text in the tag, such as a timestamp. The tag's color shows the state.
-    pub fn tag(mut self, tag: impl Into<String>) -> Self {
-        self.tag = tag.into();
+    /// The date shown below the title in the hover card.
+    pub fn date(mut self, date: impl Into<String>) -> Self {
+        self.date = date.into();
         self
     }
 
@@ -79,7 +76,7 @@ impl TreeNode {
         self
     }
 
-    /// Mark the node as bookmarked with a star.
+    /// Mark the node as bookmarked with a small bookmark in the dot.
     pub fn bookmarked(mut self, bookmarked: bool) -> Self {
         self.bookmarked = bookmarked;
         self
@@ -91,117 +88,124 @@ impl TreeNode {
         self
     }
 
-    fn colors(state: TreeNodeState, hovered: bool, t: &Theme) -> NodeColors {
-        let fill = if hovered {
-            Theme::mix(t.muted, t.foreground, 0.1)
-        } else {
-            t.muted
-        };
-        // Border and text share a color: gold, green, or gray.
-        let (tag_border, tag_text) = match state {
-            TreeNodeState::Current => (t.tree_current, readable(t.tree_current, t)),
-            TreeNodeState::Explored => (t.tree_explored, readable(t.tree_explored, t)),
-            TreeNodeState::Open => (t.muted_foreground, t.muted_foreground),
-        };
-        NodeColors {
-            fill,
-            border: Stroke::new(BORDER_WIDTH, t.border),
-            text: t.foreground,
-            tag_fill: tag_border.gamma_multiply(0.14),
-            tag_border,
-            tag_text,
-        }
+    /// The number of nodes a collapsed branch hides here. Zero for an open branch. A
+    /// collapsed node gets a ring around its dot, and the hover card says how many it hides.
+    pub fn hidden(mut self, hidden: usize) -> Self {
+        self.hidden = hidden;
+        self
     }
-}
 
-/// `color` as text on a gray node: darkened in the light theme, where the bright state colors
-/// would wash out.
-fn readable(color: Color32, t: &Theme) -> Color32 {
-    if t.is_dark {
-        color
-    } else {
-        Theme::mix(color, t.foreground, LIGHT_TEXT_DARKENING)
+    /// The color of the dot.
+    fn color(state: TreeNodeState, t: &Theme) -> Color32 {
+        match state {
+            TreeNodeState::Current => t.tree_current,
+            TreeNodeState::Explored => t.tree_explored,
+            TreeNodeState::Open => t.tree_open,
+        }
     }
 }
 
 impl Widget for TreeNode {
     fn ui(self, ui: &mut Ui) -> Response {
         let t = ui.ir_theme();
-        let label = if self.bookmarked {
-            format!("\u{2605} {}", self.label)
-        } else {
-            self.label.clone()
-        };
+        let (rect, response) = ui.allocate_exact_size(Vec2::splat(SIZE), Sense::click());
+        response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, &self.title));
 
-        // Lay the texts out first, in a neutral color, to size the node.
-        let mut job = LayoutJob::simple(
-            label.clone(),
-            FontId::proportional(t.text_sm),
-            Color32::PLACEHOLDER,
-            MAX_WIDTH - 2.0 * spacing::MD,
+        let grow = ui.ctx().animate_value_with_time(
+            response.id.with("grow"),
+            f32::from(u8::from(response.hovered() || self.selected)),
+            GROW_TIME,
         );
-        job.wrap.max_rows = 1;
-        job.wrap.break_anywhere = true;
-        let label_galley = ui.painter().layout_job(job);
-        let tag_galley = (!self.tag.is_empty()).then(|| {
-            ui.painter().layout_no_wrap(
-                self.tag.clone(),
-                FontId::proportional(t.text_xs),
-                Color32::PLACEHOLDER,
-            )
-        });
-        let tag_width = tag_galley
-            .as_ref()
-            .map_or(0.0, |g| g.size().x + 2.0 * spacing::SM);
-
-        let content = label_galley.size().x.max(tag_width);
-        let size = Vec2::new((content + 2.0 * spacing::MD).min(MAX_WIDTH), HEIGHT);
-        let (rect, response) = ui.allocate_exact_size(size, Sense::click());
-        response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, &label));
-
-        let colors = Self::colors(self.state, response.hovered(), &t);
-        let radius = t.corner_md();
+        let radius = SIZE / 2.0 * (1.0 + HOVER_GROWTH * grow);
+        let base = Self::color(self.state, &t);
+        let hovered_color = Theme::mix(base, t.foreground, 0.2);
+        let fill = transition(
+            ui,
+            response.id.with("fill"),
+            if response.hovered() {
+                hovered_color
+            } else {
+                base
+            },
+        );
+        let center = rect.center();
         let painter = ui.painter();
-        painter.rect(rect, radius, colors.fill, colors.border, StrokeKind::Inside);
-        painter.galley(
-            Pos2::new(rect.left() + spacing::MD, rect.top() + spacing::SM),
-            label_galley,
-            colors.text,
+        painter.circle(
+            center,
+            radius,
+            fill,
+            Stroke::new(BORDER_WIDTH * 2.0, t.background),
         );
-        if let Some(galley) = tag_galley {
-            let tag_rect = Rect::from_min_size(
-                Pos2::new(
-                    rect.left() + spacing::MD,
-                    rect.bottom() - spacing::SM - TAG_HEIGHT,
-                ),
-                Vec2::new(tag_width, TAG_HEIGHT),
+        if self.hidden > 0 {
+            painter.circle_stroke(
+                center,
+                radius + RING_GAP,
+                Stroke::new(BORDER_WIDTH * 2.0, base),
             );
-            let pill = CornerRadius::same(u8::MAX);
-            painter.rect(
-                tag_rect,
-                pill,
-                colors.tag_fill,
-                Stroke::new(BORDER_WIDTH, colors.tag_border),
-                StrokeKind::Inside,
+        }
+        if self.bookmarked {
+            icon::paint(
+                painter,
+                Rect::from_center_size(center, Vec2::splat(MARK_SIZE)),
+                t.background,
+                IconKind::Bookmark,
             );
-            painter.galley(
-                tag_rect.center() - galley.size() / 2.0,
-                galley,
-                colors.tag_text,
+        }
+        if self.selected || response.has_focus() {
+            painter.circle_stroke(
+                center,
+                radius + RING_GAP + BORDER_WIDTH * 2.0,
+                Stroke::new(crate::theme::RING_WIDTH, t.ring),
             );
         }
 
-        if self.selected || response.has_focus() {
-            focus_ring(ui, rect, radius, &t);
-        }
-        response.on_hover_cursor(CursorIcon::PointingHand)
+        response
+            .on_hover_cursor(CursorIcon::PointingHand)
+            .on_hover_ui(|ui| {
+                ui.set_max_width(CARD_WIDTH);
+                ui.spacing_mut().item_spacing.y = spacing::XS;
+                ui.label(
+                    RichText::new(&self.title)
+                        .size(t.text_sm)
+                        .strong()
+                        .color(t.foreground),
+                );
+                if !self.date.is_empty() {
+                    ui.label(
+                        RichText::new(&self.date)
+                            .size(t.text_xs)
+                            .color(t.muted_foreground),
+                    );
+                }
+                if self.hidden > 0 {
+                    ui.label(
+                        RichText::new(format!(
+                            "{} node{} hidden",
+                            self.hidden,
+                            if self.hidden == 1 { "" } else { "s" }
+                        ))
+                        .size(t.text_xs)
+                        .color(t.muted_foreground),
+                    );
+                }
+            })
     }
+}
+
+/// The point a line to the node from above ends at, and one from below starts at, given the
+/// node's rectangle.
+pub fn top_anchor(rect: Rect) -> Pos2 {
+    Pos2::new(rect.center().x, rect.top())
+}
+
+/// See [`top_anchor`].
+pub fn bottom_anchor(rect: Rect) -> Pos2 {
+    Pos2::new(rect.center().x, rect.bottom())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::components::common::luminance;
     use crate::components::testing::Harness;
 
     const STATES: [TreeNodeState; 3] = [
@@ -211,73 +215,57 @@ mod tests {
     ];
 
     #[test]
-    fn labels_and_tags_are_readable_on_every_state_in_both_themes() {
+    fn the_state_shows_in_the_color_of_the_dot() {
+        for t in [Theme::light(), Theme::dark()] {
+            assert_eq!(TreeNode::color(TreeNodeState::Current, &t), t.tree_current);
+            assert_eq!(
+                TreeNode::color(TreeNodeState::Explored, &t),
+                t.tree_explored
+            );
+            assert_eq!(TreeNode::color(TreeNodeState::Open, &t), t.tree_open);
+            assert_ne!(
+                TreeNode::color(TreeNodeState::Current, &t),
+                TreeNode::color(TreeNodeState::Explored, &t)
+            );
+        }
+    }
+
+    #[test]
+    fn dots_stand_out_from_the_background_in_both_themes() {
+        use crate::components::common::luminance;
         for t in [Theme::light(), Theme::dark()] {
             for state in STATES {
-                for hovered in [false, true] {
-                    let c = TreeNode::colors(state, hovered, &t);
-                    let label_gap = (luminance(c.fill) - luminance(c.text)).abs();
-                    let tag_gap = (luminance(c.fill) - luminance(c.tag_text)).abs();
-                    assert!(
-                        label_gap > 0.35,
-                        "label {state:?} dark={} hovered={hovered}: {label_gap}",
-                        t.is_dark
-                    );
-                    assert!(
-                        tag_gap > 0.25,
-                        "tag {state:?} dark={} hovered={hovered}: {tag_gap}",
-                        t.is_dark
-                    );
-                }
+                let gap = (luminance(TreeNode::color(state, &t)) - luminance(t.background)).abs();
+                assert!(gap > 0.2, "{state:?} dark={} gap={gap}", t.is_dark);
             }
         }
     }
 
     #[test]
-    fn every_node_is_gray_and_only_the_tag_carries_the_state() {
-        for t in [Theme::light(), Theme::dark()] {
-            let [current, explored, open] = STATES.map(|s| TreeNode::colors(s, false, &t));
-            assert_eq!(current.fill, t.muted);
-            assert_eq!(explored.fill, t.muted);
-            assert_eq!(open.fill, t.muted);
-            assert_eq!(current.tag_border, t.tree_current, "gold");
-            assert_eq!(explored.tag_border, t.tree_explored, "green");
-            assert_eq!(open.tag_border, t.muted_foreground, "gray");
-            for c in [current, explored, open] {
-                assert!(
-                    c.tag_border != c.fill && c.tag_border != Color32::TRANSPARENT,
-                    "the tag has a visible border"
-                );
-            }
-            assert_ne!(current.tag_border, explored.tag_border);
-        }
-    }
-
-    #[test]
-    fn the_tag_text_matches_its_border_in_the_dark_theme() {
-        let t = Theme::dark();
-        for state in STATES {
-            let c = TreeNode::colors(state, false, &t);
-            assert_eq!(c.tag_text, c.tag_border, "{state:?}");
-        }
-    }
-
-    #[test]
-    fn hovering_changes_the_fill() {
-        let t = Theme::dark();
-        for state in STATES {
-            let (rest, hover) = (
-                TreeNode::colors(state, false, &t),
-                TreeNode::colors(state, true, &t),
+    fn every_node_is_a_square_dot_whatever_its_text() {
+        let mut h = Harness::new();
+        let mut sizes = Vec::new();
+        h.idle(&mut |ui: &mut Ui| {
+            sizes.clear();
+            sizes.push(ui.add(TreeNode::new("x".repeat(300))).rect.size());
+            sizes.push(
+                ui.add(TreeNode::new("Start").date("30 Oct 14:32"))
+                    .rect
+                    .size(),
             );
-            assert_ne!(rest.fill, hover.fill, "{state:?}");
-        }
+            sizes.push(
+                ui.add(TreeNode::new("A").bookmarked(true).hidden(3))
+                    .rect
+                    .size(),
+            );
+        });
+        assert!(sizes.iter().all(|s| *s == Vec2::splat(SIZE)), "{sizes:?}");
     }
 
     #[test]
     fn clicking_reports_a_click() {
         let mut h = Harness::new();
-        let mut rect = egui::Rect::NOTHING;
+        let mut rect = Rect::NOTHING;
         h.idle(&mut |ui: &mut Ui| rect = ui.add(TreeNode::new("Enter the lighthouse")).rect);
         let mut clicked = false;
         h.click(rect.center(), &mut |ui: &mut Ui| {
@@ -287,38 +275,53 @@ mod tests {
     }
 
     #[test]
-    fn nodes_have_a_fixed_height_and_a_capped_width() {
-        let mut h = Harness::new();
-        let mut sizes = Vec::new();
-        h.idle(&mut |ui: &mut Ui| {
-            sizes.clear();
-            sizes.push(ui.add(TreeNode::new("x".repeat(300))).rect.size());
-            sizes.push(
-                ui.add(TreeNode::new("Start").tag("30 Oct 14:32"))
-                    .rect
-                    .size(),
-            );
-            sizes.push(ui.add(TreeNode::new("Start")).rect.size());
+    fn the_resting_dot_draws_no_text() {
+        let h = Harness::new();
+        let output = h.ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.add(TreeNode::new("The lighthouse").date("30 Oct 14:32"));
+            });
         });
-        assert!(sizes.iter().all(|s| s.y == HEIGHT), "{sizes:?}");
-        assert!(sizes[0].x <= MAX_WIDTH + 1.0, "{:?}", sizes[0]);
+        let drawn = format!("{:?}", output.shapes);
+        assert!(!drawn.contains("The lighthouse"), "{drawn}");
+        assert!(!drawn.contains("30 Oct"), "{drawn}");
     }
 
     #[test]
-    fn a_long_tag_widens_a_short_node_and_a_bookmark_adds_a_star() {
-        let mut h = Harness::new();
-        let (mut plain, mut tagged, mut starred) = (0.0, 0.0, 0.0);
-        h.idle(&mut |ui: &mut Ui| {
-            plain = ui.add(TreeNode::new("A")).rect.width();
-            tagged = ui.add(TreeNode::new("A").tag("30 Oct 14:32")).rect.width();
-            starred = ui.add(TreeNode::new("A").bookmarked(true)).rect.width();
-        });
-        assert!(tagged > plain, "{tagged} vs {plain}");
-        assert!(starred > plain);
+    fn hovering_the_dot_opens_a_card_with_the_title_date_and_hidden_count() {
+        let ctx = egui::Context::default();
+        crate::Theme::apply(&ctx);
+        let mut pointer = None;
+        let mut drawn = String::new();
+        for frame in 0..20 {
+            let mut rect = Rect::NOTHING;
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0))),
+                time: Some(f64::from(frame) * 0.1),
+                events: pointer.map(egui::Event::PointerMoved).into_iter().collect(),
+                ..Default::default()
+            };
+            let output = ctx.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    rect = ui
+                        .add(
+                            TreeNode::new("The lighthouse")
+                                .date("30 Oct 14:32")
+                                .hidden(3),
+                        )
+                        .rect;
+                });
+            });
+            pointer = Some(rect.center());
+            drawn = format!("{:?}", output.shapes);
+        }
+        assert!(drawn.contains("The lighthouse"), "{drawn}");
+        assert!(drawn.contains("30 Oct 14:32"));
+        assert!(drawn.contains("3 nodes hidden"));
     }
 
     #[test]
-    fn every_state_renders_selected_and_not_with_and_without_a_tag() {
+    fn every_state_renders_selected_bookmarked_and_collapsed() {
         let mut h = Harness::new();
         h.idle(&mut |ui: &mut Ui| {
             for state in STATES {
@@ -326,9 +329,10 @@ mod tests {
                 ui.add(
                     TreeNode::new("Node")
                         .state(state)
-                        .tag("14:32")
+                        .date("14:32")
                         .selected(true)
-                        .bookmarked(true),
+                        .bookmarked(true)
+                        .hidden(2),
                 );
             }
         });

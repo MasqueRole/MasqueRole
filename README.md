@@ -81,7 +81,7 @@ InfiniteRoleplay sits between you and the language model provider you choose (xA
 <table>
   <tr>
     <td width="50%"><img src="assets/tutorial/04-commands.png" alt="Writing a story, with command suggestions"><br><sub><b>Stories</b>: write, and type <code>/</code> for commands.</sub></td>
-    <td width="50%"><img src="assets/tutorial/05-tree.png" alt="The story tree"><br><sub><b>Story tree</b>: every path you explored, and where you are.</sub></td>
+    <td width="50%"><img src="assets/tutorial/06-tree.png" alt="The story tree"><br><sub><b>Story tree</b>: every path you explored, and where you are.</sub></td>
   </tr>
   <tr>
     <td width="50%"><img src="assets/tutorial/03-characters.png" alt="The character editor"><br><sub><b>Characters</b> and <b>Worlds</b>, each with its own editor.</sub></td>
@@ -283,7 +283,7 @@ graph TD
     class D,E,G,I open;
 ```
 
-*Every node is gray and carries a tag with its time: the tag is gold for the current position, green for the path you took, and gray for alternative branches.*
+*The tree grows from the top down. Every node is a dot: gold for the current position, green for the path you took, and gray for alternative branches. Hover a dot to see its title and date.*
 
 In the app, the tree is an interactive view drawn with egui: click a node to preview it, and jump there with a second click. Scroll and drag to navigate large trees. The `/tree` command prints a text version:
 

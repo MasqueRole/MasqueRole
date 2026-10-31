@@ -3,6 +3,15 @@
 All notable changes to InfiniteRoleplay. The project follows [Semantic Versioning](https://semver.org).
 This file lists only the current and the previous version.
 
+## [0.7.2] - 2026-10-31
+
+### Changed
+
+- **Story tree:** the tree now grows from the top down instead of from left to right.
+- **Tree nodes:** a node is a big colored dot with no text: gold for where you are, green for the path you took, gray for other branches. Hover a dot to open a card with its title and date. A bookmark shows inside the dot, and a ring around a dot means a collapsed branch.
+- **Toasts:** a toast has an icon that says what happened (copy, save, info, warning, and so on) in a round badge, then the text. New toasts fade in, and the close button is an icon.
+- The tutorial text and screenshots follow the changes.
+
 ## [0.7.1] - 2026-10-31
 
 ### Added
@@ -16,22 +25,3 @@ This file lists only the current and the previous version.
 - **Token donut:** the donut moved from the story header to the left side of the message box.
 - **Message actions:** a clicked message no longer gets a border. The branch and copy buttons fade in from above instead.
 - The tutorial text and screenshots follow the changes.
-
-## [0.7.0] - 2026-10-31
-
-### Added
-
-- **Message actions:** click a message to show a *Branch from here* button and a *Copy* button under it.
-- **Message tags:** every message shows a unique tag such as `#12`. Use it with `/goto #12` to jump to the message.
-- **Sub-chats:** the sessions list shows the storylines of the open story as indented sub-chats. Click one to continue that storyline. They appear in the Stories section only, not in the Tree.
-- **Story info:** click the story title, a badge, or the new info button above the chat to open a full page with the story's world and characters.
-- **Token donut:** the token monitor above the chat is a donut chart. Hover it for a bar chart of how much of the limit is used.
-- **`/compact`:** summarizes every message except the newest two (the last message of yours and the reply to it).
-- **Marketplace:** a placeholder icon in the rail with a "coming soon" tooltip.
-
-### Changed
-
-- **Navigation:** Stories, Characters, Worlds, and Tree moved from the top bar to an icon rail at the left edge. Hover an icon to see its name.
-- **Collapsible list:** the list that used to sit at the left is now a second sidebar next to the rail, and can be hidden with the sidebar button at the bottom of the rail.
-- **Tree preview:** the preview of a selected node in the Tree now has a *Close preview* button.
-- The tutorial text and screenshots follow the new layout.
