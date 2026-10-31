@@ -845,6 +845,16 @@ impl App {
         if let Some(node) = self.tree_view.body(ui, self.tree.as_ref()) {
             self.jump_to(node);
         }
+        for (node, at) in self.tree_view.take_moves() {
+            self.backend.send(Request::MoveNode {
+                node,
+                x: at.x,
+                y: at.y,
+            });
+        }
+        if self.tree_view.take_reset() {
+            self.backend.send(Request::ResetTreeLayout);
+        }
     }
 
     fn dialogs(&mut self, ctx: &Context) {
@@ -1958,6 +1968,7 @@ entries:
                 })
                 .collect(),
             current: Some(NodeId(5)),
+            positions: Default::default(),
         }
     }
 

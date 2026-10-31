@@ -67,6 +67,14 @@ pub struct TreeView {
     selected: Option<NodeId>,
     /// The node whose card is drawn: the selected one, or the one that is still closing.
     shown: Option<NodeId>,
+    /// Where the user put cards, in scene units. Nodes not here are where the layout puts them.
+    moved: HashMap<NodeId, Pos2>,
+    /// Moves that were finished and are waiting to be saved: see [`TreeView::take_moves`].
+    moves: Vec<(NodeId, Pos2)>,
+    /// The user asked to put all cards back; see [`TreeView::take_reset`].
+    reset: bool,
+    /// The part of the screen the canvas covers, as of the last frame.
+    canvas: Rect,
     collapsed: HashSet<NodeId>,
     /// The part of the canvas in view, in scene units.
     scene_rect: Rect,
@@ -96,6 +104,10 @@ impl TreeView {
         Self {
             selected: None,
             shown: None,
+            moved: HashMap::new(),
+            moves: Vec::new(),
+            reset: false,
+            canvas: Rect::NOTHING,
             collapsed: HashSet::new(),
             scene_rect: Rect::ZERO,
             layout: TreeLayout::default(),
@@ -135,6 +147,11 @@ impl TreeView {
             return;
         }
         self.layout = tree_layout::layout(&data.nodes, &self.collapsed);
+        self.moved = data
+            .positions
+            .iter()
+            .map(|(id, (x, y))| (*id, Pos2::new(*x, *y)))
+            .collect();
         self.path = tree_layout::path_to(&data.nodes, data.current);
         self.index = data
             .nodes
@@ -167,9 +184,36 @@ impl TreeView {
         }
     }
 
-    /// Where a node's top-left corner is on the canvas.
-    fn position(placed: &Placed) -> Pos2 {
+    /// Where a node's top-left corner is on the canvas: where the user put it, else where the
+    /// layout does.
+    fn position(&self, placed: &Placed) -> Pos2 {
+        self.moved
+            .get(&placed.id)
+            .copied()
+            .unwrap_or_else(|| Self::laid_out(placed))
+    }
+
+    /// Where the automatic layout puts a node.
+    fn laid_out(placed: &Placed) -> Pos2 {
         Pos2::new(placed.depth as f32 * COLUMN_WIDTH, placed.row * ROW_HEIGHT)
+    }
+
+    /// Take the moves the user finished since the last call, to save them.
+    pub fn take_moves(&mut self) -> Vec<(NodeId, Pos2)> {
+        std::mem::take(&mut self.moves)
+    }
+
+    /// Whether the user asked to put all cards back since the last call, so the saved
+    /// positions can be forgotten.
+    pub fn take_reset(&mut self) -> bool {
+        std::mem::take(&mut self.reset)
+    }
+
+    /// Put every card back where the automatic layout puts it.
+    pub fn tidy(&mut self) {
+        self.moved.clear();
+        self.moves.clear();
+        self.reset = true;
     }
 
     /// The canvas size of the view, or a default before it has been measured.
@@ -184,7 +228,7 @@ impl TreeView {
     /// Pan so `id` is in the middle of the view, keeping the zoom.
     pub fn center_on(&mut self, id: NodeId) {
         if let Some(placed) = self.layout.get(id) {
-            let middle = Self::position(placed) + Vec2::new(NODE_WIDTH / 2.0, NODE_HEIGHT / 2.0);
+            let middle = self.position(placed) + Vec2::new(NODE_WIDTH / 2.0, NODE_HEIGHT / 2.0);
             self.scene_rect = Rect::from_center_size(middle, self.view_size());
         }
     }
@@ -206,12 +250,14 @@ impl TreeView {
         if self.layout.placed.is_empty() {
             return;
         }
-        let size = Vec2::new(
-            (self.layout.max_depth as f32 + 1.0) * COLUMN_WIDTH,
-            self.layout.rows.max(1.0) * ROW_HEIGHT,
-        );
-        let bounds = Rect::from_min_size(Pos2::ZERO, size).expand(FIT_MARGIN);
-        self.scene_rect = bounds;
+        let size = Vec2::new(NODE_WIDTH, NODE_HEIGHT);
+        let bounds = self
+            .layout
+            .placed
+            .iter()
+            .map(|p| Rect::from_min_size(self.position(p), size))
+            .fold(Rect::NOTHING, |a, b| a.union(b));
+        self.scene_rect = bounds.expand(FIT_MARGIN);
     }
 
     /// Zoom in (`factor > 1`) or out (`factor < 1`) around the middle of the view.
@@ -301,15 +347,24 @@ impl TreeView {
                 if ui.add(small("Fit")).clicked() {
                     self.fit();
                 }
+                if ui
+                    .add(small("Tidy"))
+                    .ir_tooltip("Put the cards back in their automatic places")
+                    .clicked()
+                {
+                    self.tidy();
+                }
                 if ui.add(small("Current")).clicked() {
                     if let Some(current) = data.and_then(|d| d.current) {
                         self.show_current(current);
                     }
                 }
+                let room = ui.available_width();
                 ui.add(
-                    Label::new("Click a node to open it. Drag to pan. Ctrl+scroll to zoom.")
+                    Label::new("Click a card to open it. Drag it to move it.")
                         .small()
-                        .muted(),
+                        .muted()
+                        .max_width(room),
                 );
             });
         });
@@ -322,6 +377,9 @@ impl TreeView {
         let mut jump = None;
         let mut scene_rect = self.scene_rect;
         let mut card_action = CardAction::default();
+        let mut dragged: Vec<(NodeId, Vec2)> = Vec::new();
+        let mut dropped: Vec<NodeId> = Vec::new();
+        self.canvas = ui.available_rect_before_wrap();
 
         // The opened node grows into a card, and the card shrinks back into the node.
         if let Some(selected) = self.selected {
@@ -355,7 +413,7 @@ impl TreeView {
                         continue;
                     };
                     let node_rect = |p: &Placed| {
-                        Rect::from_min_size(Self::position(p), Vec2::new(NODE_WIDTH, NODE_HEIGHT))
+                        Rect::from_min_size(self.position(p), Vec2::new(NODE_WIDTH, NODE_HEIGHT))
                     };
                     let from = right_anchor(node_rect(parent));
                     let to = left_anchor(node_rect(placed));
@@ -371,7 +429,7 @@ impl TreeView {
                 }
 
                 for placed in &self.layout.placed {
-                    let origin = Self::position(placed);
+                    let origin = self.position(placed);
                     let area = Rect::from_min_size(origin, Vec2::new(NODE_WIDTH, NODE_HEIGHT));
                     if !visible.intersects(area) {
                         continue;
@@ -399,6 +457,13 @@ impl TreeView {
                     let response = ui.scope_builder(place, |ui| ui.add(widget)).inner;
                     if response.clicked() {
                         clicked = Some(placed.id);
+                    }
+                    // Cards can be moved: the drag is in scene units, whatever the zoom.
+                    if response.dragged() {
+                        dragged.push((placed.id, response.drag_delta()));
+                    }
+                    if response.drag_stopped() {
+                        dropped.push(placed.id);
                     }
                     response.context_menu(|ui| {
                         ui.set_width(CONTEXT_MENU_WIDTH);
@@ -439,6 +504,17 @@ impl TreeView {
                 }
             });
         self.scene_rect = scene_rect;
+        for (id, delta) in dragged {
+            if let Some(placed) = self.layout.get(id).copied() {
+                let at = self.position(&placed) + delta;
+                self.moved.insert(id, at);
+            }
+        }
+        for id in dropped {
+            if let Some(at) = self.moved.get(&id).copied() {
+                self.moves.push((id, at));
+            }
+        }
         if card_action.close {
             self.selected = None;
         }
@@ -492,8 +568,7 @@ impl TreeView {
             return action;
         };
         let t = ui.ir_theme();
-        let closed =
-            Rect::from_min_size(Self::position(placed), Vec2::new(NODE_WIDTH, NODE_HEIGHT));
+        let closed = Rect::from_min_size(self.position(placed), Vec2::new(NODE_WIDTH, NODE_HEIGHT));
         let full = Rect::from_min_size(closed.min, Vec2::new(CARD_WIDTH, CARD_HEIGHT));
         let grown = |from: f32, to: f32| eframe::egui::lerp(from..=to, opened);
         let rect = Rect::from_min_max(
@@ -663,6 +738,7 @@ mod tests {
                 })
                 .collect(),
             current: Some(NodeId(9)),
+            positions: Default::default(),
         }
     }
 
@@ -743,7 +819,7 @@ mod tests {
         view.sync(Some(&data), 1);
         assert!(!view.is_collapsed(NodeId(3)));
         let placed = *view.layout.get(NodeId(9)).expect("revealed");
-        let middle = TreeView::position(&placed) + Vec2::new(NODE_WIDTH / 2.0, NODE_HEIGHT / 2.0);
+        let middle = view.position(&placed) + Vec2::new(NODE_WIDTH / 2.0, NODE_HEIGHT / 2.0);
         assert_eq!(view.scene_rect.center(), middle, "and centered on");
 
         // Branches that do not hide it stay collapsed.
@@ -759,7 +835,7 @@ mod tests {
     fn the_view_starts_centered_on_the_current_node_once() {
         let (mut view, data) = synced();
         let placed = *view.layout.get(NodeId(9)).unwrap();
-        let middle = TreeView::position(&placed) + Vec2::new(NODE_WIDTH / 2.0, NODE_HEIGHT / 2.0);
+        let middle = view.position(&placed) + Vec2::new(NODE_WIDTH / 2.0, NODE_HEIGHT / 2.0);
         assert_eq!(view.scene_rect.center(), middle);
 
         // New data later does not pull the view away from where the user put it.
@@ -801,7 +877,7 @@ mod tests {
             .layout
             .placed
             .iter()
-            .map(TreeView::position)
+            .map(|p| view.position(p))
             .fold(Pos2::ZERO, |a, b| a.max(b));
         assert!(view.scene_rect.contains(Pos2::ZERO) && view.scene_rect.contains(last));
     }
@@ -837,7 +913,7 @@ mod tests {
     #[test]
     fn the_tree_grows_to_the_right_and_siblings_stack_in_a_column() {
         let (view, _) = synced();
-        let at = |id| TreeView::position(view.layout.get(NodeId(id)).unwrap());
+        let at = |id| view.position(view.layout.get(NodeId(id)).unwrap());
         // A child is one column right of its parent, and the two children of 2 share one.
         assert!(at(2).x > at(1).x);
         assert_eq!(at(3).x, at(4).x);
@@ -939,6 +1015,122 @@ mod tests {
     }
 
     #[test]
+    fn saved_positions_replace_the_layout_and_tidying_puts_the_cards_back() {
+        let mut view = TreeView::new();
+        let mut data = data();
+        data.positions.insert(NodeId(4), (500.0, -80.0));
+        view.sync(Some(&data), 1);
+        let placed = *view.layout.get(NodeId(4)).unwrap();
+        assert_eq!(view.position(&placed), Pos2::new(500.0, -80.0));
+        let other = *view.layout.get(NodeId(3)).unwrap();
+        assert_eq!(view.position(&other), TreeView::laid_out(&other));
+
+        view.tidy();
+        assert_eq!(view.position(&placed), TreeView::laid_out(&placed));
+        assert!(view.take_reset());
+        assert!(!view.take_reset(), "the request is taken once");
+    }
+
+    #[test]
+    fn fitting_includes_cards_that_were_moved_far_away() {
+        let mut view = TreeView::new();
+        let mut data = data();
+        data.positions.insert(NodeId(4), (5000.0, 3000.0));
+        view.sync(Some(&data), 1);
+        view.fit();
+        assert!(view.scene_rect.contains(Pos2::new(5000.0, 3000.0)));
+        assert!(view.scene_rect.contains(Pos2::ZERO));
+    }
+
+    /// Run frames of the tree screen with `events`, at a fixed time step.
+    fn drive(
+        ctx: &egui::Context,
+        view: &mut TreeView,
+        data: &TreeData,
+        time: &mut f64,
+        events: Vec<egui::Event>,
+    ) {
+        *time += 0.05;
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1000.0, 700.0))),
+            time: Some(*time),
+            events,
+            ..Default::default()
+        };
+        let _ = ctx.run(input, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                view.body(ui, Some(data));
+            });
+        });
+    }
+
+    #[test]
+    fn dragging_a_card_moves_it_by_the_distance_in_scene_units_at_any_zoom() {
+        for zoom in [0.5, 1.0, 2.0] {
+            let ctx = egui::Context::default();
+            Theme::apply(&ctx);
+            let (mut view, data) = synced();
+            let mut time = 0.0;
+            view.fit();
+            view.zoom(zoom);
+            for _ in 0..3 {
+                drive(&ctx, &mut view, &data, &mut time, vec![]);
+            }
+            let placed = *view.layout.get(NodeId(4)).unwrap();
+            let before = view.position(&placed);
+            // Where the card is on the screen: the scene is fitted into the canvas with its
+            // aspect kept, so the middle of `scene_rect` is the middle of the canvas.
+            let scale = (view.canvas.width() / view.scene_rect.width())
+                .min(view.canvas.height() / view.scene_rect.height());
+            let to_screen = |p: Pos2| view.canvas.center() + (p - view.scene_rect.center()) * scale;
+            let grab = to_screen(before + Vec2::new(NODE_WIDTH / 2.0, NODE_HEIGHT / 2.0));
+            let button = |pressed| egui::Event::PointerButton {
+                pos: grab
+                    + if pressed {
+                        Vec2::ZERO
+                    } else {
+                        Vec2::new(60.0, 30.0)
+                    },
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            };
+            drive(
+                &ctx,
+                &mut view,
+                &data,
+                &mut time,
+                vec![egui::Event::PointerMoved(grab)],
+            );
+            drive(&ctx, &mut view, &data, &mut time, vec![button(true)]);
+            for step in 1..=4 {
+                let at = grab + Vec2::new(15.0, 7.5) * step as f32;
+                drive(
+                    &ctx,
+                    &mut view,
+                    &data,
+                    &mut time,
+                    vec![egui::Event::PointerMoved(at)],
+                );
+            }
+            drive(&ctx, &mut view, &data, &mut time, vec![button(false)]);
+            drive(&ctx, &mut view, &data, &mut time, vec![]);
+
+            let after = view.position(&placed);
+            let moved = after - before;
+            let expected = Vec2::new(60.0, 30.0) / scale;
+            assert!(
+                (moved - expected).length() < 2.0,
+                "zoom {zoom}: moved {moved:?}, expected about {expected:?}"
+            );
+            let saved = view.take_moves();
+            assert_eq!(saved.len(), 1, "one finished move is waiting to be saved");
+            assert_eq!(saved[0], (NodeId(4), after));
+            assert_eq!(view.selected(), None, "dragging is not a click");
+        }
+    }
+
+    #[test]
     fn empty_and_missing_data_draw_a_message_and_never_panic() {
         let ctx = egui::Context::default();
         Theme::apply(&ctx);
@@ -947,6 +1139,7 @@ mod tests {
             session_id: SessionId(1),
             nodes: vec![],
             current: None,
+            positions: Default::default(),
         };
         for data in [None, Some(&empty)] {
             view.sync(data, 1);
@@ -979,6 +1172,7 @@ mod tests {
             session_id: SessionId(1),
             nodes,
             current: Some(NodeId(3000)),
+            positions: Default::default(),
         };
         let ctx = egui::Context::default();
         Theme::apply(&ctx);

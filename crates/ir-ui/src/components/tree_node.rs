@@ -178,7 +178,8 @@ impl Widget for TreeNode {
             )
         });
 
-        let (rect, response) = ui.allocate_exact_size(Vec2::new(WIDTH, HEIGHT), Sense::click());
+        let (rect, response) =
+            ui.allocate_exact_size(Vec2::new(WIDTH, HEIGHT), Sense::click_and_drag());
         response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, &title));
 
         let mut colors = Self::colors(self.state, response.hovered(), &t);

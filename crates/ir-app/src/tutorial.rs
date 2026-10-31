@@ -48,7 +48,7 @@ const PAGES: &[Page] = &[
     },
     Page {
         title: "Explore the story tree",
-        text: "The tree grows from left to right, and every message is a card. The blue line marks the path you took, and the pill on a card is green on that path, gold where you are now, and gray on other branches. Hover a card to see its whole title. Click it and it opens up to show the whole message: press Jump here, or click the card again, to go back and take a different turn.",
+        text: "The tree grows from left to right, and every message is a card. The blue line marks the path you took, and the pill on a card is green on that path, gold where you are now, and gray on other branches. Hover a card to see its whole title, and drag it to put it where you like: the story remembers the layout. Click it and it opens up to show the whole message: press Jump here, or click the card again, to go back and take a different turn.",
         screenshot: include_bytes!("../../../assets/tutorial/06-tree.png"),
     },
 ];

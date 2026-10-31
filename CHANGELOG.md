@@ -10,6 +10,7 @@ This file lists only the current and the previous version.
 - **Story tree:** the tree grows from left to right again, now with smooth curved lines from every node to its replies. The line of the path you took is blue, the others are gray, and the node you opened has a blue outline.
 - **Tree nodes:** nodes are cards again, with the title and a date pill, all of the same size so the columns stay tidy. Hovering a card shows its whole title and where it stands (where you are now, on the path you took, or another branch). A collapsed branch shows how many nodes it hides in front of the title.
 - Opening a node still grows it into a larger card with the whole message and the buttons to jump or collapse.
+- **Movable cards:** drag a card to put it anywhere. Each story saves where you put its cards and shows them there the next time. A moved card keeps its lines to its parent and replies. *Tidy* puts all cards of the story back in their automatic places.
 
 ## [0.8.1] - 2026-10-31
 
