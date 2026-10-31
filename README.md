@@ -402,4 +402,4 @@ Released under the [MIT License](LICENSE).
 
 ---
 
-<p align="center">Made for stories that never end. ♾️</p>
+<p align="center">Made for stories that never end.</p>
