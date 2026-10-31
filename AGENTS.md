@@ -20,6 +20,15 @@ This file tells an AI coding agent how to work on InfiniteRoleplay. Read it full
 
 **Never push directly to `main`.** Work on a branch, push that branch, and stop. Merging into `main` (and tagging a release) is done by a human after review; an AI agent never does the last step.
 
+**Versioning:** [SemVer](https://semver.org).
+
+**Branch names** use one of these prefixes:
+
+- `feature/<feature-name>`: new functionality, enhancements, or user stories (e.g. `feature/user-login`).
+- `fix/<bug-name>` or `bugfix/<bug-name>`: errors, regressions, or system faults (e.g. `fix/session-timeout`).
+- `release/<version>`: preparing code for deployment or testing a specific version (e.g. `release/v1.2.0`).
+- `hotfix/<urgent-fix-name>`: critical patches applied directly to production environments.
+
 ## Tutorial Screenshots
 
 The first-run tutorial shows screenshots of the app (`assets/tutorial/`, one 1100x720 PNG per tutorial page, in `crates/ir-app/src/tutorial.rs`). **Whenever a change alters how the app looks, retake the screenshots** so they match, and adjust the tutorial text if it no longer fits. Take them from the running app with demo data (point `IR_DATA_DIR` at a demo folder), in the dark theme, with the window's inner size at 1100x720.
