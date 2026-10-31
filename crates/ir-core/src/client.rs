@@ -187,6 +187,48 @@ pub const PRESETS: &[ProviderPreset] = &[
     },
 ];
 
+/// Whether `base_url` points at this computer or its local network, where a model server
+/// is usually free to use.
+fn is_local_url(base_url: &str) -> bool {
+    let rest = base_url
+        .split_once("://")
+        .map_or(base_url, |(_, rest)| rest);
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let authority = authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, host)| host);
+    let host = if let Some(inner) = authority.strip_prefix('[') {
+        inner.split(']').next().unwrap_or_default()
+    } else {
+        authority.split(':').next().unwrap_or_default()
+    }
+    .to_ascii_lowercase();
+    let private_172 = host
+        .strip_prefix("172.")
+        .and_then(|rest| rest.split('.').next()?.parse::<u8>().ok())
+        .is_some_and(|second| (16..=31).contains(&second));
+    host == "localhost"
+        || host == "::1"
+        || host == "0.0.0.0"
+        || host.ends_with(".localhost")
+        || host.ends_with(".local")
+        || host.starts_with("127.")
+        || host.starts_with("10.")
+        || host.starts_with("192.168.")
+        || private_172
+}
+
+/// Whether using this provider can cost money: a hosted provider that needs an API key, or
+/// a custom endpoint that is not on this computer or its local network. An empty URL is
+/// not paid, because nothing is sent anywhere yet.
+pub fn is_paid_provider(provider: &str, base_url: &str) -> bool {
+    match find_preset(provider) {
+        Some(preset) if preset.key_required => true,
+        Some(preset) if !preset.base_url.is_empty() => false,
+        _ => !base_url.trim().is_empty() && !is_local_url(base_url.trim()),
+    }
+}
+
 /// Look up a preset by its identifier.
 pub fn find_preset(id: &str) -> Option<&'static ProviderPreset> {
     PRESETS.iter().find(|p| p.id == id)
@@ -752,6 +794,35 @@ mod tests {
             retry_after_secs: Some(3),
         };
         assert_eq!(e.to_string(), "rate limited, retry in 3s");
+    }
+
+    #[test]
+    fn hosted_providers_are_paid_and_local_ones_are_not() {
+        for id in ["xai", "openai", "anthropic", "openrouter"] {
+            let preset = find_preset(id).unwrap();
+            assert!(is_paid_provider(id, preset.base_url), "{id}");
+        }
+        for id in ["ollama", "lmstudio"] {
+            let preset = find_preset(id).unwrap();
+            assert!(!is_paid_provider(id, preset.base_url), "{id}");
+        }
+    }
+
+    #[test]
+    fn a_custom_endpoint_is_paid_unless_it_is_local() {
+        let custom = |url| is_paid_provider("openai-compatible", url);
+        assert!(!custom(""));
+        assert!(!custom("http://localhost:8080/v1"));
+        assert!(!custom("http://127.0.0.1:5000"));
+        assert!(!custom("http://[::1]:5000/v1"));
+        assert!(!custom("http://192.168.1.20:1234/v1"));
+        assert!(!custom("http://10.0.0.5/v1"));
+        assert!(!custom("http://172.20.0.5/v1"));
+        assert!(!custom("http://gpu-box.local:8000/v1"));
+        assert!(custom("https://api.together.xyz/v1"));
+        assert!(custom("http://172.32.0.5/v1"));
+        assert!(custom("https://localhost.example.com/v1"));
+        assert!(custom("https://user@api.example.com/v1"));
     }
 
     #[test]

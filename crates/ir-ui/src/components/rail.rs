@@ -1,7 +1,8 @@
 //! The icon rail: a narrow column of icon-only navigation buttons.
 
-use egui::{Response, Sense, Ui, Vec2, Widget};
+use egui::{Color32, Response, Sense, Ui, Vec2, Widget};
 
+use super::common::transition;
 use super::icon::{self, IconKind};
 use crate::theme::{spacing, ThemeExt, RING_WIDTH};
 
@@ -54,10 +55,15 @@ impl Widget for RailButton {
         let t = ui.ir_theme();
         let (rect, response) = ui.allocate_exact_size(Vec2::splat(BUTTON_SIZE), Sense::click());
         let hovered = response.hovered() && self.enabled;
-        if self.selected || hovered {
-            let fill = if self.selected { t.accent } else { t.muted };
-            ui.painter().rect_filled(rect, t.corner_md(), fill);
-        }
+        let fill = if self.selected {
+            t.accent
+        } else if hovered {
+            t.muted
+        } else {
+            Color32::TRANSPARENT
+        };
+        let fill = transition(ui, response.id.with("fill"), fill);
+        ui.painter().rect_filled(rect, t.corner_md(), fill);
         if response.has_focus() {
             ui.painter().rect_stroke(
                 rect,
@@ -73,6 +79,7 @@ impl Widget for RailButton {
         } else {
             t.muted_foreground
         };
+        let color = transition(ui, response.id.with("icon"), color);
         icon::paint(
             ui.painter(),
             egui::Rect::from_center_size(rect.center(), Vec2::splat(ICON_SIZE)),
@@ -116,20 +123,17 @@ mod tests {
 
     #[test]
     fn selecting_a_button_changes_how_it_is_painted() {
-        let ctx = egui::Context::default();
-        crate::Theme::apply(&ctx);
-        let shapes = |selected: bool| {
-            ctx.run(Default::default(), |ctx| {
+        // A fresh context per call: the first frame draws the target color without fading.
+        let painted = |selected: bool| {
+            let ctx = egui::Context::default();
+            crate::Theme::apply(&ctx);
+            let output = ctx.run(Default::default(), |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
                     ui.add(RailButton::new(IconKind::Chat).selected(selected));
                 });
-            })
-            .shapes
-            .len()
+            });
+            format!("{:?}", output.shapes)
         };
-        assert!(
-            shapes(true) > shapes(false),
-            "the selected pill is an extra shape"
-        );
+        assert_ne!(painted(true), painted(false));
     }
 }

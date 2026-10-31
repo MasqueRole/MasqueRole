@@ -3,6 +3,7 @@
 use egui::text::LayoutJob;
 use egui::{Color32, CursorIcon, FontId, Pos2, Response, Sense, Stroke, StrokeKind, Ui, Widget};
 
+use super::common::transition;
 use super::icon::{self, IconKind};
 use crate::theme::{spacing, ThemeExt, BORDER_WIDTH, RING_WIDTH};
 
@@ -205,6 +206,10 @@ impl Widget for Button {
             fg = fg.gamma_multiply(0.5);
             stroke.color = stroke.color.gamma_multiply(0.5);
         }
+        // Hover and click fade between the colors instead of jumping.
+        bg = transition(ui, response.id.with("bg"), bg);
+        fg = transition(ui, response.id.with("fg"), fg);
+        stroke.color = transition(ui, response.id.with("stroke"), stroke.color);
 
         // Square icon buttons are round.
         let radius = if self.size == ButtonSize::Icon {

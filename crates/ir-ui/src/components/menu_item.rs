@@ -2,6 +2,7 @@
 
 use egui::{Color32, CursorIcon, FontId, Response, Sense, Ui, Vec2, Widget};
 
+use super::common::transition;
 use super::icon::{self, IconKind};
 use crate::theme::{spacing, ThemeExt};
 
@@ -53,14 +54,15 @@ impl Widget for MenuItem {
         } else {
             t.foreground
         };
-        if response.hovered() || response.has_focus() {
-            let fill = if self.destructive {
-                accent.gamma_multiply(0.15)
-            } else {
-                t.accent
-            };
-            ui.painter().rect_filled(rect, t.corner_md(), fill);
-        }
+        let fill = if !(response.hovered() || response.has_focus()) {
+            Color32::TRANSPARENT
+        } else if self.destructive {
+            accent.gamma_multiply(0.15)
+        } else {
+            t.accent
+        };
+        let fill = transition(ui, response.id.with("fill"), fill);
+        ui.painter().rect_filled(rect, t.corner_md(), fill);
         let mut x = rect.left() + spacing::SM;
         if let Some(kind) = self.icon {
             let icon_rect = egui::Rect::from_center_size(

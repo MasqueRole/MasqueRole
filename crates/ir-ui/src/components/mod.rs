@@ -1,5 +1,6 @@
 //! Reusable components. One file per component, styled only with theme tokens.
 
+pub mod alert;
 pub mod badge;
 pub mod button;
 pub mod card;
@@ -37,6 +38,7 @@ pub mod tree_node;
 pub mod usage;
 pub mod window_controls;
 
+pub use alert::Alert;
 pub use badge::{Badge, BadgeVariant};
 pub use button::{Button, ButtonSize, ButtonVariant};
 pub use card::Card;

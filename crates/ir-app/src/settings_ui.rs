@@ -1,11 +1,11 @@
 //! The settings screen.
 
 use eframe::egui::Ui;
-use ir_core::client::PRESETS;
+use ir_core::client::{is_paid_provider, PRESETS};
 use ir_core::settings::{NodeLabel, Settings};
 use ir_ui::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, FormField, Input, Select, Slider, Switch,
-    Tabs,
+    Alert, Badge, BadgeVariant, Button, ButtonVariant, Card, FormField, Input, Select, Slider,
+    Switch, Tabs,
 };
 use ir_ui::{spacing, ThemeMode};
 
@@ -42,6 +42,12 @@ fn key_status(key_required: bool, key_available: bool) -> (&'static str, BadgeVa
         (false, true) => ("No key", BadgeVariant::Destructive),
     }
 }
+
+/// The title of the warning shown for providers that bill by usage.
+const COST_WARNING_TITLE: &str = "This provider can cost money";
+
+/// The warning shown for providers that bill by usage.
+const COST_WARNING: &str = "Hosted providers charge for every request, and a long story sends a lot of text with each message, so costs can grow fast. Neither InfiniteRoleplay nor its creators are liable for API costs, including unexpectedly high ones. Set a token limit under Limits and keep an eye on your provider's usage page.";
 
 /// The settings being edited. Numbers are `f64` because the sliders edit `f64`.
 #[derive(Clone, Debug, PartialEq)]
@@ -121,6 +127,11 @@ impl SettingsForm {
         }
     }
 
+    /// Whether the chosen provider and endpoint can cost money.
+    pub fn is_paid(&self) -> bool {
+        is_paid_provider(PRESETS[self.provider].id, &self.settings.api.base_url)
+    }
+
     /// Draw the form. Returns an action if a button other than save or cancel was pressed.
     pub fn show(&mut self, key_available: bool, ui: &mut Ui) -> Option<SettingsAction> {
         let mut action = None;
@@ -164,6 +175,10 @@ impl SettingsForm {
                     );
                 })
                 .show(ui);
+            ui.add_space(spacing::LG);
+        }
+        if self.tab == 1 && self.is_paid() {
+            ui.add(Alert::new(COST_WARNING_TITLE, COST_WARNING));
             ui.add_space(spacing::LG);
         }
         if self.tab == 1 {
@@ -414,6 +429,25 @@ mod tests {
         form.provider = 0; // custom
         form.apply_provider();
         assert_eq!(form.to_settings().api.base_url, "https://my.example/v1");
+    }
+
+    #[test]
+    fn paid_providers_are_flagged_so_the_warning_shows() {
+        let mut form = SettingsForm::new(&Settings::default());
+        let pick = |form: &mut SettingsForm, id: &str| {
+            form.provider = PRESETS.iter().position(|p| p.id == id).unwrap();
+            form.apply_provider();
+        };
+        pick(&mut form, "openai");
+        assert!(form.is_paid());
+        pick(&mut form, "ollama");
+        assert!(!form.is_paid());
+        form.settings.api.base_url = "https://my.example/v1".into();
+        form.provider = 0;
+        assert!(form.is_paid());
+        form.settings.api.base_url = "http://localhost:5000/v1".into();
+        assert!(!form.is_paid());
+        assert!(COST_WARNING.contains("liable"));
     }
 
     #[test]

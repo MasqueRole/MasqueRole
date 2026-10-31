@@ -6,9 +6,9 @@
 
 use eframe::egui;
 use ir_ui::components::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ChatBubble, Checkbox, Dialog,
-    Figure, FloatingBar, FormField, Icon, IconKind, Input, Label, LabelTone, ListItem, Logo,
-    MenuItem, Panel, Picture, Popover, RailButton, ScrollArea, Select, Separator, Slider,
+    Alert, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ChatBubble, Checkbox,
+    Dialog, Figure, FloatingBar, FormField, Icon, IconKind, Input, Label, LabelTone, ListItem,
+    Logo, MenuItem, Panel, Picture, Popover, RailButton, ScrollArea, Select, Separator, Slider,
     Suggestion, Suggestions, Switch, Tabs, Textarea, Toast, Toasts, TooltipExt, TopBar, TreeNode,
     TreeNodeState, UsageDonut, WindowControls,
 };
@@ -183,6 +183,12 @@ impl Gallery {
                 ui.add(Badge::new(text).variant(variant));
             }
         });
+
+        Self::section(ui, "Alert");
+        ui.add(Alert::new(
+            "This provider can cost money",
+            "Hosted providers charge for every request. Set a token limit to stay in control.",
+        ));
 
         Self::section(ui, "Separator");
         ui.add(Separator::horizontal());
