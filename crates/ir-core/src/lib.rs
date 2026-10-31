@@ -1,4 +1,4 @@
-//! Core logic for InfiniteRoleplay: provider client, memory, story tree, storage, settings.
+//! Core logic for MasqueRole: provider client, memory, story tree, storage, settings.
 //!
 //! This crate must not depend on any UI crate.
 
@@ -19,7 +19,7 @@ pub use client::{LlmError, LlmProvider};
 pub use settings::{Settings, SettingsError};
 
 /// Application name shown in window titles and data directories.
-pub const APP_NAME: &str = "InfiniteRoleplay";
+pub const APP_NAME: &str = "MasqueRole";
 
 #[cfg(test)]
 mod tests {
@@ -27,6 +27,6 @@ mod tests {
 
     #[test]
     fn app_name_is_set() {
-        assert_eq!(APP_NAME, "InfiniteRoleplay");
+        assert_eq!(APP_NAME, "MasqueRole");
     }
 }

@@ -22,7 +22,7 @@ struct Page {
 
 const PAGES: &[Page] = &[
     Page {
-        title: "Welcome to InfiniteRoleplay",
+        title: "Welcome to MasqueRole",
         text: "Stories that never run out of room. This short tour shows the main parts: Stories, Characters, Worlds, and the Tree are the icons in the rail at the left (hover one to see its name), and each has its own list next to it.",
         screenshot: include_bytes!("../../../assets/tutorial/01-overview.png"),
     },
@@ -48,7 +48,7 @@ const PAGES: &[Page] = &[
     },
     Page {
         title: "Explore the story tree",
-        text: "The tree grows from the top down, and every message is a dot. Green dots mark the path you took, gold marks where you are now, and gray dots are other branches. Hover a dot to see its title and date. Click it to preview it and click again to jump back and take a different turn.",
+        text: "The tree grows from the top down, and every message is a dot. Green dots mark the path you took, gold marks where you are now, and gray dots are other branches. Hover a dot to see its title and date. Click it and it opens into a card with the whole message: press Jump here, or click the dot again, to go back and take a different turn.",
         screenshot: include_bytes!("../../../assets/tutorial/06-tree.png"),
     },
 ];

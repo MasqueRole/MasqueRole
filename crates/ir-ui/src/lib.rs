@@ -1,4 +1,4 @@
-//! Design system for InfiniteRoleplay: theme tokens and reusable egui components.
+//! Design system for MasqueRole: theme tokens and reusable egui components.
 //!
 //! Call [`Theme::apply`] once at startup, then build screens from [`components`].
 

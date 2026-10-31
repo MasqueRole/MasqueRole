@@ -279,7 +279,7 @@ fn welcome(app: &mut App, ui: &mut Ui) {
     let mut create = false;
     Card::new()
         .header(|ui| {
-            Card::title(ui, "Welcome to InfiniteRoleplay");
+            Card::title(ui, "Welcome to MasqueRole");
             Card::description(ui, "Stories that never run out of room.");
         })
         .content(|ui| {

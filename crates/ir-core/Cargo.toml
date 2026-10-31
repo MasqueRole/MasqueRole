@@ -1,6 +1,6 @@
 [package]
 name = "ir-core"
-description = "InfiniteRoleplay core logic (no UI)"
+description = "MasqueRole core logic (no UI)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

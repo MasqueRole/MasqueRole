@@ -101,7 +101,7 @@ fn pick_asset(assets: Vec<ApiAsset>, os: &str) -> Option<Asset> {
 
 fn http() -> Result<reqwest::Client, UpdateError> {
     reqwest::Client::builder()
-        .user_agent(concat!("InfiniteRoleplay/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("MasqueRole/", env!("CARGO_PKG_VERSION")))
         .connect_timeout(Duration::from_secs(15))
         .timeout(Duration::from_secs(600))
         .build()

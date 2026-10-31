@@ -1,6 +1,6 @@
 [package]
 name = "ir-ui"
-description = "InfiniteRoleplay design system: theme tokens and egui components"
+description = "MasqueRole design system: theme tokens and egui components"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

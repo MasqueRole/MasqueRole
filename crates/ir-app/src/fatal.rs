@@ -61,7 +61,7 @@ mod tests {
     #[test]
     fn the_description_names_the_app_and_the_cause() {
         let text = description("could not open the database");
-        assert!(text.starts_with("InfiniteRoleplay could not start."));
+        assert!(text.starts_with("MasqueRole could not start."));
         assert!(text.ends_with("could not open the database"));
     }
 }

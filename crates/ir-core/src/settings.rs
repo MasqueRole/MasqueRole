@@ -21,7 +21,16 @@ pub const API_KEY_ENV: &str = "IR_API_KEY";
 /// folder, for a portable install or a clean profile.
 pub const DATA_DIR_ENV: &str = "IR_DATA_DIR";
 
-const KEYRING_SERVICE: &str = "InfiniteRoleplay";
+const KEYRING_SERVICE: &str = "MasqueRole";
+
+/// The name the app had before it was called MasqueRole. Data and keys saved under it are
+/// still found, so renaming the app loses nobody's stories or API keys.
+const LEGACY_APP_NAME: &str = "InfiniteRoleplay";
+
+/// Whether to keep using the folder of the old app name: it exists and the new one does not.
+fn prefer_legacy(current: &Path, legacy: &Path) -> bool {
+    !current.exists() && legacy.exists()
+}
 
 /// Errors from loading, saving, or reading secrets.
 #[derive(Debug, thiserror::Error)]
@@ -258,9 +267,14 @@ impl Settings {
         if let Some(dir) = over.filter(|d| !d.is_empty()) {
             return Ok(PathBuf::from(dir));
         }
-        ProjectDirs::from("", "RoleplayHarness", crate::APP_NAME)
-            .map(|dirs| dirs.data_dir().to_path_buf())
-            .ok_or(SettingsError::NoDataDir)
+        let dir_of = |name: &str| {
+            ProjectDirs::from("", "RoleplayHarness", name).map(|dirs| dirs.data_dir().to_path_buf())
+        };
+        let current = dir_of(crate::APP_NAME).ok_or(SettingsError::NoDataDir)?;
+        Ok(match dir_of(LEGACY_APP_NAME) {
+            Some(legacy) if prefer_legacy(&current, &legacy) => legacy,
+            _ => current,
+        })
     }
 
     /// Where `settings.toml` lives on this platform.
@@ -321,8 +335,25 @@ pub trait SecretStore {
 pub struct KeychainStore;
 
 impl KeychainStore {
-    fn entry(provider: &str) -> Result<keyring::Entry, SettingsError> {
-        keyring::Entry::new(KEYRING_SERVICE, provider).map_err(keychain_err)
+    fn entry(service: &str, provider: &str) -> Result<keyring::Entry, SettingsError> {
+        keyring::Entry::new(service, provider).map_err(keychain_err)
+    }
+
+    /// The secret stored under `service`, if any.
+    fn read(service: &str, provider: &str) -> Result<Option<String>, SettingsError> {
+        match Self::entry(service, provider)?.get_password() {
+            Ok(secret) => Ok(Some(secret)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(e) => Err(keychain_err(e)),
+        }
+    }
+
+    /// Remove the secret stored under `service`. A missing secret is not an error.
+    fn remove(service: &str, provider: &str) -> Result<(), SettingsError> {
+        match Self::entry(service, provider)?.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(e) => Err(keychain_err(e)),
+        }
     }
 }
 
@@ -331,25 +362,23 @@ fn keychain_err(e: keyring::Error) -> SettingsError {
 }
 
 impl SecretStore for KeychainStore {
+    /// Keys saved before the app was renamed are found under the old service name.
     fn get(&self, provider: &str) -> Result<Option<String>, SettingsError> {
-        match Self::entry(provider)?.get_password() {
-            Ok(secret) => Ok(Some(secret)),
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(e) => Err(keychain_err(e)),
+        match Self::read(KEYRING_SERVICE, provider)? {
+            Some(secret) => Ok(Some(secret)),
+            None => Self::read(LEGACY_APP_NAME, provider),
         }
     }
 
     fn set(&self, provider: &str, secret: &str) -> Result<(), SettingsError> {
-        Self::entry(provider)?
+        Self::entry(KEYRING_SERVICE, provider)?
             .set_password(secret)
             .map_err(keychain_err)
     }
 
     fn delete(&self, provider: &str) -> Result<(), SettingsError> {
-        match Self::entry(provider)?.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(e) => Err(keychain_err(e)),
-        }
+        Self::remove(KEYRING_SERVICE, provider)?;
+        Self::remove(LEGACY_APP_NAME, provider)
     }
 }
 
@@ -547,10 +576,14 @@ mod tests {
         // check that the name is a component, ignoring case.
         if let Ok(path) = Settings::default_path() {
             assert_eq!(path.file_name().unwrap(), SETTINGS_FILE);
-            let app_name = crate::APP_NAME.to_lowercase();
+            // The folder of the old name counts too: it is kept while it holds the user's data.
+            let names = [
+                crate::APP_NAME.to_lowercase(),
+                LEGACY_APP_NAME.to_lowercase(),
+            ];
             assert!(path
                 .components()
-                .any(|c| c.as_os_str().to_string_lossy().to_lowercase() == app_name));
+                .any(|c| names.contains(&c.as_os_str().to_string_lossy().to_lowercase())));
         }
     }
 
@@ -584,5 +617,33 @@ mod tests {
         assert_eq!(store.get("a").unwrap(), None);
         assert_eq!(store.get("b").unwrap().as_deref(), Some("key-b"));
         store.delete("a").unwrap();
+    }
+
+    #[test]
+    fn the_folder_of_the_old_name_is_kept_until_the_new_one_exists() {
+        let base = std::env::temp_dir().join(format!("ir-legacy-{}", std::process::id()));
+        let (current, legacy) = (base.join("MasqueRole"), base.join("InfiniteRoleplay"));
+        std::fs::create_dir_all(&base).unwrap();
+        assert!(
+            !prefer_legacy(&current, &legacy),
+            "neither exists: start fresh"
+        );
+        std::fs::create_dir_all(&legacy).unwrap();
+        assert!(
+            prefer_legacy(&current, &legacy),
+            "only the old one exists: keep using it"
+        );
+        std::fs::create_dir_all(&current).unwrap();
+        assert!(
+            !prefer_legacy(&current, &legacy),
+            "the new one wins once it exists"
+        );
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn the_app_is_called_masquerole() {
+        assert_eq!(crate::APP_NAME, "MasqueRole");
+        assert_eq!(KEYRING_SERVICE, "MasqueRole");
     }
 }

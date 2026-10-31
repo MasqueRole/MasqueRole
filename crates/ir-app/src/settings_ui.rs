@@ -47,7 +47,7 @@ fn key_status(key_required: bool, key_available: bool) -> (&'static str, BadgeVa
 const COST_WARNING_TITLE: &str = "This provider can cost money";
 
 /// The warning shown for providers that bill by usage.
-const COST_WARNING: &str = "Hosted providers charge for every request, and a long story sends a lot of text with each message, so costs can grow fast. Neither InfiniteRoleplay nor its creators are liable for API costs, including unexpectedly high ones. Set a token limit under Limits and keep an eye on your provider's usage page.";
+const COST_WARNING: &str = "Hosted providers charge for every request, and a long story sends a lot of text with each message, so costs can grow fast. Neither MasqueRole nor its creators are liable for API costs, including unexpectedly high ones. Set a token limit under Limits and keep an eye on your provider's usage page.";
 
 /// The settings being edited. Numbers are `f64` because the sliders edit `f64`.
 #[derive(Clone, Debug, PartialEq)]
