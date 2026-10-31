@@ -4,7 +4,37 @@
 
 <h1 align="center">InfiniteRoleplay</h1>
 
-**A native desktop app, written in Rust, for roleplaying with the AI model of your choice: endless, consistent, and persistent sessions.**
+<p align="center">
+  <strong>A native desktop app for endless, consistent, and persistent AI roleplay.<br>
+  Bring your own model. Written in Rust.</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/RoleplayHarness/InfiniteRoleplay/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/RoleplayHarness/InfiniteRoleplay/ci.yml?branch=main&amp;label=CI&amp;logo=github" alt="CI status"></a>
+  <a href="https://github.com/RoleplayHarness/InfiniteRoleplay/releases/latest"><img src="https://img.shields.io/github/v/release/RoleplayHarness/InfiniteRoleplay?label=release&amp;logo=github" alt="Latest release"></a>
+  <a href="https://github.com/RoleplayHarness/InfiniteRoleplay/releases"><img src="https://img.shields.io/github/downloads/RoleplayHarness/InfiniteRoleplay/total?label=downloads" alt="Downloads"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/RoleplayHarness/InfiniteRoleplay" alt="License: MIT"></a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Rust-2021-dea584?logo=rust&amp;logoColor=white" alt="Rust 2021">
+  <img src="https://img.shields.io/badge/GUI-egui-4c9aff" alt="Built with egui">
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-blue" alt="Platforms: Windows and Linux">
+  <a href="https://github.com/RoleplayHarness/InfiniteRoleplay/commits/main"><img src="https://img.shields.io/github/last-commit/RoleplayHarness/InfiniteRoleplay" alt="Last commit"></a>
+  <a href="https://github.com/RoleplayHarness/InfiniteRoleplay/issues"><img src="https://img.shields.io/github/issues/RoleplayHarness/InfiniteRoleplay" alt="Open issues"></a>
+  <a href="https://github.com/RoleplayHarness/InfiniteRoleplay/pulls"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="PRs welcome"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/RoleplayHarness/InfiniteRoleplay/releases/latest">Download</a> ·
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#features">Features</a> ·
+  <a href="https://github.com/RoleplayHarness/InfiniteRoleplay/issues">Report a bug</a>
+</p>
+
+<p align="center">
+  <img src="assets/tutorial/01-overview.png" alt="InfiniteRoleplay: stories, characters, worlds, and the story tree" width="820">
+</p>
 
 InfiniteRoleplay sits between you and the language model provider you choose (xAI, OpenAI, Anthropic, OpenRouter, or a local model via Ollama or LM Studio). It handles character cards, world knowledge, long-term memory, and a branching story tree, so stories don't fall apart when they hit context limits or the model forgets what happened.
 
@@ -13,6 +43,7 @@ InfiniteRoleplay sits between you and the language model provider you choose (xA
 ## Table of Contents
 
 - [Features](#features)
+- [Screenshots](#screenshots)
 - [Tech Stack](#tech-stack)
 - [Requirements](#requirements)
 - [Installation](#installation)
@@ -44,6 +75,19 @@ InfiniteRoleplay sits between you and the language model provider you choose (xA
 - **Multiple characters:** Group scenes with several characters and a narrator mode.
 - **Uniform design system:** Every screen is built from a shared component library (`ir-ui`), a shadcn-style set of themed components for egui, with light and dark themes.
 - **Customizable prompts:** System prompt templates and style profiles (e.g. fantasy, noir, slice of life).
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="assets/tutorial/04-commands.png" alt="Writing a story, with command suggestions"><br><sub><b>Stories</b>: write, and type <code>/</code> for commands.</sub></td>
+    <td width="50%"><img src="assets/tutorial/05-tree.png" alt="The story tree"><br><sub><b>Story tree</b>: every path you explored, and where you are.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="assets/tutorial/03-characters.png" alt="The character editor"><br><sub><b>Characters</b> and <b>Worlds</b>, each with its own editor.</sub></td>
+    <td width="50%"><img src="assets/tutorial/02-provider.png" alt="Provider settings"><br><sub><b>Settings</b>: any OpenAI-compatible provider, or a local model.</sub></td>
+  </tr>
+</table>
 
 ## Tech Stack
 
@@ -341,7 +385,7 @@ Contributions are welcome!
 1. Fork [RoleplayHarness/InfiniteRoleplay](https://github.com/RoleplayHarness/InfiniteRoleplay)
 2. Create a feature branch (`git checkout -b feature/my-feature`)
 3. Commit your changes
-4. Open a pull request
+4. Open a pull request against `main`; maintainers review and merge it
 
 Please describe your changes clearly, run `cargo fmt` and `cargo clippy` before submitting, and keep UI code out of `ir-core`, and build new screens from `ir-ui` components. AI coding agents should follow [`AGENTS.md`](AGENTS.md).
 
