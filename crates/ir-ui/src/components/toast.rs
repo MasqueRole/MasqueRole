@@ -9,6 +9,7 @@ use egui::{
 
 use super::button::{Button, ButtonSize, ButtonVariant};
 use super::icon::{self, IconKind};
+use crate::motion;
 use crate::theme::{spacing, ThemeExt, BORDER_WIDTH};
 
 /// Width of a toast, in logical pixels.
@@ -23,8 +24,8 @@ const ICON_SIZE: f32 = 16.0;
 /// Width reserved for the close button.
 const CLOSE_SIZE: f32 = 32.0;
 
-/// Seconds a new toast takes to fade in.
-const FADE_IN_SECONDS: f32 = 0.2;
+/// How far a toast travels while it enters and leaves, in logical pixels.
+const SLIDE: f32 = 24.0;
 
 /// How long a normal toast stays, in seconds.
 const DEFAULT_SECONDS: f64 = 4.0;
@@ -111,11 +112,18 @@ struct Entry {
     toast: Toast,
     /// When the toast first appeared, in egui time. `None` until it is first shown.
     shown_at: Option<f64>,
+    /// When the toast started to leave, in egui time. It is drawn until the exit is over.
+    leaving_at: Option<f64>,
 }
 
 impl Entry {
     fn expires_at(&self) -> Option<f64> {
         self.shown_at.map(|at| at + self.toast.seconds)
+    }
+
+    /// Whether the toast has not started to leave.
+    fn is_live(&self) -> bool {
+        self.leaving_at.is_none()
     }
 }
 
@@ -139,32 +147,46 @@ impl Toasts {
             id: self.next_id,
             toast,
             shown_at: None,
+            leaving_at: None,
         });
         self.next_id += 1;
     }
 
-    /// How many toasts are queued.
+    /// How many toasts are queued. A toast that is on its way out does not count.
     pub fn len(&self) -> usize {
-        self.entries.len()
+        self.entries.iter().filter(|e| e.is_live()).count()
     }
 
     /// Whether no toasts are queued.
     pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.len() == 0
     }
 
-    /// Start the clock on new toasts and remove expired ones. `now` is egui time in seconds.
-    /// Returns when the next toast expires, if any.
+    /// Start the clock on new toasts, start the exit of expired ones, and remove the ones
+    /// that finished leaving. `now` is egui time in seconds. Returns when the next toast
+    /// expires, if any.
     pub fn tick(&mut self, now: f64) -> Option<f64> {
         for entry in &mut self.entries {
             entry.shown_at.get_or_insert(now);
+            if entry.is_live() && entry.expires_at().is_some_and(|at| at <= now) {
+                entry.leaving_at = Some(now);
+            }
         }
+        let gone = f64::from(motion::EXIT_SECONDS) + 0.05;
         self.entries
-            .retain(|e| e.expires_at().is_none_or(|at| at > now));
+            .retain(|e| e.leaving_at.is_none_or(|at| now < at + gone));
         self.entries
             .iter()
+            .filter(|e| e.is_live())
             .filter_map(Entry::expires_at)
             .min_by(f64::total_cmp)
+    }
+
+    /// Start the exit of the toast with this id.
+    fn dismiss(&mut self, id: u64, now: f64) {
+        if let Some(entry) = self.entries.iter_mut().find(|e| e.id == id && e.is_live()) {
+            entry.leaving_at = Some(now);
+        }
     }
 
     /// Draw the toasts in the bottom-right corner, newest at the bottom.
@@ -176,6 +198,10 @@ impl Toasts {
         if self.entries.is_empty() {
             return;
         }
+        if self.entries.iter().any(|e| !e.is_live()) {
+            // Come back to remove the toast once it has left.
+            ctx.request_repaint_after(Duration::from_secs_f32(motion::EXIT_SECONDS + 0.06));
+        }
 
         let t = ctx.ir_theme();
         let mut dismissed = Vec::new();
@@ -185,19 +211,35 @@ impl Toasts {
             .show(ctx, |ui| {
                 ui.spacing_mut().item_spacing.y = spacing::SM;
                 for entry in &self.entries {
-                    // A new toast fades in.
-                    let shown = ctx.animate_value_with_time(
-                        Id::new(("ir-ui-toast", entry.id)),
-                        1.0,
-                        FADE_IN_SECONDS,
+                    // A toast slides up and fades in, and leaves the way it came, only faster.
+                    let key = Id::new(("ir-ui-toast", entry.id));
+                    let live = entry.is_live();
+                    let shown = motion::fade(
+                        ctx,
+                        key.with("fade"),
+                        live,
+                        if live {
+                            motion::ENTER_SECONDS
+                        } else {
+                            motion::EXIT_SECONDS
+                        },
                     );
+                    let slide =
+                        (1.0 - motion::eased(
+                            ctx,
+                            key.with("slide"),
+                            live,
+                            motion::ENTER_SECONDS,
+                            motion::EXIT_SECONDS,
+                        )) * SLIDE;
                     let accent = match entry.toast.kind {
                         ToastKind::Default => t.foreground,
                         ToastKind::Destructive => t.destructive,
                     };
+                    let slot = ui.available_rect_before_wrap();
                     let mut frame_ui = ui.new_child(
                         egui::UiBuilder::new()
-                            .max_rect(ui.available_rect_before_wrap())
+                            .max_rect(slot.translate(egui::vec2(0.0, slide)))
                             .layout(*ui.layout()),
                     );
                     frame_ui.set_opacity(shown);
@@ -268,10 +310,12 @@ impl Toasts {
                             });
                         })
                         .response;
-                    ui.advance_cursor_after_rect(response.rect);
+                    ui.advance_cursor_after_rect(response.rect.translate(egui::vec2(0.0, -slide)));
                 }
             });
-        self.entries.retain(|e| !dismissed.contains(&e.id));
+        for id in dismissed {
+            self.dismiss(id, now);
+        }
     }
 }
 
@@ -313,7 +357,8 @@ mod tests {
         toasts.tick(1.5);
         toasts.tick(2.1);
         assert_eq!(toasts.len(), 1, "only the first expired");
-        assert_eq!(toasts.entries[0].toast.title, "Second");
+        let live = toasts.entries.iter().find(|e| e.is_live()).unwrap();
+        assert_eq!(live.toast.title, "Second");
     }
 
     #[test]

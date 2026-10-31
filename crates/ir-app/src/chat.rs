@@ -12,6 +12,8 @@ use ir_ui::components::{
 };
 use ir_ui::spacing;
 
+use ir_ui::motion;
+
 use crate::app::App;
 use crate::backend::Request;
 use crate::format;
@@ -86,6 +88,12 @@ struct MessageAction {
     copy: Option<String>,
 }
 
+/// How much of the header the story title may take before it is cut.
+const HEADER_TITLE_SHARE: f32 = 0.4;
+
+/// The widest a world or character badge in the header gets.
+const HEADER_BADGE_WIDTH: f32 = 160.0;
+
 /// How long the buttons under a picked message take to fade in or out, in seconds.
 const ACTIONS_FADE: f32 = 0.18;
 
@@ -101,7 +109,7 @@ fn message_actions(
     action: &mut MessageAction,
 ) {
     let id = egui::Id::new(("message-actions", node.id.0));
-    let shown = ui.ctx().animate_bool_with_time(id, picked, ACTIONS_FADE);
+    let shown = motion::eased(ui.ctx(), id, picked, ACTIONS_FADE, ACTIONS_FADE);
     if shown <= 0.0 {
         return;
     }
@@ -167,14 +175,27 @@ pub fn body(app: &mut App, ui: &mut Ui) {
                 .on_hover_cursor(egui::CursorIcon::PointingHand);
             open_info |= click.clicked();
         };
-        let title = ui.add(Label::new(&transcript.session.name).heading());
+        let title_width = ui.available_width() * HEADER_TITLE_SHARE;
+        let title = ui.add(
+            Label::new(&transcript.session.name)
+                .heading()
+                .max_width(title_width),
+        );
         clickable(ui, title);
         if let Some(world) = &transcript.session.world {
-            let badge = ui.add(Badge::new(world).variant(BadgeVariant::Secondary));
+            let badge = ui.add(
+                Badge::new(world)
+                    .variant(BadgeVariant::Secondary)
+                    .max_width(HEADER_BADGE_WIDTH),
+            );
             clickable(ui, badge);
         }
         for name in &transcript.characters {
-            let badge = ui.add(Badge::new(name).variant(BadgeVariant::Outline));
+            let badge = ui.add(
+                Badge::new(name)
+                    .variant(BadgeVariant::Outline)
+                    .max_width(HEADER_BADGE_WIDTH),
+            );
             clickable(ui, badge);
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

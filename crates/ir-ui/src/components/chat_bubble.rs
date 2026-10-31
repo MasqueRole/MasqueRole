@@ -324,4 +324,37 @@ mod tests {
         let mut h = Harness::new();
         bubble_rect(&mut h, &ChatBubble::user(""));
     }
+
+    #[test]
+    fn an_unbreakable_link_stays_inside_the_bubble() {
+        let mut h = Harness::new();
+        let link = format!(
+            "https://example.com/{}",
+            "very-long-path-segment/".repeat(12)
+        );
+        let mut rect = egui::Rect::NOTHING;
+        let mut avail = 0.0;
+        h.idle(&mut |ui: &mut Ui| {
+            avail = ui.available_width();
+            rect = ui.add(ChatBubble::user(&link)).rect;
+        });
+        assert!(rect.width() <= avail + 1.0, "{rect:?} in {avail}");
+    }
+
+    #[test]
+    fn an_emoji_only_message_and_an_empty_one_still_get_a_bubble() {
+        let mut h = Harness::new();
+        let mut sizes = Vec::new();
+        h.idle(&mut |ui: &mut Ui| {
+            sizes.clear();
+            for text in [
+                "\u{1f525}\u{1f525}\u{1f525}",
+                "",
+                "\u{627}\u{644}\u{633}\u{644}\u{627}\u{645}",
+            ] {
+                sizes.push(ui.add(ChatBubble::character("Mira", text)).rect.size());
+            }
+        });
+        assert!(sizes.iter().all(|s| s.x > 0.0 && s.y > 0.0), "{sizes:?}");
+    }
 }

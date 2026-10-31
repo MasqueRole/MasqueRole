@@ -81,6 +81,8 @@ pub struct Settings {
 pub struct UiSettings {
     /// The first-run tutorial has been shown (or skipped).
     pub tutorial_seen: bool,
+    /// Turn off movement and scaling in the interface. Fades and color changes stay.
+    pub reduce_motion: bool,
 }
 
 /// An optional cap on how many tokens one story may use.
@@ -466,6 +468,7 @@ mod tests {
         assert!(!s.style.narrator_mode);
         assert!(s.tree.auto_checkpoint && s.tree.show_tree_on_branch);
         assert!(!s.debug.logging);
+        assert!(!s.ui.reduce_motion);
         assert!(!s.limits.token_limit_enabled);
         assert_eq!(s.limits.token_limit, 200_000);
         assert_eq!(s.tree.node_label, NodeLabel::Auto);

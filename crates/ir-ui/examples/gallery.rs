@@ -32,6 +32,7 @@ struct Gallery {
     island: String,
     row_selected: usize,
     node_selected: bool,
+    worst: usize,
     dialog_open: bool,
     toasts: Toasts,
     logo: Option<egui::TextureHandle>,
@@ -70,6 +71,7 @@ impl Gallery {
             island: String::new(),
             row_selected: 0,
             node_selected: false,
+            worst: 0,
             dialog_open,
             toasts,
             logo: None,
@@ -107,6 +109,10 @@ impl Gallery {
             };
             ctx.load_texture("sample", image, egui::TextureOptions::LINEAR)
         })
+    }
+
+    fn worst_case(&self) -> bool {
+        self.worst == 1
     }
 
     fn section(ui: &mut egui::Ui, title: &str) {
@@ -417,6 +423,44 @@ impl Gallery {
                     self.row_selected = i;
                 }
             }
+        });
+
+        Self::section(ui, "Demo data and worst case");
+        ui.horizontal(|ui| {
+            ui.add(Tabs::new(&mut self.worst, ["Demo data", "Worst case"]));
+        });
+        let (names, world, message, count) = if self.worst_case() {
+            (
+                [
+                    "Aleksandra Wi\u{15b}niewska-Kowalczyk, Keeper of the Karrow Lighthouse",
+                    "Jo",
+                    "\u{1f525}\u{1f525}",
+                ],
+                "The Misty Coast of the Northern Harbor Towns and Everything Beyond",
+                "https://example.com/stories/the-lighthouse/chapter-one/the-keeper-returns/final-draft-v12",
+                1,
+            )
+        } else {
+            (
+                ["Mira Valen", "Orrin Karrow", "Jane"],
+                "The Misty Coast",
+                "Come in before the fog does.",
+                12,
+            )
+        };
+        ui.scope(|ui| {
+            ui.set_max_width(300.0);
+            for (i, name) in names.into_iter().enumerate() {
+                ListItem::new(("worst-row", i), name).show(ui, |_| ());
+            }
+            ui.horizontal(|ui| {
+                ui.add(Badge::new(world).max_width(180.0));
+                ui.add(Badge::new(format!(
+                    "{count} message{}",
+                    if count == 1 { "" } else { "s" }
+                )));
+            });
+            ui.add(ChatBubble::character("Mira", message));
         });
 
         Self::section(ui, "Picture");

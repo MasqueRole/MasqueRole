@@ -576,6 +576,7 @@ impl App {
     /// Draw one frame. Everything the backend has sent since the last frame is applied first.
     pub fn ui(&mut self, ctx: &Context) {
         self.poll();
+        ir_ui::motion::set_reduced(ctx, self.settings.ui.reduce_motion);
         if self.logo.is_none() && !self.logo_tried {
             self.logo_tried = true;
             self.logo = branding::load_logo(ctx);
@@ -1313,6 +1314,55 @@ mod tests {
     }
 
     #[test]
+    fn worst_case_names_and_a_thousand_stories_still_draw_every_section_quickly() {
+        let long = "Aleksandra Wi\u{15b}niewska-Kowalczyk and the Lighthouse at the Edge of the Northern Harbor Towns";
+        let mut rig = Rig::new();
+        rig.push(Event::Sessions(
+            (1..=1000)
+                .map(|i| session(i, &format!("{long} {i}")))
+                .collect(),
+        ));
+        let mut story = transcript(1, long);
+        story.session.world = Some(long.into());
+        story.characters = vec![long.into(), "Jo".into(), "\u{1f525}".into()];
+        story.nodes[1].content = format!("https://example.com/{}", "chapter/".repeat(40));
+        rig.push(Event::Transcript(story));
+        library(&mut rig);
+
+        let started = std::time::Instant::now();
+        for open in [true, false] {
+            rig.app.sidebar_open = open;
+            for section in Section::ALL {
+                rig.app.show_section(section);
+                rig.frame();
+                rig.frame();
+            }
+        }
+        rig.app.show_section(Section::Stories);
+        rig.app.story_info = true;
+        rig.frame();
+        rig.frame();
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(20),
+            "{:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn a_story_with_one_message_and_no_storylines_draws() {
+        let mut rig = Rig::new();
+        let mut story = transcript(1, "Jo");
+        story.nodes.truncate(1);
+        story.characters.clear();
+        story.session.world = None;
+        rig.push(Event::Transcript(story));
+        rig.app.story_info = true;
+        rig.frame();
+        rig.frame();
+    }
+
+    #[test]
     fn the_story_info_page_draws_the_world_and_the_characters_of_the_story() {
         let mut rig = Rig::new();
         let mira = Character::from_yaml(
@@ -1651,6 +1701,7 @@ entries:
             settings: Settings {
                 ui: ir_core::settings::UiSettings {
                     tutorial_seen: seen,
+                    ..Default::default()
                 },
                 ..Settings::default()
             },

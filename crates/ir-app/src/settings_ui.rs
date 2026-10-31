@@ -155,6 +155,10 @@ impl SettingsForm {
                             ui.add(Tabs::new(&mut index, THEMES.iter().map(|(name, _)| *name)))
                         });
                     self.theme = THEMES[index].1;
+                    ui.add(
+                        Switch::new(&mut self.settings.ui.reduce_motion)
+                            .label("Reduce motion (applies after saving)"),
+                    );
                 })
                 .show(ui);
             ui.add_space(spacing::LG);
