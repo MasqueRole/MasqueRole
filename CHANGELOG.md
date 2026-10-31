@@ -3,7 +3,7 @@
 All notable changes to MasqueRole. The project follows [Semantic Versioning](https://semver.org).
 This file lists only the current and the previous version.
 
-## [0.8.2] - 2026-10-31
+## [0.9.0] - 2026-10-31
 
 ### Changed
 
