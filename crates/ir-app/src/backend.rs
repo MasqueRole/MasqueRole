@@ -110,6 +110,9 @@ pub struct TreeData {
     pub nodes: Vec<Node>,
     /// The node the story is at.
     pub current: Option<NodeId>,
+    /// Where the user put cards, as scene coordinates. Nodes not listed keep their place in
+    /// the automatic layout.
+    pub positions: std::collections::HashMap<NodeId, (f32, f32)>,
 }
 
 /// What the UI can ask for, plus the messages the backend's own tasks send back to it.
@@ -151,6 +154,17 @@ pub enum Request {
     /// Move to a node and start a new storyline there: what is written next becomes another
     /// continuation of it.
     BranchFrom(NodeId),
+    /// Remember where the user put the card of a node in the tree view.
+    MoveNode {
+        /// The node.
+        node: NodeId,
+        /// Horizontal position in scene coordinates.
+        x: f32,
+        /// Vertical position in scene coordinates.
+        y: f32,
+    },
+    /// Forget all card positions of the open story, so its tree is laid out afresh.
+    ResetTreeLayout,
     /// Save a character, to `path` if given, else to a new file.
     SaveCharacter {
         /// The file to overwrite.
@@ -413,6 +427,20 @@ impl Actor {
             }
             Request::JumpTo(node) => self.jump_to(node),
             Request::BranchFrom(node) => self.branch_from(node),
+            Request::MoveNode { node, x, y } => {
+                // Bookkeeping, like usage: a failure is logged and never interrupts the story.
+                if let Err(e) = self.db.set_node_position(node, x, y) {
+                    tracing::warn!(error = %e, "could not save a card position");
+                }
+            }
+            Request::ResetTreeLayout => {
+                if let Some(session) = self.session {
+                    if let Err(e) = self.db.clear_node_positions(session) {
+                        return self.error(e);
+                    }
+                    self.emit_tree();
+                }
+            }
             Request::DeleteApiKey => {
                 match self.secrets.delete(&self.settings.api.provider) {
                     Ok(()) => self.emit(Event::Info("API key removed.".into())),
@@ -731,6 +759,12 @@ impl Actor {
                 session_id: id,
                 nodes: self.db.list_nodes(id)?,
                 current,
+                positions: self
+                    .db
+                    .node_positions(id)?
+                    .into_iter()
+                    .map(|(node, x, y)| (node, (x, y)))
+                    .collect(),
             })
         })();
         match result {
@@ -2172,6 +2206,42 @@ entries:
                 .count(),
             2
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn card_positions_are_saved_sent_with_the_tree_and_can_be_reset() {
+        let rig = Rig::start("positions", Mock::new(&["Reply."]), true, false);
+        rig.start_story();
+        rig.chat("Hello.");
+        rig.backend.send(Request::WatchTree(true));
+        let data = next_tree(&rig).unwrap();
+        assert!(data.positions.is_empty(), "nothing was moved yet");
+        let (a, b) = (data.nodes[0].id, data.nodes[1].id);
+
+        rig.backend.send(Request::MoveNode {
+            node: a,
+            x: 12.5,
+            y: -3.0,
+        });
+        rig.backend.send(Request::MoveNode {
+            node: a,
+            x: 40.0,
+            y: 8.0,
+        });
+        rig.backend.send(Request::MoveNode {
+            node: b,
+            x: 1.0,
+            y: 2.0,
+        });
+        // The positions come with the tree the next time it is sent.
+        rig.backend.send(Request::WatchTree(true));
+        let data = next_tree(&rig).unwrap();
+        assert_eq!(data.positions.get(&a), Some(&(40.0, 8.0)));
+        assert_eq!(data.positions.get(&b), Some(&(1.0, 2.0)));
+
+        rig.backend.send(Request::ResetTreeLayout);
+        let data = next_tree(&rig).unwrap();
+        assert!(data.positions.is_empty(), "tidying forgets them all");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

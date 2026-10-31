@@ -93,6 +93,8 @@ pub struct Theme {
     pub tree_explored: Color32,
     /// Story tree: alternative branches.
     pub tree_open: Color32,
+    /// Story tree: the edges of the path you took, and the outline of the open node.
+    pub tree_path: Color32,
 
     /// Small corner radius.
     pub radius_sm: u8,
@@ -146,6 +148,7 @@ impl Theme {
             tree_current: rgb(0xf5c542),
             tree_explored: rgb(0x8fd694),
             tree_open: rgb(0x71717a),
+            tree_path: rgb(0x2563eb),
             ..Self::scale()
         }
     }
@@ -176,6 +179,7 @@ impl Theme {
             tree_current: rgb(0xf5c542),
             tree_explored: rgb(0x4f9e5a),
             tree_open: rgb(0x71717a),
+            tree_path: rgb(0x3b82f6),
             ..Self::scale()
         }
     }
@@ -206,6 +210,7 @@ impl Theme {
             tree_current: Color32::PLACEHOLDER,
             tree_explored: Color32::PLACEHOLDER,
             tree_open: Color32::PLACEHOLDER,
+            tree_path: Color32::PLACEHOLDER,
             radius_sm: 8,
             radius_md: 12,
             radius_lg: 16,
@@ -411,6 +416,7 @@ mod tests {
                 t.tree_current,
                 t.tree_explored,
                 t.tree_open,
+                t.tree_path,
             ] {
                 assert_ne!(c, Color32::PLACEHOLDER);
             }

@@ -74,6 +74,14 @@ const MIGRATIONS: &[&str] = &[
 "#,
     // Estimated tokens sent and received so far, for the optional usage limit.
     "ALTER TABLE sessions ADD COLUMN tokens_used INTEGER NOT NULL DEFAULT 0;",
+    // Where the user moved a node's card in the story tree view.
+    r#"
+    CREATE TABLE node_positions (
+        node_id INTEGER PRIMARY KEY REFERENCES nodes(id) ON DELETE CASCADE,
+        x       REAL NOT NULL,
+        y       REAL NOT NULL
+    );
+"#,
 ];
 
 /// The schema version this build writes.
@@ -606,6 +614,46 @@ impl Db {
             &format!("SELECT {NODE_COLUMNS} FROM nodes WHERE session_id = ?1 ORDER BY id"),
             session,
         )
+    }
+
+    /// Remember where the card of `node` was put in the tree view. Replaces an earlier position.
+    pub fn set_node_position(&self, node: NodeId, x: f32, y: f32) -> Result<(), DbError> {
+        if !(x.is_finite() && y.is_finite()) {
+            return Err(DbError::Invalid("a position must be a finite number"));
+        }
+        self.node(node)?;
+        self.conn.execute(
+            "INSERT INTO node_positions (node_id, x, y) VALUES (?1, ?2, ?3) \
+             ON CONFLICT(node_id) DO UPDATE SET x = excluded.x, y = excluded.y",
+            params![node, f64::from(x), f64::from(y)],
+        )?;
+        Ok(())
+    }
+
+    /// The positions the user gave to cards of a session's tree, as `(node, x, y)`. Nodes
+    /// that were never moved are not listed.
+    pub fn node_positions(&self, session: SessionId) -> Result<Vec<(NodeId, f32, f32)>, DbError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT p.node_id, p.x, p.y FROM node_positions p \
+             JOIN nodes n ON n.id = p.node_id WHERE n.session_id = ?1 ORDER BY p.node_id",
+        )?;
+        let rows = stmt.query_map(params![session], |row| {
+            Ok((
+                row.get::<_, NodeId>(0)?,
+                row.get::<_, f64>(1)? as f32,
+                row.get::<_, f64>(2)? as f32,
+            ))
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Forget the positions of a session's cards, so the tree is laid out afresh.
+    pub fn clear_node_positions(&self, session: SessionId) -> Result<(), DbError> {
+        self.conn.execute(
+            "DELETE FROM node_positions WHERE node_id IN (SELECT id FROM nodes WHERE session_id = ?1)",
+            params![session],
+        )?;
+        Ok(())
     }
 
     /// The direct children of a node, oldest first.
@@ -1262,6 +1310,46 @@ mod tests {
             .unwrap();
         add(&db, s.id, None, "x");
         assert!(db.session(s.id).unwrap().updated_at > 0);
+    }
+
+    #[test]
+    fn card_positions_are_saved_per_story_and_replaced_by_the_latest() {
+        let db = db();
+        let t = tree(&db);
+        let other = db.create_session("other", None).unwrap().id;
+        let elsewhere = add(&db, other, None, "root");
+        assert!(db.node_positions(t.session).unwrap().is_empty());
+
+        db.set_node_position(t.a, 10.0, 20.5).unwrap();
+        db.set_node_position(t.b, -40.0, 0.0).unwrap();
+        db.set_node_position(t.a, 11.0, 22.0).unwrap();
+        db.set_node_position(elsewhere, 1.0, 2.0).unwrap();
+        assert_eq!(
+            db.node_positions(t.session).unwrap(),
+            [(t.a, 11.0, 22.0), (t.b, -40.0, 0.0)]
+        );
+        assert_eq!(db.node_positions(other).unwrap(), [(elsewhere, 1.0, 2.0)]);
+    }
+
+    #[test]
+    fn positions_go_with_their_node_and_can_be_cleared() {
+        let db = db();
+        let t = tree(&db);
+        db.set_node_position(t.c, 1.0, 1.0).unwrap();
+        db.set_node_position(t.d, 2.0, 2.0).unwrap();
+        db.delete_subtree(t.b).unwrap();
+        assert_eq!(db.node_positions(t.session).unwrap(), [(t.d, 2.0, 2.0)]);
+        db.clear_node_positions(t.session).unwrap();
+        assert!(db.node_positions(t.session).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_position_needs_a_real_node_and_finite_numbers() {
+        let db = db();
+        let t = tree(&db);
+        assert!(db.set_node_position(NodeId(9999), 0.0, 0.0).is_err());
+        assert!(db.set_node_position(t.a, f32::NAN, 0.0).is_err());
+        assert!(db.set_node_position(t.a, 0.0, f32::INFINITY).is_err());
     }
 
     #[test]
