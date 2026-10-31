@@ -70,11 +70,23 @@ pub enum IconKind {
     ExitFullscreen,
     /// An arrow into a tray: download, update.
     Download,
+    /// Two overlapping sheets: copy.
+    Copy,
+    /// A letter i in a circle: information.
+    Info,
+    /// An arrow pointing left: back.
+    ArrowLeft,
+    /// A window with a side column: show or hide the sidebar.
+    Sidebar,
+    /// A shop front: the marketplace.
+    Store,
+    /// Arrows pressing together: compact.
+    Compress,
 }
 
 impl IconKind {
     /// Every icon, for galleries and tests.
-    pub const ALL: [IconKind; 27] = [
+    pub const ALL: [IconKind; 33] = [
         IconKind::Settings,
         IconKind::Trash,
         IconKind::More,
@@ -102,6 +114,12 @@ impl IconKind {
         IconKind::Fullscreen,
         IconKind::ExitFullscreen,
         IconKind::Download,
+        IconKind::Copy,
+        IconKind::Info,
+        IconKind::ArrowLeft,
+        IconKind::Sidebar,
+        IconKind::Store,
+        IconKind::Compress,
     ];
 }
 
@@ -329,6 +347,36 @@ fn drawing(kind: IconKind) -> Drawing {
             .open(&[(12.0, 4.0), (12.0, 15.0)])
             .open(&[(7.0, 10.0), (12.0, 15.0), (17.0, 10.0)])
             .open(&[(4.0, 16.0), (4.0, 20.0), (20.0, 20.0), (20.0, 16.0)]),
+        IconKind::Copy => d
+            .closed(&[(9.0, 9.0), (20.0, 9.0), (20.0, 20.0), (9.0, 20.0)])
+            .open(&[
+                (15.0, 9.0),
+                (15.0, 4.0),
+                (4.0, 4.0),
+                (4.0, 15.0),
+                (9.0, 15.0),
+            ]),
+        IconKind::Info => d
+            .circle((12.0, 12.0), 9.0)
+            .dot((12.0, 7.75), 1.1)
+            .open(&[(12.0, 11.0), (12.0, 17.0)]),
+        IconKind::ArrowLeft => {
+            d.open(&[(20.0, 12.0), (4.0, 12.0)])
+                .open(&[(10.0, 6.0), (4.0, 12.0), (10.0, 18.0)])
+        }
+        IconKind::Sidebar => d
+            .closed(&[(3.0, 4.0), (21.0, 4.0), (21.0, 20.0), (3.0, 20.0)])
+            .open(&[(9.0, 4.0), (9.0, 20.0)]),
+        IconKind::Store => d
+            .closed(&[(4.0, 10.0), (4.0, 20.0), (20.0, 20.0), (20.0, 10.0)])
+            .closed(&[(3.0, 4.0), (21.0, 4.0), (22.0, 10.0), (2.0, 10.0)])
+            .open(&[(10.0, 20.0), (10.0, 14.0), (14.0, 14.0), (14.0, 20.0)]),
+        IconKind::Compress => d
+            .open(&[(12.0, 2.5), (12.0, 10.0)])
+            .open(&[(8.5, 7.0), (12.0, 10.5), (15.5, 7.0)])
+            .open(&[(12.0, 21.5), (12.0, 14.0)])
+            .open(&[(8.5, 17.0), (12.0, 13.5), (15.5, 17.0)])
+            .open(&[(4.0, 12.0), (20.0, 12.0)]),
         IconKind::Image => d
             .closed(&[(3.0, 5.0), (21.0, 5.0), (21.0, 19.0), (3.0, 19.0)])
             .circle((9.0, 10.0), 1.75)

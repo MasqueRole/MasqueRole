@@ -91,6 +91,11 @@ pub const COMMANDS: &[CommandInfo] = &[
         description: "Show the current summary",
     },
     CommandInfo {
+        name: "compact",
+        usage: "/compact",
+        description: "Summarize all but the last two messages",
+    },
+    CommandInfo {
         name: "char",
         usage: "/char <name>",
         description: "Switch or add a character",
@@ -157,6 +162,8 @@ pub enum Command {
     },
     /// `/summary`
     Summary,
+    /// `/compact`
+    Compact,
     /// `/char <name>`
     Char {
         /// The character's name.
@@ -270,6 +277,7 @@ pub fn parse(input: &str) -> Result<Option<Command>, ParseError> {
             Command::Forget { id: FactId(id) }
         }
         "summary" => none().map(|()| Command::Summary)?,
+        "compact" => none().map(|()| Command::Compact)?,
         "char" => Command::Char {
             name: required()?.into(),
         },
@@ -335,6 +343,9 @@ pub enum CommandOutput {
     Forgot(Fact),
     /// `/summary`: the summary in effect, if any.
     Summary(Option<Summary>),
+    /// `/compact`: everything before the newest two messages should be summarized now. Like
+    /// [`CommandOutput::Regenerate`], the model call is left to the front end.
+    Compact,
     /// `/char`: the character now in the scene.
     Character {
         /// The character's name as stored.
@@ -500,6 +511,10 @@ pub fn execute(
             Some(node) => ctx.db.summary_at(node.id)?,
             None => None,
         }),
+        Command::Compact => {
+            tree.current()?.ok_or(TreeError::NoCurrentNode)?;
+            CommandOutput::Compact
+        }
         Command::Char { name } => {
             let card = ctx
                 .characters
@@ -574,6 +589,7 @@ mod tests {
             ),
             ("/retry", Command::Retry),
             ("/undo", Command::Undo),
+            ("/compact", Command::Compact),
             ("/tree", Command::Tree),
             ("/branch", Command::Branch { label: None }),
             (
@@ -708,6 +724,7 @@ mod tests {
             ("/branches x", "/branches"),
             ("/memory x", "/memory"),
             ("/summary x", "/summary"),
+            ("/compact x", "/compact"),
         ] {
             assert_eq!(
                 parse(input),
@@ -966,6 +983,17 @@ mod tests {
         };
         assert_eq!((from.node.id, replaced), (NodeId(2), None));
         assert_eq!(w.current_id(), Some(2));
+    }
+
+    #[test]
+    fn compact_needs_a_story_and_then_asks_the_front_end_to_summarize() {
+        let mut w = World::new();
+        assert!(matches!(
+            w.run("/compact"),
+            Err(CommandError::Tree(TreeError::NoCurrentNode))
+        ));
+        w.tree().append(Turn::system("Opening.")).unwrap();
+        assert_eq!(w.ok("/compact"), CommandOutput::Compact);
     }
 
     #[test]

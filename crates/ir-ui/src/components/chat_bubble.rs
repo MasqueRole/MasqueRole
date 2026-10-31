@@ -1,8 +1,8 @@
 //! Chat bubble: one message in the conversation.
 
 use egui::{
-    Align, Color32, Frame, Layout, Margin, Response, RichText, Stroke, TextStyle, TextWrapMode, Ui,
-    Widget, WidgetText,
+    Align, Color32, Frame, Layout, Margin, Response, RichText, Sense, Stroke, TextStyle,
+    TextWrapMode, Ui, Widget, WidgetText,
 };
 
 use crate::theme::{spacing, Theme, ThemeExt, BORDER_WIDTH};
@@ -32,6 +32,8 @@ pub struct ChatBubble {
     speaker: Option<String>,
     text: String,
     streaming: bool,
+    tag: Option<String>,
+    selected: bool,
 }
 
 impl ChatBubble {
@@ -41,6 +43,8 @@ impl ChatBubble {
             speaker,
             text: text.into(),
             streaming: false,
+            tag: None,
+            selected: false,
         }
     }
 
@@ -62,6 +66,19 @@ impl ChatBubble {
     /// Show a cursor after the text while the response is still arriving.
     pub fn streaming(mut self, streaming: bool) -> Self {
         self.streaming = streaming;
+        self
+    }
+
+    /// A small tag above the bubble, such as `#12`, that names the message so it can be
+    /// reached with a command.
+    pub fn tag(mut self, tag: impl Into<String>) -> Self {
+        self.tag = Some(tag.into());
+        self
+    }
+
+    /// Outline the bubble, to show that it is the message the user picked.
+    pub fn selected(mut self, selected: bool) -> Self {
+        self.selected = selected;
         self
     }
 
@@ -117,14 +134,25 @@ impl Widget for ChatBubble {
 
         ui.with_layout(Layout::top_down(align), |ui| {
             ui.spacing_mut().item_spacing.y = spacing::XS;
-            if let Some(name) = &self.speaker {
+            let heading = match (&self.speaker, &self.tag) {
+                (Some(name), Some(tag)) => Some(format!("{name}  {tag}")),
+                (Some(name), None) => Some(name.clone()),
+                (None, Some(tag)) => Some(tag.clone()),
+                (None, None) => None,
+            };
+            if let Some(heading) = heading {
                 ui.label(
-                    RichText::new(name)
+                    RichText::new(heading)
                         .size(t.text_xs)
                         .color(t.muted_foreground),
                 );
             }
-            Frame::new()
+            let stroke = if self.selected {
+                Stroke::new(BORDER_WIDTH * 2.0, t.ring)
+            } else {
+                stroke
+            };
+            let frame = Frame::new()
                 .fill(fill)
                 .stroke(stroke)
                 .corner_radius(t.corner_lg())
@@ -133,7 +161,10 @@ impl Widget for ChatBubble {
                     ui.set_width(content_width);
                     ui.add(egui::Label::new(rich).wrap());
                 })
-                .response
+                .response;
+            // On top of the text, so a click anywhere on the bubble picks it. Dragging still
+            // reaches the text underneath, so it can be selected.
+            ui.interact(frame.rect, frame.id.with("pick"), Sense::click())
         })
         .inner
     }
@@ -156,6 +187,43 @@ mod tests {
             rect = ui.add(bubble.clone()).rect;
         });
         rect
+    }
+
+    /// The height a bubble takes in the layout, including the line above it.
+    fn taken_height(h: &mut Harness, bubble: &ChatBubble) -> f32 {
+        let mut height = 0.0;
+        h.idle(&mut |ui: &mut Ui| {
+            let before = ui.cursor().min.y;
+            ui.add(bubble.clone());
+            height = ui.cursor().min.y - before;
+        });
+        height
+    }
+
+    #[test]
+    fn a_tag_adds_a_line_above_even_without_a_speaker() {
+        let mut h = Harness::new();
+        let plain = taken_height(&mut h, &ChatBubble::user("Hi."));
+        let tagged = taken_height(&mut h, &ChatBubble::user("Hi.").tag("#12"));
+        assert!(tagged > plain);
+        let named = taken_height(&mut h, &ChatBubble::character("Mira", "Hi."));
+        let both = taken_height(&mut h, &ChatBubble::character("Mira", "Hi.").tag("#12"));
+        assert!(
+            (both - named).abs() < 0.5,
+            "the tag shares the speaker's line"
+        );
+    }
+
+    #[test]
+    fn clicking_a_bubble_reports_a_click() {
+        let mut h = Harness::new();
+        let mut rect = egui::Rect::NOTHING;
+        h.idle(&mut |ui| rect = ui.add(ChatBubble::narrator("Fog.")).rect);
+        let mut clicked = false;
+        h.click(rect.center(), &mut |ui| {
+            clicked |= ui.add(ChatBubble::narrator("Fog.")).clicked();
+        });
+        assert!(clicked);
     }
 
     #[test]

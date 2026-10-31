@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 use eframe::egui::{Align, Layout, Pos2, Rect, Scene, Shape, Stroke, Ui, UiBuilder, Vec2};
 use ir_core::db::{Node, NodeId, NodeKind};
 use ir_ui::components::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Label, ScrollArea, TreeNode,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, IconKind, Label, ScrollArea, TreeNode,
     TreeNodeState,
 };
 use ir_ui::{spacing, ThemeExt, BORDER_WIDTH, RING_WIDTH};
@@ -438,7 +438,7 @@ impl TreeView {
         };
         let current = data.and_then(|d| d.current);
         let placed = self.layout.get(node.id).copied();
-        let (mut jump, mut toggle) = (None, false);
+        let (mut jump, mut toggle, mut close) = (None, false, false);
 
         ui.horizontal_top(|ui| {
             let width =
@@ -488,10 +488,21 @@ impl TreeView {
                         )
                         .clicked();
                 }
+                close = ui
+                    .add(
+                        Button::new("Close preview")
+                            .icon(IconKind::Close)
+                            .variant(ButtonVariant::Ghost)
+                            .fill_width(true),
+                    )
+                    .clicked();
             });
         });
         if toggle {
             self.toggle_collapse(node.id);
+        }
+        if close {
+            self.selected = None;
         }
         jump
     }

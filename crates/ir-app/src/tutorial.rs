@@ -23,12 +23,12 @@ struct Page {
 const PAGES: &[Page] = &[
     Page {
         title: "Welcome to InfiniteRoleplay",
-        text: "Stories that never run out of room. This short tour shows the main parts: Stories, Characters, Worlds, and the Tree are in the bar at the top, and each has its own list on the left.",
+        text: "Stories that never run out of room. This short tour shows the main parts: Stories, Characters, Worlds, and the Tree are the icons in the rail at the left (hover one to see its name), and each has its own list next to it.",
         screenshot: include_bytes!("../../../assets/tutorial/01-overview.png"),
     },
     Page {
         title: "Connect a provider",
-        text: "Click the gear in the top bar and open the Provider tab. Choose a provider and paste your API key. Local models, such as Ollama, need no key at all.",
+        text: "Click the gear at the top right and open the Provider tab. Choose a provider and paste your API key. Local models, such as Ollama, need no key at all.",
         screenshot: include_bytes!("../../../assets/tutorial/02-provider.png"),
     },
     Page {
@@ -42,9 +42,14 @@ const PAGES: &[Page] = &[
         screenshot: include_bytes!("../../../assets/tutorial/04-commands.png"),
     },
     Page {
+        title: "Branch, copy, and look around",
+        text: "Click a message to branch from it or copy it. Every message has a tag such as #12 that works with /goto. Storylines of the open story are listed below it in the sidebar, and a click on the story title opens its world and characters.",
+        screenshot: include_bytes!("../../../assets/tutorial/05-messages.png"),
+    },
+    Page {
         title: "Explore the story tree",
         text: "Every message is a node. A green tag marks the path you took, gold marks where you are now, and gray marks other branches. Click a node to preview it and click again to jump back and take a different turn.",
-        screenshot: include_bytes!("../../../assets/tutorial/05-tree.png"),
+        screenshot: include_bytes!("../../../assets/tutorial/06-tree.png"),
     },
 ];
 

@@ -12,6 +12,7 @@ use crate::theme::{spacing, ThemeExt, BORDER_WIDTH};
 #[derive(Clone, Copy, Debug)]
 enum Kind {
     Side(f32),
+    Rail(f32),
     Top,
     Bottom,
     Central,
@@ -33,6 +34,15 @@ impl Panel {
     pub fn side(id_salt: impl Hash, width: f32) -> Self {
         Self {
             kind: Kind::Side(width),
+            id: Id::new(id_salt),
+        }
+    }
+
+    /// A narrow column on the left for icon-only navigation, `width` logical pixels wide
+    /// (see [`RAIL_WIDTH`](super::rail::RAIL_WIDTH)). Add it before the sidebar.
+    pub fn rail(id_salt: impl Hash, width: f32) -> Self {
+        Self {
+            kind: Kind::Rail(width),
             id: Id::new(id_salt),
         }
     }
@@ -105,6 +115,12 @@ impl Panel {
                 .exact_width(width)
                 .resizable(false)
                 .frame(bar(page))
+                .show_separator_line(false)
+                .show(ctx, add),
+            Kind::Rail(width) => SidePanel::left(self.id)
+                .exact_width(width)
+                .resizable(false)
+                .frame(bar(Margin::symmetric(spacing::SM as i8, spacing::SM as i8)))
                 .show_separator_line(false)
                 .show(ctx, add),
             Kind::Top => TopBottomPanel::top(self.id)
