@@ -1,4 +1,4 @@
-//! The window buttons of an app that draws its own title bar: close, minimize, full screen.
+//! The window buttons of an app that draws its own title bar: minimize, full screen, close.
 
 use egui::Ui;
 
@@ -25,13 +25,13 @@ pub struct WindowControls {
 }
 
 impl WindowControls {
-    /// The controls. Pass whether the window is full screen now, so the last button shows
+    /// The controls. Pass whether the window is full screen now, so the middle button shows
     /// the right icon.
     pub fn new(fullscreen: bool) -> Self {
         Self { fullscreen }
     }
 
-    /// Draw the buttons left to right: close, minimize, full screen. Returns the action of
+    /// Draw the buttons left to right: minimize, full screen, close. Returns the action of
     /// the button that was clicked this frame.
     pub fn show(self, ui: &mut Ui) -> Option<WindowAction> {
         let mut action = None;
@@ -44,14 +44,20 @@ impl WindowControls {
                     (IconKind::Fullscreen, "Full screen")
                 };
                 let buttons = [
-                    (IconKind::Close, "Close", WindowAction::Close),
                     (IconKind::Minimize, "Minimize", WindowAction::Minimize),
                     (
                         fullscreen_icon,
                         fullscreen_tip,
                         WindowAction::ToggleFullscreen,
                     ),
+                    (IconKind::Close, "Close", WindowAction::Close),
                 ];
+                // `horizontal` runs right to left inside a right-to-left layout, such as the
+                // right group of the top bar; the buttons keep their order either way.
+                let mut buttons = buttons;
+                if ui.layout().prefer_right_to_left() {
+                    buttons.reverse();
+                }
                 for (icon, tip, this) in buttons {
                     let button = Button::new("")
                         .icon(icon)
@@ -96,10 +102,10 @@ mod tests {
 
     #[test]
     fn each_button_reports_its_action() {
-        assert_eq!(click_nth(0, false), Some(WindowAction::Close));
-        assert_eq!(click_nth(1, false), Some(WindowAction::Minimize));
-        assert_eq!(click_nth(2, false), Some(WindowAction::ToggleFullscreen));
-        assert_eq!(click_nth(2, true), Some(WindowAction::ToggleFullscreen));
+        assert_eq!(click_nth(0, false), Some(WindowAction::Minimize));
+        assert_eq!(click_nth(1, false), Some(WindowAction::ToggleFullscreen));
+        assert_eq!(click_nth(1, true), Some(WindowAction::ToggleFullscreen));
+        assert_eq!(click_nth(2, false), Some(WindowAction::Close));
     }
 
     #[test]

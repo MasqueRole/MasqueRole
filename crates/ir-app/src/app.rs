@@ -21,7 +21,7 @@ use ir_ui::components::{
     Button, ButtonSize, ButtonVariant, Card, Dialog, FormField, IconKind, Input, Logo, Panel,
     ScrollArea, Select, Tabs, Toast, Toasts, TooltipExt, TopBar, WindowAction, WindowControls,
 };
-use ir_ui::{spacing, Theme, ThemeMode};
+use ir_ui::{Theme, ThemeMode};
 
 use crate::backend::{Backend, Event, ImageTarget, Request, Transcript, TreeData};
 use crate::characters::{CharacterForm, WorldForm};
@@ -595,9 +595,10 @@ impl App {
         self.toasts.show(ctx);
     }
 
-    /// The top bar: the window buttons, the "Update now" button when there is an update,
-    /// and the logo at the left, the section tabs in the middle, and the settings button at
-    /// the right. The window has no system title bar, so dragging the bar moves it.
+    /// The top bar: the logo at the left and the section tabs in the middle. At the right,
+    /// from left to right: the tutorial and settings buttons, the "Update now" button when
+    /// there is an update, and the window buttons. The window has no system title bar, so
+    /// dragging the bar moves it.
     fn top_bar(&mut self, ctx: &Context) {
         let mut section = self.section;
         let (mut settings, mut help, mut update_now) = (false, false, false);
@@ -609,24 +610,6 @@ impl App {
         let bar = TopBar::new("top-bar").show(
             ctx,
             |ui| {
-                window_action = WindowControls::new(fullscreen).show(ui);
-                if let Some(version) = &update {
-                    ui.add_space(spacing::SM);
-                    let label = if updating {
-                        "Updating..."
-                    } else {
-                        "Update now"
-                    };
-                    let button = Button::new(label)
-                        .icon(IconKind::Download)
-                        .size(ButtonSize::Sm)
-                        .enabled(!updating);
-                    update_now = ui
-                        .add(button)
-                        .ir_tooltip(format!("Version {version} is available"))
-                        .clicked();
-                    ui.add_space(spacing::SM);
-                }
                 if let Some(logo) = &logo {
                     ui.add(Logo::new(logo).width(LOGO_WIDTH));
                 }
@@ -641,6 +624,23 @@ impl App {
                 }
             },
             |ui| {
+                // Right to left: the window buttons are rightmost, then the update button.
+                window_action = WindowControls::new(fullscreen).show(ui);
+                if let Some(version) = &update {
+                    let label = if updating {
+                        "Updating..."
+                    } else {
+                        "Update now"
+                    };
+                    let button = Button::new(label)
+                        .icon(IconKind::Download)
+                        .size(ButtonSize::Sm)
+                        .enabled(!updating);
+                    update_now = ui
+                        .add(button)
+                        .ir_tooltip(format!("Version {version} is available"))
+                        .clicked();
+                }
                 let button = Button::new("")
                     .icon(IconKind::Settings)
                     .variant(ButtonVariant::Ghost)
