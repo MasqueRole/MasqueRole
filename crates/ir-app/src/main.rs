@@ -17,6 +17,7 @@ mod logging;
 mod prompts;
 mod settings_ui;
 mod sidebar;
+mod story_info;
 mod tree_layout;
 mod tree_view;
 mod tutorial;

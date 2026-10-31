@@ -127,6 +127,39 @@ pub fn plan_summary(
     })
 }
 
+/// How many of the newest messages `/compact` leaves as they are: the last player message
+/// and the reply to it.
+pub const COMPACT_KEEP: usize = 2;
+
+/// Plan `/compact`: fold everything before the newest [`COMPACT_KEEP`] messages into the
+/// summary, whatever the thresholds in the settings say. Returns `None` when there is
+/// nothing left to fold in.
+pub fn plan_compact(path: &[Node], summary: Option<&Summary>) -> Option<SummaryJob> {
+    let start = summarized_count(path, summary);
+    let end = path.len().saturating_sub(COMPACT_KEEP);
+    if end <= start {
+        return None;
+    }
+    let chunk = &path[start..end];
+    let previous = summary.map_or("(none yet)", |s| s.text.as_str());
+    let user = format!(
+        "Current summary:
+{previous}
+
+New events:
+{}",
+        transcript(chunk)
+    );
+    Some(SummaryJob {
+        through_node: chunk[chunk.len() - 1].id,
+        message_count: chunk.len(),
+        prompt: vec![
+            ChatMessage::system(SUMMARY_INSTRUCTIONS),
+            ChatMessage::user(user),
+        ],
+    })
+}
+
 /// Ask the model for the updated summary text.
 pub async fn summarize(provider: &dyn LlmProvider, job: &SummaryJob) -> Result<String, LlmError> {
     let text = provider
@@ -296,6 +329,30 @@ mod tests {
                 }
             })
             .collect()
+    }
+
+    #[test]
+    fn compact_folds_in_everything_but_the_newest_two_messages() {
+        let path = path(10);
+        let job = plan_compact(&path, None).unwrap();
+        assert_eq!(job.through_node, NodeId(8));
+        assert_eq!(job.message_count, 8);
+    }
+
+    #[test]
+    fn compact_continues_after_an_existing_summary_and_ignores_the_thresholds() {
+        let path = path(10);
+        let job = plan_compact(&path, Some(&summary_at(5, "so far"))).unwrap();
+        assert_eq!(job.through_node, NodeId(8));
+        assert_eq!(job.message_count, 3);
+    }
+
+    #[test]
+    fn compact_has_nothing_to_do_for_short_or_already_compacted_stories() {
+        assert_eq!(plan_compact(&path(2), None), None);
+        assert_eq!(plan_compact(&path(0), None), None);
+        assert_eq!(plan_compact(&path(10), Some(&summary_at(8, "done"))), None);
+        assert!(plan_compact(&path(3), None).is_some());
     }
 
     fn summary_at(node: i64, text: &str) -> Summary {

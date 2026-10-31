@@ -81,6 +81,37 @@ fn sessions(app: &mut App, ui: &mut Ui) {
                 name: session.name.clone(),
             });
         }
+        if active == Some(session.id) && app.section == Section::Stories {
+            sub_chats(app, ui);
+        }
+    }
+}
+
+/// The storylines of the open story, indented below its row like the sub-chats of a chat.
+/// A story with a single storyline has none to list. Only the stories section shows them.
+fn sub_chats(app: &mut App, ui: &mut Ui) {
+    let Some(transcript) = &app.transcript else {
+        return;
+    };
+    if transcript.branches.len() < 2 {
+        return;
+    }
+    let mut jump = None;
+    for branch in &transcript.branches {
+        let label = format!("{} {}", crate::format::tag(branch.tip), branch.label);
+        ui.horizontal(|ui| {
+            ui.add_space(spacing::LG);
+            let out = ListItem::new(("branch", branch.tip.0), &label)
+                .selected(branch.contains_current)
+                .menu(false)
+                .show(ui, |_| ());
+            if out.clicked {
+                jump = Some(branch.tip);
+            }
+        });
+    }
+    if let Some(tip) = jump {
+        app.backend.send(Request::JumpTo(tip));
     }
 }
 

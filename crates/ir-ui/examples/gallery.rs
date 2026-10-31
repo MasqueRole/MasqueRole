@@ -8,9 +8,9 @@ use eframe::egui;
 use ir_ui::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ChatBubble, Checkbox, Dialog,
     Figure, FloatingBar, FormField, Icon, IconKind, Input, Label, LabelTone, ListItem, Logo,
-    MenuItem, Panel, Picture, Popover, ScrollArea, Select, Separator, Slider, Suggestion,
-    Suggestions, Switch, Tabs, Textarea, Toast, Toasts, TooltipExt, TopBar, TreeNode,
-    TreeNodeState, WindowControls,
+    MenuItem, Panel, Picture, Popover, RailButton, ScrollArea, Select, Separator, Slider,
+    Suggestion, Suggestions, Switch, Tabs, Textarea, Toast, Toasts, TooltipExt, TopBar, TreeNode,
+    TreeNodeState, UsageDonut, WindowControls,
 };
 use ir_ui::{spacing, Theme, ThemeExt, ThemeMode};
 
@@ -360,6 +360,21 @@ impl Gallery {
                     .icon(IconKind::Download)
                     .size(ButtonSize::Sm),
             );
+        });
+
+        Self::section(ui, "Rail button and usage donut");
+        ui.horizontal(|ui| {
+            ui.add(RailButton::new(IconKind::Chat).selected(true));
+            ui.add(RailButton::new(IconKind::User));
+            ui.add(RailButton::new(IconKind::Store).enabled(false));
+            ui.add_space(24.0);
+            for fraction in [None, Some(0.0), Some(0.35), Some(0.8), Some(1.0)] {
+                ui.add(
+                    UsageDonut::new(fraction)
+                        .title("Token usage")
+                        .line("Hover for the bar chart"),
+                );
+            }
         });
 
         Self::section(ui, "List item and menu item");

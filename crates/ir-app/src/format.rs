@@ -1,7 +1,7 @@
 //! Turning command results into text for the chat view.
 
 use ir_core::commands::CommandOutput;
-use ir_core::db::Node;
+use ir_core::db::{Node, NodeId};
 
 /// A message from the app itself, shown in the chat but not part of the story.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -13,7 +13,8 @@ pub struct Notice {
 }
 
 impl Notice {
-    fn plain(text: impl Into<String>) -> Self {
+    /// A notice in the normal font.
+    pub fn plain(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
             monospace: false,
@@ -38,6 +39,7 @@ pub fn notice(output: &CommandOutput) -> Notice {
             Notice::plain(format!("Loaded \u{201c}{}\u{201d}.", session.name))
         }
         CommandOutput::Regenerate { .. } => Notice::plain("Regenerating the last response."),
+        CommandOutput::Compact => Notice::plain("Compacting the story so far."),
         CommandOutput::Moved(snapshot) => Notice::plain(format!(
             "Now at #{}: {}",
             snapshot.node.id.0,
@@ -146,6 +148,12 @@ pub fn tokens(count: i64) -> String {
         1_000..=999_949 => short(count as f64 / 1_000.0, "k"),
         _ => short(count as f64 / 1_000_000.0, "M"),
     }
+}
+
+/// The tag of a message, such as `#12`. It is unique in the database and is what `/goto`
+/// and `/prune` accept.
+pub fn tag(id: NodeId) -> String {
+    format!("#{}", id.0)
 }
 
 /// A short single-line preview of a node's text.

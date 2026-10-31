@@ -2,11 +2,13 @@
 
 use eframe::egui::{self, Key, Modifiers, Ui};
 use ir_core::commands::{CommandInfo, COMMANDS};
+use ir_core::db::NodeId;
 use ir_core::db::NodeKind;
 use ir_core::settings::Settings;
 use ir_ui::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ChatBubble, FloatingBar,
-    IconKind, Label, ScrollArea, Separator, Suggestion, Suggestions, Textarea, TooltipExt,
+    IconKind, Label, ScrollArea, Separator, Suggestion, Suggestions, Textarea, Toast, TooltipExt,
+    UsageDonut,
 };
 use ir_ui::spacing;
 
@@ -14,6 +16,7 @@ use crate::app::App;
 use crate::backend::Request;
 use crate::format;
 use crate::prompts;
+use crate::story_info;
 
 /// Width of the column holding the Send and Stop buttons.
 const BUTTON_COLUMN: f32 = 32.0;
@@ -51,29 +54,68 @@ pub fn command_hints(input: &str) -> Vec<&'static CommandInfo> {
         .collect()
 }
 
-/// The token usage shown in the story header: nothing until something was used or a limit
-/// is on, and a warning color once the limit is reached.
-fn usage_badge(settings: &Settings, used: i64) -> Option<(String, BadgeVariant)> {
+/// The token monitor in the story header: a donut of how much of the limit is used, with
+/// the numbers in its hover card. Nothing until something was used or a limit is on.
+fn usage_donut(settings: &Settings, used: i64) -> Option<UsageDonut> {
     let limits = &settings.limits;
-    if !limits.token_limit_enabled {
-        return (used > 0).then(|| {
-            (
-                format!("~{} tokens", format::tokens(used)),
-                BadgeVariant::Outline,
-            )
-        });
+    if !limits.token_limit_enabled && used <= 0 {
+        return None;
     }
-    let variant = if limits.reached(used) {
-        BadgeVariant::Destructive
+    let fraction = limits
+        .token_limit_enabled
+        .then(|| used as f32 / limits.token_limit.max(1) as f32);
+    let donut = UsageDonut::new(fraction).title("Token usage").line(format!(
+        "~{} tokens used by this story",
+        format::tokens(used)
+    ));
+    Some(if limits.token_limit_enabled {
+        donut.line(format!(
+            "Limit: {} tokens",
+            format::tokens(i64::from(limits.token_limit))
+        ))
     } else {
-        BadgeVariant::Outline
+        donut.line("No limit is set. You can set one in Settings, under Limits.")
+    })
+}
+
+/// What the buttons under a picked message asked for.
+#[derive(Default)]
+struct MessageAction {
+    pick: Option<NodeId>,
+    branch: Option<NodeId>,
+    copy: Option<String>,
+}
+
+/// The buttons under the picked message: branch from it, and copy its text.
+fn message_actions(ui: &mut Ui, node: &ir_core::db::Node, action: &mut MessageAction) {
+    let layout = match node.kind {
+        NodeKind::User => egui::Layout::right_to_left(egui::Align::Center),
+        _ => egui::Layout::left_to_right(egui::Align::Center),
     };
-    let text = format!(
-        "~{} / {} tokens",
-        format::tokens(used),
-        format::tokens(i64::from(limits.token_limit))
-    );
-    Some((text, variant))
+    // A fixed height: a layout without one would take all the room below the message.
+    let size = egui::vec2(ui.available_width(), BUTTON_COLUMN);
+    ui.allocate_ui_with_layout(size, layout, |ui| {
+        let button = |icon| {
+            Button::new("")
+                .icon(icon)
+                .variant(ButtonVariant::Ghost)
+                .size(ButtonSize::Icon)
+        };
+        if ui
+            .add(button(IconKind::Branch))
+            .ir_tooltip("Branch from here")
+            .clicked()
+        {
+            action.branch = Some(node.id);
+        }
+        if ui
+            .add(button(IconKind::Copy))
+            .ir_tooltip("Copy the message")
+            .clicked()
+        {
+            action.copy = Some(node.content.clone());
+        }
+    });
 }
 
 /// Draw the story. Without a session, draw the welcome card.
@@ -82,24 +124,57 @@ pub fn body(app: &mut App, ui: &mut Ui) {
         welcome(app, ui);
         return;
     }
+    if app.story_info {
+        story_info::show(app, ui);
+        return;
+    }
     let Some(transcript) = app.transcript.as_ref() else {
         return;
     };
 
+    // The title, the badges, and the info button open the story info page.
+    let mut open_info = false;
     ui.horizontal(|ui| {
-        ui.add(Label::new(&transcript.session.name).heading());
+        let mut clickable = |ui: &mut Ui, response: egui::Response| {
+            let click = ui
+                .interact(
+                    response.rect,
+                    response.id.with("info"),
+                    egui::Sense::click(),
+                )
+                .on_hover_cursor(egui::CursorIcon::PointingHand);
+            open_info |= click.clicked();
+        };
+        let title = ui.add(Label::new(&transcript.session.name).heading());
+        clickable(ui, title);
         if let Some(world) = &transcript.session.world {
-            ui.add(Badge::new(world).variant(BadgeVariant::Secondary));
+            let badge = ui.add(Badge::new(world).variant(BadgeVariant::Secondary));
+            clickable(ui, badge);
         }
         for name in &transcript.characters {
-            ui.add(Badge::new(name).variant(BadgeVariant::Outline));
+            let badge = ui.add(Badge::new(name).variant(BadgeVariant::Outline));
+            clickable(ui, badge);
         }
-        if let Some((text, variant)) = usage_badge(&app.settings, transcript.session.tokens_used) {
-            ui.add(Badge::new(text).variant(variant))
-                .ir_tooltip("Estimated tokens used by this story");
+        if let Some(donut) = usage_donut(&app.settings, transcript.session.tokens_used) {
+            ui.add(donut);
         }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let info = Button::new("")
+                .icon(IconKind::Info)
+                .variant(ButtonVariant::Ghost)
+                .size(ButtonSize::Icon);
+            open_info |= ui.add(info).ir_tooltip("Story info").clicked();
+        });
     });
     ui.add(Separator::horizontal());
+    if open_info {
+        app.story_info = true;
+    }
+    let Some(transcript) = app.transcript.as_ref() else {
+        return;
+    };
+    let selected = app.chat.selected;
+    let mut action = MessageAction::default();
 
     let speaker = prompts::speaker(&app.settings, &transcript.characters);
     ScrollArea::vertical()
@@ -109,16 +184,22 @@ pub fn body(app: &mut App, ui: &mut Ui) {
             ui.spacing_mut().item_spacing.y = spacing::MD;
             ui.add_space(spacing::SM);
             for node in &transcript.nodes {
-                match node.kind {
-                    NodeKind::User => ui.add(ChatBubble::user(&node.content)),
-                    NodeKind::Character => ui.add(ChatBubble::character(
+                let picked = selected == Some(node.id);
+                let tag = format::tag(node.id);
+                let bubble = match node.kind {
+                    NodeKind::User => ChatBubble::user(&node.content),
+                    NodeKind::Character => ChatBubble::character(
                         node.speaker.as_deref().unwrap_or("Character"),
                         &node.content,
-                    )),
-                    NodeKind::Narrator | NodeKind::System => {
-                        ui.add(ChatBubble::narrator(&node.content))
-                    }
+                    ),
+                    NodeKind::Narrator | NodeKind::System => ChatBubble::narrator(&node.content),
                 };
+                if ui.add(bubble.tag(tag).selected(picked)).clicked() {
+                    action.pick = Some(node.id);
+                }
+                if picked {
+                    message_actions(ui, node, &mut action);
+                }
             }
             if app.chat.generating {
                 let text = &app.chat.streaming;
@@ -141,6 +222,17 @@ pub fn body(app: &mut App, ui: &mut Ui) {
             // Room for the message box that floats over the end of the story.
             ui.add_space(spacing::SM + FloatingBar::new(COMPOSER).height(ui.ctx()));
         });
+    if let Some(id) = action.pick {
+        app.chat.selected = (app.chat.selected != Some(id)).then_some(id);
+    }
+    if let Some(id) = action.branch {
+        app.chat.selected = None;
+        app.backend.send(Request::BranchFrom(id));
+    }
+    if let Some(text) = action.copy {
+        ui.ctx().copy_text(text);
+        app.toasts.push(Toast::new("Copied to the clipboard."));
+    }
     composer(app, ui);
 }
 
@@ -186,6 +278,7 @@ fn command_icon(name: &str) -> Option<IconKind> {
         "branches" => IconKind::List,
         "prune" | "forget" => IconKind::Trash,
         "memory" => IconKind::Database,
+        "compact" => IconKind::Compress,
         "summary" => IconKind::File,
         "char" => IconKind::User,
         "style" => IconKind::Pen,
@@ -341,24 +434,17 @@ mod tests {
     }
 
     #[test]
-    fn the_usage_badge_depends_on_the_limit() {
+    fn the_token_donut_depends_on_the_limit() {
         let mut settings = Settings::default();
-        assert_eq!(usage_badge(&settings, 0), None, "nothing to show yet");
-        let (text, variant) = usage_badge(&settings, 12_345).unwrap();
-        assert_eq!(
-            (text.as_str(), variant),
-            ("~12.3k tokens", BadgeVariant::Outline)
-        );
+        assert!(usage_donut(&settings, 0).is_none(), "nothing to show yet");
+        let donut = usage_donut(&settings, 12_345).unwrap();
+        assert_eq!(donut.percent(), None, "without a limit there is no ring");
 
         settings.limits.token_limit_enabled = true;
         settings.limits.token_limit = 20_000;
-        let (text, variant) = usage_badge(&settings, 12_345).unwrap();
-        assert_eq!(
-            (text.as_str(), variant),
-            ("~12.3k / 20k tokens", BadgeVariant::Outline)
-        );
-        let (_, variant) = usage_badge(&settings, 20_000).unwrap();
-        assert_eq!(variant, BadgeVariant::Destructive);
+        assert_eq!(usage_donut(&settings, 12_345).unwrap().percent(), Some(62));
+        assert_eq!(usage_donut(&settings, 0).unwrap().percent(), Some(0));
+        assert_eq!(usage_donut(&settings, 50_000).unwrap().percent(), Some(100));
     }
 
     #[test]
