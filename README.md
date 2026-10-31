@@ -10,26 +10,26 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/RoleplayHarness/InfiniteRoleplay/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/RoleplayHarness/InfiniteRoleplay/ci.yml?branch=main&amp;label=CI&amp;logo=github" alt="CI status"></a>
-  <a href="https://github.com/RoleplayHarness/InfiniteRoleplay/releases/latest"><img src="https://img.shields.io/github/v/release/RoleplayHarness/InfiniteRoleplay?label=release&amp;logo=github" alt="Latest release"></a>
-  <a href="https://github.com/RoleplayHarness/InfiniteRoleplay/releases"><img src="https://img.shields.io/github/downloads/RoleplayHarness/InfiniteRoleplay/total?label=downloads" alt="Downloads"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/RoleplayHarness/InfiniteRoleplay" alt="License: MIT"></a>
+  <a href="https://github.com/MasqueRole/MasqueRole/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/MasqueRole/MasqueRole/ci.yml?branch=main&amp;label=CI&amp;logo=github" alt="CI status"></a>
+  <a href="https://github.com/MasqueRole/MasqueRole/releases/latest"><img src="https://img.shields.io/github/v/release/MasqueRole/MasqueRole?label=release&amp;logo=github" alt="Latest release"></a>
+  <a href="https://github.com/MasqueRole/MasqueRole/releases"><img src="https://img.shields.io/github/downloads/MasqueRole/MasqueRole/total?label=downloads" alt="Downloads"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/MasqueRole/MasqueRole" alt="License: MIT"></a>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Rust-2021-dea584?logo=rust&amp;logoColor=white" alt="Rust 2021">
   <img src="https://img.shields.io/badge/GUI-egui-4c9aff" alt="Built with egui">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-blue" alt="Platforms: Windows and Linux">
-  <a href="https://github.com/RoleplayHarness/InfiniteRoleplay/commits/main"><img src="https://img.shields.io/github/last-commit/RoleplayHarness/InfiniteRoleplay" alt="Last commit"></a>
-  <a href="https://github.com/RoleplayHarness/InfiniteRoleplay/issues"><img src="https://img.shields.io/github/issues/RoleplayHarness/InfiniteRoleplay" alt="Open issues"></a>
-  <a href="https://github.com/RoleplayHarness/InfiniteRoleplay/pulls"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="PRs welcome"></a>
+  <a href="https://github.com/MasqueRole/MasqueRole/commits/main"><img src="https://img.shields.io/github/last-commit/MasqueRole/MasqueRole" alt="Last commit"></a>
+  <a href="https://github.com/MasqueRole/MasqueRole/issues"><img src="https://img.shields.io/github/issues/MasqueRole/MasqueRole" alt="Open issues"></a>
+  <a href="https://github.com/MasqueRole/MasqueRole/pulls"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="PRs welcome"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/RoleplayHarness/InfiniteRoleplay/releases/latest">Download</a> ·
+  <a href="https://github.com/MasqueRole/MasqueRole/releases/latest">Download</a> ·
   <a href="#quick-start">Quick Start</a> ·
   <a href="#features">Features</a> ·
-  <a href="https://github.com/RoleplayHarness/InfiniteRoleplay/issues">Report a bug</a>
+  <a href="https://github.com/MasqueRole/MasqueRole/issues">Report a bug</a>
 </p>
 
 <p align="center">
@@ -127,13 +127,13 @@ The code is split into a UI-independent **core library** and a thin **GUI app**.
 
 ### Download
 
-Installers for Windows (`.exe`) and Linux (`.deb`, `.AppImage`) are built by the release workflow and attached to each version on the [Releases](https://github.com/RoleplayHarness/InfiniteRoleplay/releases) page.
+Installers for Windows (`.exe`) and Linux (`.deb`, `.AppImage`) are built by the release workflow and attached to each version on the [Releases](https://github.com/MasqueRole/MasqueRole/releases) page.
 
 ### Build from source
 
 ```bash
-git clone https://github.com/RoleplayHarness/InfiniteRoleplay.git
-cd InfiniteRoleplay
+git clone https://github.com/MasqueRole/MasqueRole.git
+cd MasqueRole
 
 cargo run -p ir-app               # run in development mode
 cargo build --release -p ir-app   # optimized binary in target/release/
@@ -386,7 +386,7 @@ MasqueRole/
 
 Contributions are welcome!
 
-1. Fork [RoleplayHarness/InfiniteRoleplay](https://github.com/RoleplayHarness/InfiniteRoleplay)
+1. Fork [MasqueRole/MasqueRole](https://github.com/MasqueRole/MasqueRole)
 2. Create a feature branch (`git checkout -b feature/my-feature`)
 3. Commit your changes
 4. Open a pull request against `main`; maintainers review and merge it

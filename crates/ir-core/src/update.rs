@@ -7,7 +7,7 @@ use serde::Deserialize;
 
 /// The API address of the newest published release.
 pub const LATEST_RELEASE_URL: &str =
-    "https://api.github.com/repos/RoleplayHarness/InfiniteRoleplay/releases/latest";
+    "https://api.github.com/repos/MasqueRole/MasqueRole/releases/latest";
 
 /// The version this build was made from.
 pub const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");

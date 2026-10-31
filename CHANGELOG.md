@@ -11,7 +11,7 @@ This file lists only the current and the previous version.
 
 ### Changed
 
-- **Name:** the app is now called MasqueRole. Stories, settings, and saved API keys from the old name are found as before. The GitHub repository link stays until the repository itself is renamed.
+- **Name:** the app is now called MasqueRole. Stories, settings, and saved API keys from the old name are found as before.
 - **Story tree:** the preview bar at the bottom is gone. Click a dot and it grows into a card with the whole message, the date, and the *Jump here* and *Collapse branch* buttons. The card shrinks back into the dot when you close it with its cross or Escape.
 - **Lore entries and example dialogue:** the forms inside boxes are gone. Entries are single lines with edit and delete buttons, and editing one opens an overlay with the keyword beans and the text. *Add entry* and *Add example* open the same overlay.
 - **Close button:** the cross of the window's close button is red.

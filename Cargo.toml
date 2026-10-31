@@ -6,7 +6,7 @@ members = ["crates/ir-core", "crates/ir-ui", "crates/ir-app"]
 version = "0.8.1"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/RoleplayHarness/InfiniteRoleplay"
+repository = "https://github.com/MasqueRole/MasqueRole"
 
 [profile.release]
 lto = "fat"
