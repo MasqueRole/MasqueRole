@@ -597,6 +597,7 @@ impl Gallery {
             ChatBubble::character("Mira", "Keep up, then. The tide waits for no one")
                 .streaming(true),
         );
+        ui.add(ChatBubble::character("Mira", "").streaming(true));
 
         Self::section(ui, "TreeNode");
         ui.horizontal(|ui| {
