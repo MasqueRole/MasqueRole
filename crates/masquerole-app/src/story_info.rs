@@ -104,30 +104,66 @@ fn world_section(ui: &mut Ui, name: &str, world: Option<&Lorebook>) {
     }
 }
 
-/// One character as a list item: picture, name, and a button to take it out of the story.
-/// Returns whether remove was clicked.
-fn character_item(ui: &mut Ui, name: &str, texture: Option<&TextureHandle>) -> bool {
-    let mut remove = false;
+/// What a click on a character's row asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ItemAction {
+    /// Take the character out of the story.
+    Remove,
+    /// Bring the character into the scene.
+    Enter,
+    /// Send the character out of the scene.
+    Leave,
+}
+
+/// One character as a list item: picture, name, a button to take it out of the story, and in
+/// a story with several characters a button to send them out of the scene or bring them back.
+/// `present` is `None` when the story has only one character.
+fn character_item(
+    ui: &mut Ui,
+    name: &str,
+    texture: Option<&TextureHandle>,
+    present: Option<bool>,
+) -> Option<ItemAction> {
+    let mut action = None;
     ui.horizontal(|ui| {
         ui.add(
             Picture::new(texture, IconKind::User)
                 .size(AVATAR_SIZE)
                 .circle(),
         );
-        let room = (ui.available_width() - 32.0 - spacing::SM).max(0.0);
+        let room = (ui.available_width() - 160.0 - spacing::SM).max(0.0);
         ui.add(Label::new(name).max_width(room));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let button = Button::new("")
                 .icon(IconKind::Trash)
                 .variant(ButtonVariant::Ghost)
                 .size(ButtonSize::Icon);
-            remove = ui
+            if ui
                 .add(button)
                 .on_hover_text("Remove from the story")
-                .clicked();
+                .clicked()
+            {
+                action = Some(ItemAction::Remove);
+            }
+            if let Some(here) = present {
+                let (label, tip, next) = if here {
+                    ("Leave", "Send out of the scene", ItemAction::Leave)
+                } else {
+                    ("Enter", "Bring into the scene", ItemAction::Enter)
+                };
+                let button = Button::new(label)
+                    .variant(ButtonVariant::Outline)
+                    .size(ButtonSize::Sm);
+                if ui.add(button).on_hover_text(tip).clicked() {
+                    action = Some(next);
+                }
+                if !here {
+                    ui.add(Label::new("Away").small().muted());
+                }
+            }
         });
     });
-    remove
+    action
 }
 
 /// Draw the page. The back button returns to the chat.
@@ -160,7 +196,15 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         })
         .collect();
 
-    let mut remove = None;
+    let group = transcript.characters.len() > 1;
+    let spare: Vec<String> = app
+        .characters
+        .iter()
+        .map(|e| e.item.name.clone())
+        .filter(|name| !transcript.characters.contains(name))
+        .collect();
+    let mut chosen: Option<(String, ItemAction)> = None;
+    let mut add = None;
     ScrollArea::vertical().id_salt("story-info").show(ui, |ui| {
         let banner = world.as_ref().and_then(|(_, _, banner)| banner.as_ref());
         if let Some(texture) = banner {
@@ -207,12 +251,34 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             ui.add(Label::new("Nobody is in the scene yet.").small().muted());
         }
         for (name, texture) in &characters {
-            if character_item(ui, name, texture.as_ref()) {
-                remove = Some(name.clone());
+            let present = group.then(|| transcript.present.contains(name));
+            if let Some(action) = character_item(ui, name, texture.as_ref(), present) {
+                chosen = Some((name.clone(), action));
             }
         }
+        if !spare.is_empty() {
+            ui.add(Label::new("Add a character").small().muted());
+            ui.horizontal_wrapped(|ui| {
+                for name in &spare {
+                    let button = Button::new(name)
+                        .icon(IconKind::Plus)
+                        .variant(ButtonVariant::Outline)
+                        .size(ButtonSize::Sm);
+                    if ui.add(button).clicked() {
+                        add = Some(name.clone());
+                    }
+                }
+            });
+        }
     });
-    if let Some(name) = remove {
-        app.backend.send(Request::RemoveCharacter(name));
+    if let Some((name, action)) = chosen {
+        app.backend.send(match action {
+            ItemAction::Remove => Request::RemoveCharacter(name),
+            ItemAction::Enter => Request::Send(format!("/enter {name}")),
+            ItemAction::Leave => Request::Send(format!("/leave {name}")),
+        });
+    }
+    if let Some(name) = add {
+        app.backend.send(Request::Send(format!("/char {name}")));
     }
 }

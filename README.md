@@ -52,6 +52,7 @@ MasqueRole sits between you and the language model provider you choose (xAI, Ope
 - [Character Cards](#character-cards)
 - [Worlds & Scenarios](#worlds--scenarios)
 - [Memory System](#memory-system)
+- [Several Characters](#several-characters)
 - [Story Tree](#story-tree)
 - [Commands](#commands)
 - [Project Structure](#project-structure)
@@ -72,7 +73,7 @@ MasqueRole sits between you and the language model provider you choose (xAI, Ope
 - **Layered memory:** Short-term, summary, and fact memory.
 - **Local-first:** Sessions are stored in a local SQLite database. Your API key lives in the operating system's secure storage.
 - **Streaming:** Responses appear token by token.
-- **Multiple characters:** Group scenes with several characters and a narrator mode.
+- **Multiple characters:** Several characters in one story. Each answers in their own voice, the app knows who you are talking to, and every character only knows what they witnessed. A narrator mode is still there.
 - **Uniform design system:** Every screen is built from a shared component library (`masquerole-ui`), a shadcn-style set of themed components for egui, with light and dark themes.
 - **Customizable prompts:** System prompt templates and style profiles (e.g. fantasy, noir, slice of life).
 
@@ -181,6 +182,7 @@ fact_extraction = true
 [style]
 profile = "default"
 narrator_mode = false
+max_responders = 2        # most characters that answer one message in a group scene
 
 [tree]
 auto_checkpoint = true
@@ -203,6 +205,7 @@ logging = false           # write masquerole.log next to settings.toml (after a 
 | `context.recent_messages`  | Number of messages kept verbatim                               |
 | `context.summarize_after`  | Older messages are condensed beyond this point                 |
 | `memory.fact_extraction`   | Automatically remember important facts                         |
+| `style.max_responders`     | Most characters that answer one message in a scene with several. Each answer is another request |
 | `tree.auto_checkpoint`     | Create a story-tree node after every turn                      |
 | `tree.node_label`          | `auto` = short AI-generated label, `manual` = ask every time   |
 | `debug.logging`            | Write a debug log for bug reports. API keys are removed from it |
@@ -224,6 +227,7 @@ personality:
   - sarcastic
   - fiercely loyal to friends
 speaking_style: "Dry, short sentences, the occasional cartography term."
+aliases: ["Cartographer"]   # optional; other names that call her in a group scene
 background: |
   Mira grew up in the harbor towns of the north and has
   been mapping uncharted coastlines for ten years.
@@ -248,6 +252,7 @@ entries:
     content: "The Karrow lighthouse has been guarded by an order for centuries."
   - keys: ["fogglass"]
     content: "Fogglass is a rare mineral that briefly clears fog."
+    known_by: ["Mira Valen"]   # optional; only these characters are told, empty means everyone
 image: "4d5e6f.png"   # optional, like for characters
 ```
 
@@ -260,6 +265,30 @@ MasqueRole uses three layers:
 3. **Fact store:** persistent facts (names, relationships, places, items) that are re-injected when relevant.
 
 This way, even after hundreds of messages, the story remembers who promised what to whom.
+
+With several characters in a story, the layers are kept per character: see [Several Characters](#several-characters).
+
+## Several Characters
+
+Add more characters to a story with `/char <name>` or the *Add a character* buttons on the story's info page. From then on every character answers on their own, and the app works out who you are talking to. Above the message box, a chip for each character present lights up for those who will answer the message as you type it, with the reason.
+
+**Who answers, in this order:**
+
+1. **A direct address:** `@Mira`, a name at the start of your message (`Mira, look at this`), a name it ends on (`What do you think, Orrin?`), or words like *everyone* and *you both*. Names, parts of names and the nicknames on the card all work, unless two characters share one.
+2. **A name in the message**, when nobody had the floor.
+3. **The floor:** the conversation stays with whoever last spoke to you (or the group you addressed), until you call someone else.
+4. **The only one present.**
+5. Otherwise, the narrator answers and describes the scene.
+
+At most `style.max_responders` characters answer one message, one after another; each hears the answers before theirs. `/to <name>` and `/all` change who you are talking to without a message, `/enter` and `/leave` (or the buttons on the info page) bring characters in and out of the scene, and `/scene` shows who is present.
+
+**What each character knows:**
+
+- A character's prompt holds only the messages they were present for. Someone who left, or who was not there to begin with, never sees what was said meanwhile.
+- `/whisper <name>: <text>` is heard by that character alone, and so is their answer.
+- A character gets their own card in full, and only the name and description of the others.
+- Facts are remembered with the characters who know them, and the story keeps a summary per character from what they saw. Lore entries can list who knows them with `known_by`.
+- The narrator sees everything.
 
 ## Story Tree
 
@@ -378,7 +407,7 @@ MasqueRole/
 
 ## Roadmap
 
-- [ ] Multiple characters in one scene
+- [x] Multiple characters in one scene
 - [ ] Merge facts between branches
 - [ ] Vector-based memory search
 - [ ] Import of character cards from common formats
