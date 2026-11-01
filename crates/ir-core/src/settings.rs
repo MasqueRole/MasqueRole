@@ -27,9 +27,22 @@ const KEYRING_SERVICE: &str = "MasqueRole";
 /// still found, so renaming the app loses nobody's stories or API keys.
 const LEGACY_APP_NAME: &str = "InfiniteRoleplay";
 
-/// Whether to keep using the folder of the old app name: it exists and the new one does not.
-fn prefer_legacy(current: &Path, legacy: &Path) -> bool {
-    !current.exists() && legacy.exists()
+/// The company name the data folder used to be filed under, before the project moved to its
+/// own organization.
+const LEGACY_ORGANIZATION: &str = "RoleplayHarness";
+
+/// The data folder to use: `current` once it exists, else the first of the folders the app
+/// used under its earlier names that exists, else `current` (a fresh start). Nobody loses
+/// their stories or settings when the app or its organization is renamed.
+fn pick_data_dir(current: PathBuf, earlier: &[PathBuf]) -> PathBuf {
+    if current.exists() {
+        return current;
+    }
+    earlier
+        .iter()
+        .find(|dir| dir.exists())
+        .cloned()
+        .unwrap_or(current)
 }
 
 /// Errors from loading, saving, or reading secrets.
@@ -267,14 +280,19 @@ impl Settings {
         if let Some(dir) = over.filter(|d| !d.is_empty()) {
             return Ok(PathBuf::from(dir));
         }
-        let dir_of = |name: &str| {
-            ProjectDirs::from("", "RoleplayHarness", name).map(|dirs| dirs.data_dir().to_path_buf())
+        let dir_of = |organization: &str, name: &str| {
+            ProjectDirs::from("", organization, name).map(|dirs| dirs.data_dir().to_path_buf())
         };
-        let current = dir_of(crate::APP_NAME).ok_or(SettingsError::NoDataDir)?;
-        Ok(match dir_of(LEGACY_APP_NAME) {
-            Some(legacy) if prefer_legacy(&current, &legacy) => legacy,
-            _ => current,
-        })
+        let current = dir_of(crate::APP_NAME, crate::APP_NAME).ok_or(SettingsError::NoDataDir)?;
+        // Newest first: the new name under the old organization, then the old name.
+        let earlier: Vec<PathBuf> = [
+            dir_of(LEGACY_ORGANIZATION, crate::APP_NAME),
+            dir_of(LEGACY_ORGANIZATION, LEGACY_APP_NAME),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        Ok(pick_data_dir(current, &earlier))
     }
 
     /// Where `settings.toml` lives on this platform.
@@ -620,22 +638,35 @@ mod tests {
     }
 
     #[test]
-    fn the_folder_of_the_old_name_is_kept_until_the_new_one_exists() {
+    fn the_newest_existing_data_folder_is_used() {
         let base = std::env::temp_dir().join(format!("ir-legacy-{}", std::process::id()));
-        let (current, legacy) = (base.join("MasqueRole"), base.join("InfiniteRoleplay"));
+        let current = base.join("MasqueRole").join("MasqueRole");
+        let earlier = [
+            base.join("RoleplayHarness").join("MasqueRole"),
+            base.join("RoleplayHarness").join("InfiniteRoleplay"),
+        ];
         std::fs::create_dir_all(&base).unwrap();
-        assert!(
-            !prefer_legacy(&current, &legacy),
-            "neither exists: start fresh"
+        assert_eq!(
+            pick_data_dir(current.clone(), &earlier),
+            current,
+            "none exists: start fresh in the new place"
         );
-        std::fs::create_dir_all(&legacy).unwrap();
-        assert!(
-            prefer_legacy(&current, &legacy),
-            "only the old one exists: keep using it"
+        std::fs::create_dir_all(&earlier[1]).unwrap();
+        assert_eq!(
+            pick_data_dir(current.clone(), &earlier),
+            earlier[1],
+            "only the oldest exists: keep using it"
+        );
+        std::fs::create_dir_all(&earlier[0]).unwrap();
+        assert_eq!(
+            pick_data_dir(current.clone(), &earlier),
+            earlier[0],
+            "a newer earlier folder wins over an older one"
         );
         std::fs::create_dir_all(&current).unwrap();
-        assert!(
-            !prefer_legacy(&current, &legacy),
+        assert_eq!(
+            pick_data_dir(current.clone(), &earlier),
+            current,
             "the new one wins once it exists"
         );
         std::fs::remove_dir_all(&base).unwrap();
