@@ -14,9 +14,18 @@ pub struct LoreEntry {
     pub keys: Vec<String>,
     /// The text added to the prompt when triggered.
     pub content: String,
+    /// The characters who know this entry. Empty means everyone; in a scene with several
+    /// characters an entry for some of them stays out of the others' prompts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub known_by: Vec<String>,
 }
 
 impl LoreEntry {
+    /// Whether the character `who` may be told this entry.
+    pub fn is_known_by(&self, who: &str) -> bool {
+        self.known_by.is_empty() || self.known_by.iter().any(|name| name == who)
+    }
+
     /// A stable identifier for the entry: its first key. Stored in a story-tree node's
     /// `active_lore` so a restored node knows which entries were active.
     pub fn id(&self) -> &str {

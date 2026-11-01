@@ -12,6 +12,7 @@
 use crate::client::{ChatMessage, GenerationParams, LlmError, LlmProvider};
 use crate::context::{node_message, transcript_label};
 use crate::db::{Node, NodeId, Summary};
+use crate::scene::Scenes;
 use crate::settings::Settings;
 
 /// Most messages folded into one summary call, so a long imported story is summarized in
@@ -45,6 +46,21 @@ promises, decisions, and traits that were revealed. Write one fact per line, sta
 \"- \", each a short standalone sentence that names who or what it is about. Do not repeat \
 known facts. If there is nothing new, reply with NONE.";
 
+const GROUP_FACT_INSTRUCTIONS: &str = "\n\nSeveral characters are in this scene, and each \
+only knows what they witnessed. When a new fact is not known to everyone present, end its \
+line with [known by: Name, Name] naming exactly the characters who know it. A fact that \
+everyone present knows needs no tag. Lines marked (heard only by Name) were heard by nobody \
+else.";
+
+/// A fact the model found, with the characters who know it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NewFact {
+    /// The fact.
+    pub text: String,
+    /// The characters who know it; `None` means everyone.
+    pub known_by: Option<Vec<String>>,
+}
+
 /// A request to extend the summary.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SummaryJob {
@@ -52,6 +68,8 @@ pub struct SummaryJob {
     pub through_node: NodeId,
     /// How many messages this job folds in.
     pub message_count: usize,
+    /// The character whose point of view the summary takes; `None` for the shared one.
+    pub character: Option<String>,
     prompt: Vec<ChatMessage>,
 }
 
@@ -95,6 +113,18 @@ pub fn plan_summary(
     summary: Option<&Summary>,
     settings: &Settings,
 ) -> Option<SummaryJob> {
+    plan_summary_as(path, summary, settings, None)
+}
+
+/// Like [`plan_summary`], for the summary one character keeps. `path` must hold only the
+/// messages that character witnessed, and `summary` is their own (see
+/// [`crate::db::Db::summary_for`]). With `None` it is the shared summary.
+pub fn plan_summary_as(
+    path: &[Node],
+    summary: Option<&Summary>,
+    settings: &Settings,
+    character: Option<&str>,
+) -> Option<SummaryJob> {
     if !settings.memory.enabled {
         return None;
     }
@@ -120,11 +150,24 @@ pub fn plan_summary(
     Some(SummaryJob {
         through_node: chunk[chunk.len() - 1].id,
         message_count: chunk.len(),
+        character: character.map(Into::into),
         prompt: vec![
-            ChatMessage::system(SUMMARY_INSTRUCTIONS),
+            ChatMessage::system(summary_instructions(character)),
             ChatMessage::user(user),
         ],
     })
+}
+
+/// The instructions for a summary, from one character's point of view when `character` is
+/// given.
+fn summary_instructions(character: Option<&str>) -> String {
+    match character {
+        None => SUMMARY_INSTRUCTIONS.to_string(),
+        Some(name) => format!(
+            "{SUMMARY_INSTRUCTIONS} Write it from the point of view of {name}: keep only what \
+{name} saw, heard, or could know, and never add what happened where {name} was not."
+        ),
+    }
 }
 
 /// How many of the newest messages `/compact` leaves as they are: the last player message
@@ -135,6 +178,15 @@ pub const COMPACT_KEEP: usize = 2;
 /// summary, whatever the thresholds in the settings say. Returns `None` when there is
 /// nothing left to fold in.
 pub fn plan_compact(path: &[Node], summary: Option<&Summary>) -> Option<SummaryJob> {
+    plan_compact_as(path, summary, None)
+}
+
+/// Like [`plan_compact`], for the summary one character keeps (see [`plan_summary_as`]).
+pub fn plan_compact_as(
+    path: &[Node],
+    summary: Option<&Summary>,
+    character: Option<&str>,
+) -> Option<SummaryJob> {
     let start = summarized_count(path, summary);
     let end = path.len().saturating_sub(COMPACT_KEEP);
     if end <= start {
@@ -153,8 +205,9 @@ New events:
     Some(SummaryJob {
         through_node: chunk[chunk.len() - 1].id,
         message_count: chunk.len(),
+        character: character.map(Into::into),
         prompt: vec![
-            ChatMessage::system(SUMMARY_INSTRUCTIONS),
+            ChatMessage::system(summary_instructions(character)),
             ChatMessage::user(user),
         ],
     })
@@ -183,6 +236,26 @@ pub fn plan_fact_extraction(
     known_facts: &[String],
     settings: &Settings,
 ) -> Option<FactJob> {
+    plan_scene_fact_extraction(new_nodes, known_facts, settings, None)
+}
+
+/// The characters of a scene with several, and what is known about who saw what.
+#[derive(Clone, Copy, Debug)]
+pub struct SceneCast<'a> {
+    /// The names of the characters present.
+    pub names: &'a [String],
+    /// The scene records of the nodes involved.
+    pub scenes: &'a Scenes,
+}
+
+/// Like [`plan_fact_extraction`]. In a scene with several characters the model also says
+/// which of them know each fact.
+pub fn plan_scene_fact_extraction(
+    new_nodes: &[Node],
+    known_facts: &[String],
+    settings: &Settings,
+    scene: Option<SceneCast<'_>>,
+) -> Option<FactJob> {
     if !settings.memory.enabled || !settings.memory.fact_extraction {
         return None;
     }
@@ -196,16 +269,17 @@ pub fn plan_fact_extraction(
             .collect::<Vec<_>>()
             .join("\n")
     };
-    let user = format!(
-        "Known facts:\n{known}\n\nNew messages:\n{}",
-        transcript(new_nodes)
-    );
+    let (instructions, lines) = match scene {
+        Some(cast) => (
+            format!("{FACT_INSTRUCTIONS}{GROUP_FACT_INSTRUCTIONS}"),
+            scene_transcript(new_nodes, cast),
+        ),
+        None => (FACT_INSTRUCTIONS.to_string(), transcript(new_nodes)),
+    };
+    let user = format!("Known facts:\n{known}\n\nNew messages:\n{lines}");
     Some(FactJob {
         node_id: last.id,
-        prompt: vec![
-            ChatMessage::system(FACT_INSTRUCTIONS),
-            ChatMessage::user(user),
-        ],
+        prompt: vec![ChatMessage::system(instructions), ChatMessage::user(user)],
     })
 }
 
@@ -219,14 +293,78 @@ pub async fn extract_facts(
     Ok(parse_facts(&output, known_facts))
 }
 
+/// Like [`extract_facts`], for a scene with several characters: each fact comes with the
+/// characters who know it, taken from a `[known by: ...]` tag at the end of its line.
+pub async fn extract_scene_facts(
+    provider: &dyn LlmProvider,
+    job: &FactJob,
+    known_facts: &[String],
+    names: &[String],
+) -> Result<Vec<NewFact>, LlmError> {
+    let output = provider.complete(job.prompt.clone(), FACT_PARAMS).await?;
+    Ok(parse_scene_facts(&output, known_facts, names))
+}
+
+/// Read a model's fact list for a scene with several characters. A line ending in
+/// `[known by: A, B]` is known by those characters only; names that match no character in
+/// `names` are dropped, and a tag that names nobody leaves the fact known to no character.
+pub fn parse_scene_facts(output: &str, known: &[String], names: &[String]) -> Vec<NewFact> {
+    parse_fact_lines(output, known, Some(names))
+}
+
+/// Split a trailing `[known by: ...]` tag off a line.
+fn split_known_by(line: &str) -> (&str, Option<String>) {
+    let lower = line.to_lowercase();
+    if let Some(at) = lower.rfind("[known by:") {
+        if let Some(end) = lower[at..].find(']') {
+            let listed = line[at + "[known by:".len()..at + end].trim().to_string();
+            return (line[..at].trim_end(), Some(listed));
+        }
+    }
+    (line, None)
+}
+
+/// The names in `names` that a comma-separated list stands for, in the order of `names`.
+fn match_names(listed: &str, names: &[String]) -> Vec<String> {
+    let wanted: Vec<String> = listed
+        .split(',')
+        .map(|n| n.trim().to_lowercase())
+        .filter(|n| !n.is_empty())
+        .collect();
+    names
+        .iter()
+        .filter(|name| {
+            let full = name.to_lowercase();
+            wanted
+                .iter()
+                .any(|w| *w == full || full.split_whitespace().any(|part| part == w.as_str()))
+        })
+        .cloned()
+        .collect()
+}
+
 /// Read a model's fact list: one fact per line, optionally bulleted or numbered, or `NONE`.
 /// Drops blanks, repeats of `known` and of earlier lines (ignoring case and punctuation),
 /// truncates long facts, and keeps at most [`MAX_FACTS_PER_CALL`].
 pub fn parse_facts(output: &str, known: &[String]) -> Vec<String> {
+    parse_fact_lines(output, known, None)
+        .into_iter()
+        .map(|f| f.text)
+        .collect()
+}
+
+/// The shared reader behind [`parse_facts`] and [`parse_scene_facts`]. With `names`, a
+/// trailing `[known by: ...]` tag is read and matched against them.
+fn parse_fact_lines(output: &str, known: &[String], names: Option<&[String]>) -> Vec<NewFact> {
     let mut seen: Vec<String> = known.iter().map(|f| normalize(f)).collect();
     let mut facts = Vec::new();
     for line in output.lines() {
-        let fact = strip_list_marker(line.trim()).trim();
+        let line = strip_list_marker(line.trim()).trim();
+        let (text, tag) = match names {
+            Some(_) => split_known_by(line),
+            None => (line, None),
+        };
+        let fact = text.trim();
         if fact.is_empty() || normalize(fact) == "none" {
             continue;
         }
@@ -236,7 +374,14 @@ pub fn parse_facts(output: &str, known: &[String]) -> Vec<String> {
             continue;
         }
         seen.push(key);
-        facts.push(fact);
+        let known_by = match (names, tag) {
+            (Some(names), Some(listed)) => Some(match_names(&listed, names)),
+            _ => None,
+        };
+        facts.push(NewFact {
+            text: fact,
+            known_by,
+        });
         if facts.len() == MAX_FACTS_PER_CALL {
             break;
         }
@@ -272,6 +417,27 @@ fn normalize(text: &str) -> String {
 }
 
 /// Render nodes as `Label: text` lines for a prompt.
+/// A transcript for a scene with several characters. Lines that only some of the characters
+/// present witnessed are marked, so the model can tell who knows what.
+fn scene_transcript(nodes: &[Node], cast: SceneCast<'_>) -> String {
+    nodes
+        .iter()
+        .map(|node| {
+            let line = transcript(std::slice::from_ref(node));
+            match cast
+                .scenes
+                .get(&node.id)
+                .and_then(|s| s.witnesses.as_ref())
+                .filter(|w| w.len() < cast.names.len())
+            {
+                Some(w) => format!("{line} (heard only by {})", w.join(", ")),
+                None => line,
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn transcript(nodes: &[Node]) -> String {
     nodes
         .iter()
@@ -362,6 +528,7 @@ mod tests {
             node_id: NodeId(node),
             text: text.into(),
             created_at: 0,
+            character: None,
         }
     }
 
@@ -667,5 +834,85 @@ mod tests {
         }
         assert_eq!(db.facts_at(tip).unwrap().len(), 1);
         assert!(db.facts_at(ids[10]).unwrap().is_empty());
+    }
+
+    fn names(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn scene_facts_carry_who_knows_them() {
+        let cast = names(&["Mira Valen", "Orrin Hale"]);
+        let output = "- The key opens the vault. [known by: Mira]\n- It rains.\n\
+                      - Orrin owes a debt [Known by: Orrin Hale, Nobody]\n\
+                      - A secret plan [known by: Nobody]\n- It rains.\nNONE";
+        let facts = parse_scene_facts(output, &[], &cast);
+        let got: Vec<(&str, Option<Vec<String>>)> = facts
+            .iter()
+            .map(|f| (f.text.as_str(), f.known_by.clone()))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                ("The key opens the vault.", Some(names(&["Mira Valen"]))),
+                ("It rains.", None),
+                ("Orrin owes a debt", Some(names(&["Orrin Hale"]))),
+                ("A secret plan", Some(Vec::new())),
+            ]
+        );
+        // Without a scene, tags are just text and nothing is tagged.
+        assert_eq!(
+            parse_facts("- a [known by: Mira]", &[]),
+            vec!["a [known by: Mira]"]
+        );
+    }
+
+    #[test]
+    fn a_group_extraction_asks_for_tags_and_marks_private_lines() {
+        let cast = names(&["Mira Valen", "Orrin Hale"]);
+        let nodes = [
+            node(1, NodeKind::User, None, "Psst."),
+            node(2, NodeKind::Character, Some("Orrin Hale"), "Yes?"),
+        ];
+        let scenes = Scenes::from([(
+            NodeId(1),
+            crate::db::NodeScene {
+                witnesses: Some(names(&["Orrin Hale"])),
+                ..Default::default()
+            },
+        )]);
+        let job = plan_scene_fact_extraction(
+            &nodes,
+            &[],
+            &Settings::default(),
+            Some(SceneCast {
+                names: &cast,
+                scenes: &scenes,
+            }),
+        )
+        .unwrap();
+        assert!(job.prompt[0].content.contains("[known by:"));
+        assert!(job.prompt[1]
+            .content
+            .contains("Player: Psst. (heard only by Orrin Hale)"));
+        assert!(
+            job.prompt[1].content.contains("Orrin Hale: Yes?\n")
+                || job.prompt[1].content.ends_with("Orrin Hale: Yes?")
+        );
+
+        let plain = plan_fact_extraction(&nodes, &[], &Settings::default()).unwrap();
+        assert!(!plain.prompt[0].content.contains("[known by:"));
+    }
+
+    #[test]
+    fn a_characters_summary_takes_their_point_of_view() {
+        let shared = plan_summary(&path(31), None, &settings(30, 20)).unwrap();
+        assert_eq!(shared.character, None);
+        assert!(!shared.prompt[0].content.contains("point of view"));
+        let mine = plan_summary_as(&path(31), None, &settings(30, 20), Some("Mira")).unwrap();
+        assert_eq!(mine.character.as_deref(), Some("Mira"));
+        assert!(mine.prompt[0].content.contains("point of view of Mira"));
+        let compact = plan_compact_as(&path(10), None, Some("Mira")).unwrap();
+        assert_eq!(compact.character.as_deref(), Some("Mira"));
     }
 }

@@ -7,8 +7,13 @@
 //! Commands that need the model do not call it. `/retry` rewinds the story and returns
 //! [`CommandOutput::Regenerate`], and the front end generates the new response.
 
+use std::collections::HashMap;
+
 use crate::character::Character;
-use crate::db::{Db, DbError, Fact, FactId, NodeId, NodeKind, Session, SessionId, Summary};
+use crate::db::{
+    Db, DbError, Fact, FactId, Node, NodeId, NodeKind, NodeScene, Session, SessionId, Summary,
+};
+use crate::scene::{self, Scenes};
 use crate::settings::Settings;
 use crate::tree::{Branch, BranchPoint, Pruned, Snapshot, StoryTree, TreeError};
 
@@ -110,6 +115,36 @@ pub const COMMANDS: &[CommandInfo] = &[
         usage: "/narrator on|off",
         description: "Toggle narrator mode",
     },
+    CommandInfo {
+        name: "to",
+        usage: "/to <name>",
+        description: "Talk to one character",
+    },
+    CommandInfo {
+        name: "all",
+        usage: "/all",
+        description: "Talk to everyone present",
+    },
+    CommandInfo {
+        name: "enter",
+        usage: "/enter <name>",
+        description: "Bring a character into the scene",
+    },
+    CommandInfo {
+        name: "leave",
+        usage: "/leave <name>",
+        description: "Send a character out of the scene",
+    },
+    CommandInfo {
+        name: "scene",
+        usage: "/scene",
+        description: "Show who is present and listening",
+    },
+    CommandInfo {
+        name: "whisper",
+        usage: "/whisper <name>: <text>",
+        description: "Say something only one character hears",
+    },
 ];
 
 /// A parsed slash command.
@@ -178,6 +213,32 @@ pub enum Command {
     Narrator {
         /// Whether narrator mode is on.
         on: bool,
+    },
+    /// `/to <name>`
+    To {
+        /// The character to talk to.
+        name: String,
+    },
+    /// `/all`
+    All,
+    /// `/enter <name>`
+    Enter {
+        /// The character who comes into the scene.
+        name: String,
+    },
+    /// `/leave <name>`
+    Leave {
+        /// The character who goes out of the scene.
+        name: String,
+    },
+    /// `/scene`
+    Scene,
+    /// `/whisper <name>: <text>`
+    Whisper {
+        /// The only character who hears it.
+        name: String,
+        /// What is said.
+        text: String,
     },
 }
 
@@ -291,6 +352,28 @@ pub fn parse(input: &str) -> Result<Option<Command>, ParseError> {
                 _ => return Err(invalid("expected on or off")),
             },
         },
+        "to" => Command::To {
+            name: required()?.into(),
+        },
+        "all" => none().map(|()| Command::All)?,
+        "enter" => Command::Enter {
+            name: required()?.into(),
+        },
+        "leave" => Command::Leave {
+            name: required()?.into(),
+        },
+        "scene" => none().map(|()| Command::Scene)?,
+        "whisper" => {
+            let (name, text) = required()?
+                .split_once(':')
+                .map(|(n, t)| (n.trim(), t.trim()))
+                .filter(|(n, t)| !n.is_empty() && !t.is_empty())
+                .ok_or_else(|| invalid("write the name, a colon, then what you whisper"))?;
+            Command::Whisper {
+                name: name.into(),
+                text: text.into(),
+            }
+        }
         other => unreachable!("command table and parser disagree about /{other}"),
     };
     Ok(Some(command))
@@ -357,6 +440,32 @@ pub enum CommandOutput {
     Style(String),
     /// `/narrator`: whether narrator mode is on.
     Narrator(bool),
+    /// `/to` and `/all`: who the player is talking to now.
+    Addressed(Vec<String>),
+    /// `/enter` and `/leave`: someone came or went.
+    Presence {
+        /// The character.
+        name: String,
+        /// True for `/enter`, false for `/leave`.
+        entered: bool,
+        /// False when nothing changed because they already were (or were not) present.
+        changed: bool,
+    },
+    /// `/scene`: who is where and who is listening.
+    Scene {
+        /// The characters present.
+        present: Vec<String>,
+        /// The characters of the story who are away.
+        away: Vec<String>,
+        /// The characters the conversation is with.
+        floor: Vec<String>,
+    },
+    /// `/whisper`: the message is stored, and only `target` hears it. The front end
+    /// generates their answer, like [`CommandOutput::Regenerate`].
+    Whisper {
+        /// The character who answers.
+        target: String,
+    },
 }
 
 /// Why a command failed.
@@ -557,7 +666,203 @@ pub fn execute(
             ctx.settings.style.narrator_mode = *on;
             CommandOutput::Narrator(*on)
         }
+        Command::To { name } => {
+            let view = SceneView::load(ctx)?;
+            let target = view.present_character(name)?;
+            view.note(
+                ctx,
+                &format!("You turn to {target}."),
+                Some(&view.present),
+                std::slice::from_ref(&target),
+                None,
+            )?;
+            CommandOutput::Addressed(vec![target])
+        }
+        Command::All => {
+            let view = SceneView::load(ctx)?;
+            view.note(
+                ctx,
+                "You address everyone.",
+                Some(&view.present),
+                &view.present,
+                None,
+            )?;
+            CommandOutput::Addressed(view.present.clone())
+        }
+        Command::Enter { name } => {
+            let mut view = SceneView::load(ctx)?;
+            let known = view.find(name);
+            let mut joined = false;
+            let character = match known {
+                Some(c) => c.clone(),
+                None => {
+                    joined = true;
+                    let card = scene::lookup(ctx.characters, name).ok_or_else(|| {
+                        CommandError::UnknownCharacter {
+                            name: name.clone(),
+                            available: ctx.characters.iter().map(|c| c.name.clone()).collect(),
+                        }
+                    })?;
+                    ctx.db.add_character(
+                        ctx.session,
+                        &card.name,
+                        &serde_yaml_ng::to_string(card)?,
+                    )?;
+                    view = SceneView::load(ctx)?;
+                    card.clone()
+                }
+            };
+            let changed = joined || !view.present.contains(&character.name);
+            if changed {
+                let now: Vec<String> = view
+                    .names
+                    .iter()
+                    .filter(|n| **n == character.name || view.present.contains(n))
+                    .cloned()
+                    .collect();
+                let text = format!("{} enters the scene.", character.name);
+                view.note(ctx, &text, Some(&now), &[], Some(&now))?;
+            }
+            CommandOutput::Presence {
+                name: character.name,
+                entered: true,
+                changed,
+            }
+        }
+        Command::Leave { name } => {
+            let view = SceneView::load(ctx)?;
+            let character = view
+                .find(name)
+                .ok_or_else(|| view.unknown(name, &view.names))?
+                .name
+                .clone();
+            let changed = view.present.contains(&character);
+            if changed {
+                let now: Vec<String> = view
+                    .present
+                    .iter()
+                    .filter(|n| **n != character)
+                    .cloned()
+                    .collect();
+                let text = format!("{character} leaves the scene.");
+                view.note(ctx, &text, Some(&view.present), &[], Some(&now))?;
+            }
+            CommandOutput::Presence {
+                name: character,
+                entered: false,
+                changed,
+            }
+        }
+        Command::Scene => {
+            let view = SceneView::load(ctx)?;
+            let away = view
+                .names
+                .iter()
+                .filter(|n| !view.present.contains(n))
+                .cloned()
+                .collect();
+            let floor = scene::floor(&view.path, &view.scenes, &view.names)
+                .into_iter()
+                .filter(|n| view.present.contains(n))
+                .collect();
+            CommandOutput::Scene {
+                present: view.present.clone(),
+                away,
+                floor,
+            }
+        }
+        Command::Whisper { name, text } => {
+            let view = SceneView::load(ctx)?;
+            let target = view.present_character(name)?;
+            let node = tree.append(crate::tree::Turn::user(text))?;
+            ctx.db.set_node_scene(
+                node.id,
+                &NodeScene {
+                    witnesses: Some(vec![target.clone()]),
+                    addressed: vec![target.clone()],
+                    present: None,
+                },
+            )?;
+            CommandOutput::Whisper { target }
+        }
     })
+}
+
+/// The scene at the current node, as the scene commands see it.
+struct SceneView {
+    cast: Vec<Character>,
+    names: Vec<String>,
+    path: Vec<Node>,
+    scenes: Scenes,
+    present: Vec<String>,
+}
+
+impl SceneView {
+    fn load(ctx: &CommandContext<'_>) -> Result<Self, CommandError> {
+        let cast: Vec<Character> = ctx
+            .db
+            .list_characters(ctx.session)?
+            .iter()
+            .filter_map(|row| Character::from_yaml(&row.card).ok())
+            .collect();
+        let names: Vec<String> = cast.iter().map(|c| c.name.clone()).collect();
+        let (path, scenes) = match StoryTree::new(ctx.db, ctx.session).current()? {
+            Some(node) => (
+                ctx.db.path_to_root(node.id)?,
+                ctx.db.scenes_on_path(node.id)?,
+            ),
+            None => (Vec::new(), HashMap::new()),
+        };
+        let present = scene::present_on(&path, &scenes, &names);
+        Ok(Self {
+            cast,
+            names,
+            path,
+            scenes,
+            present,
+        })
+    }
+
+    fn find(&self, query: &str) -> Option<&Character> {
+        scene::lookup(&self.cast, query)
+    }
+
+    fn unknown(&self, name: &str, available: &[String]) -> CommandError {
+        CommandError::UnknownCharacter {
+            name: name.into(),
+            available: available.to_vec(),
+        }
+    }
+
+    /// The full name of a present character that `query` stands for.
+    fn present_character(&self, query: &str) -> Result<String, CommandError> {
+        match self.find(query) {
+            Some(c) if self.present.contains(&c.name) => Ok(c.name.clone()),
+            _ => Err(self.unknown(query, &self.present)),
+        }
+    }
+
+    /// Add a scene note to the story, seen by `witnesses`, addressed to `addressed`, and
+    /// optionally changing who is present from here on.
+    fn note(
+        &self,
+        ctx: &CommandContext<'_>,
+        text: &str,
+        witnesses: Option<&[String]>,
+        addressed: &[String],
+        present: Option<&[String]>,
+    ) -> Result<(), CommandError> {
+        let node = StoryTree::new(ctx.db, ctx.session).append(crate::tree::Turn::system(text))?;
+        ctx.db.set_node_scene(
+            node.id,
+            &NodeScene {
+                witnesses: witnesses.map(<[String]>::to_vec),
+                addressed: addressed.to_vec(),
+                present: present.map(<[String]>::to_vec),
+            },
+        )?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -803,6 +1108,7 @@ mod tests {
             // Parse with a plausible argument, whatever the command takes.
             let command = parse(&format!("/{} 1", info.name))
                 .or_else(|_| parse(&format!("/{} on", info.name)))
+                .or_else(|_| parse(&format!("/{} a: b", info.name)))
                 .or_else(|_| parse(&format!("/{}", info.name)))
                 .unwrap()
                 .unwrap();
@@ -1241,5 +1547,168 @@ mod tests {
         };
         assert!(text.contains("has not started"));
         assert!(matches!(w.ok("/branches"), CommandOutput::Branches(b) if b.is_empty()));
+    }
+
+    fn seat(w: &World, names: &[&str]) {
+        for card in w
+            .library
+            .iter()
+            .filter(|c| names.contains(&c.name.as_str()))
+        {
+            w.db.add_character(
+                w.session,
+                &card.name,
+                &serde_yaml_ng::to_string(card).unwrap(),
+            )
+            .unwrap();
+        }
+    }
+
+    fn scene_of(w: &mut World) -> (Vec<String>, Vec<String>, Vec<String>) {
+        match w.ok("/scene") {
+            CommandOutput::Scene {
+                present,
+                away,
+                floor,
+            } => (present, away, floor),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn scene_commands_parse() {
+        assert_eq!(
+            cmd("/to Mira"),
+            Command::To {
+                name: "Mira".into()
+            }
+        );
+        assert_eq!(cmd("/all"), Command::All);
+        assert_eq!(
+            cmd("/enter Orrin"),
+            Command::Enter {
+                name: "Orrin".into()
+            }
+        );
+        assert_eq!(
+            cmd("/leave Orrin"),
+            Command::Leave {
+                name: "Orrin".into()
+            }
+        );
+        assert_eq!(cmd("/scene"), Command::Scene);
+        assert_eq!(
+            cmd("/whisper Mira Valen: meet me at dusk"),
+            Command::Whisper {
+                name: "Mira Valen".into(),
+                text: "meet me at dusk".into()
+            }
+        );
+        for bad in [
+            "/whisper",
+            "/whisper Mira",
+            "/whisper Mira:",
+            "/whisper : hi",
+        ] {
+            assert!(parse(bad).is_err(), "{bad}");
+        }
+        assert!(parse("/all now").is_err());
+    }
+
+    #[test]
+    fn presence_changes_are_notes_in_the_story_that_branching_respects() {
+        let mut w = World::new().with_story();
+        seat(&w, &["Mira Valen", "Orrin Karrow"]);
+        let (present, away, _) = scene_of(&mut w);
+        assert_eq!(present, vec!["Mira Valen", "Orrin Karrow"]);
+        assert!(away.is_empty());
+
+        let before = w.current_id().unwrap();
+        assert_eq!(
+            w.ok("/leave orrin"),
+            CommandOutput::Presence {
+                name: "Orrin Karrow".into(),
+                entered: false,
+                changed: true
+            }
+        );
+        let (present, away, _) = scene_of(&mut w);
+        assert_eq!(
+            (present, away),
+            (vec!["Mira Valen".into()], vec!["Orrin Karrow".into()])
+        );
+        assert_eq!(
+            w.ok("/leave Orrin"),
+            CommandOutput::Presence {
+                name: "Orrin Karrow".into(),
+                entered: false,
+                changed: false
+            }
+        );
+
+        // Going back before he left brings him back.
+        w.ok(&format!("/goto {before}"));
+        assert_eq!(scene_of(&mut w).0.len(), 2);
+        w.ok("/leave Orrin");
+        w.ok("/enter Orrin");
+        assert_eq!(scene_of(&mut w).0, vec!["Mira Valen", "Orrin Karrow"]);
+    }
+
+    #[test]
+    fn entering_adds_a_character_from_the_library() {
+        let mut w = World::new().with_story();
+        seat(&w, &["Mira Valen"]);
+        assert_eq!(scene_of(&mut w).0, vec!["Mira Valen"]);
+        let out = w.ok("/enter Orrin");
+        assert_eq!(
+            out,
+            CommandOutput::Presence {
+                name: "Orrin Karrow".into(),
+                entered: true,
+                changed: true
+            }
+        );
+        assert_eq!(scene_of(&mut w).0, vec!["Mira Valen", "Orrin Karrow"]);
+        assert!(matches!(
+            w.run("/enter Nobody"),
+            Err(CommandError::UnknownCharacter { .. })
+        ));
+    }
+
+    #[test]
+    fn to_and_all_set_who_is_listened_to_and_whispers_are_private() {
+        let mut w = World::new().with_story();
+        seat(&w, &["Mira Valen", "Orrin Karrow"]);
+        assert_eq!(
+            w.ok("/to Orrin"),
+            CommandOutput::Addressed(vec!["Orrin Karrow".into()])
+        );
+        assert_eq!(scene_of(&mut w).2, vec!["Orrin Karrow"]);
+        assert_eq!(
+            w.ok("/all"),
+            CommandOutput::Addressed(vec!["Mira Valen".into(), "Orrin Karrow".into()])
+        );
+        assert_eq!(scene_of(&mut w).2, vec!["Mira Valen", "Orrin Karrow"]);
+
+        assert_eq!(
+            w.ok("/whisper Mira: the vault code is 1234"),
+            CommandOutput::Whisper {
+                target: "Mira Valen".into()
+            }
+        );
+        let current = w.tree().current().unwrap().unwrap();
+        assert_eq!(current.content, "the vault code is 1234");
+        let scene = &w.db.scenes_on_path(current.id).unwrap()[&current.id];
+        assert_eq!(scene.witnesses, Some(vec!["Mira Valen".to_string()]));
+
+        w.ok("/leave Mira");
+        assert!(matches!(
+            w.run("/to Mira"),
+            Err(CommandError::UnknownCharacter { .. })
+        ));
+        assert!(matches!(
+            w.run("/whisper Mira: hi"),
+            Err(CommandError::UnknownCharacter { .. })
+        ));
     }
 }

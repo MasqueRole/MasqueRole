@@ -11,6 +11,7 @@ pub mod db;
 pub mod lorebook;
 pub mod memory;
 pub mod redact;
+pub mod scene;
 pub mod settings;
 pub mod tree;
 pub mod update;

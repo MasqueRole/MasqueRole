@@ -334,6 +334,12 @@ Everything is also available through buttons and menus in the UI. In the chat in
 | `/char <name>`         | Switch or add a character                |
 | `/style <profile>`     | Switch style profile                     |
 | `/narrator on\|off`    | Toggle narrator mode                     |
+| `/to <name>`           | Talk to one character                    |
+| `/all`                 | Talk to everyone present                 |
+| `/enter <name>`        | Bring a character into the scene         |
+| `/leave <name>`        | Send a character out of the scene        |
+| `/scene`               | Show who is present and listening        |
+| `/whisper <name>: <text>` | Say something only one character hears |
 
 ## Project Structure
 

@@ -155,6 +155,9 @@ pub struct ChatState {
     pub generating: bool,
     /// The text of the response so far.
     pub streaming: String,
+    /// The character whose response is being written; `None` for the narrator, or when the
+    /// story has at most one character.
+    pub speaker: Option<String>,
     /// The id of the input field, once it has been drawn.
     pub input_id: Option<eframe::egui::Id>,
     /// Whether the pointer was over the command suggestions last frame.
@@ -393,6 +396,7 @@ impl App {
             }
             Event::Notice(notice) => self.notices.push(notice),
             Event::Chunk(text) => self.chat.streaming.push_str(&text),
+            Event::Speaker(name) => self.chat.speaker = name,
             Event::Generating(on) => {
                 self.chat.generating = on;
                 if !on {
@@ -1221,6 +1225,8 @@ mod tests {
                 node(3, NodeKind::Narrator, None, "Fog rolls in."),
             ],
             characters: vec!["Mira".into()],
+            present: Vec::new(),
+            floor: Vec::new(),
             branches: Vec::new(),
         }
     }

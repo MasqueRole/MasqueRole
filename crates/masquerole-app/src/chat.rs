@@ -3,9 +3,11 @@
 use std::collections::HashMap;
 
 use eframe::egui::{self, Key, Modifiers, TextureHandle, Ui};
+use masquerole_core::character::Character;
 use masquerole_core::commands::{CommandInfo, COMMANDS};
 use masquerole_core::db::NodeId;
 use masquerole_core::db::NodeKind;
+use masquerole_core::scene;
 use masquerole_core::settings::Settings;
 use masquerole_ui::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ChatBubble, FloatingBar,
@@ -240,7 +242,11 @@ pub fn body(app: &mut App, ui: &mut Ui) {
     let selected = app.chat.selected;
     let mut action = MessageAction::default();
 
-    let speaker = prompts::speaker(&app.settings, &transcript.characters);
+    let speaker = app
+        .chat
+        .speaker
+        .clone()
+        .or_else(|| prompts::speaker(&app.settings, &transcript.characters));
     ScrollArea::vertical()
         .id_salt(("chat", transcript.session.id.0))
         .stick_to_bottom(true)
@@ -350,7 +356,12 @@ fn command_icon(name: &str) -> Option<IconKind> {
         "summary" => IconKind::File,
         "char" => IconKind::User,
         "style" => IconKind::Pen,
-        "narrator" => IconKind::Chat,
+        "narrator" | "whisper" => IconKind::Chat,
+        "to" => IconKind::User,
+        "all" => IconKind::Globe,
+        "enter" => IconKind::Plus,
+        "leave" => IconKind::Close,
+        "scene" => IconKind::Info,
         _ => return None,
     })
 }
@@ -386,6 +397,103 @@ fn focus_at_end(ctx: &egui::Context, id: egui::Id, text: &str) {
     ctx.memory_mut(|m| m.request_focus(id));
 }
 
+/// Add `@name` to the start of `input`, or take it out when it is already there. The scene
+/// reads such a mention as talking to that character.
+fn toggle_mention(input: &mut String, name: &str) {
+    let tag = format!("@{name}");
+    // ASCII lowercasing keeps every byte position, so the match can be cut out of `input`.
+    match input.to_ascii_lowercase().find(&tag.to_ascii_lowercase()) {
+        Some(at) => {
+            let mut end = at + tag.len();
+            if input[end..].starts_with(' ') {
+                end += 1;
+            }
+            input.replace_range(at..end, "");
+        }
+        None => input.insert_str(0, &format!("{tag} ")),
+    }
+}
+
+/// Why the characters who will answer were picked, in words.
+fn reason_text(reason: scene::Reason) -> &'static str {
+    match reason {
+        scene::Reason::Direct => "called by name",
+        scene::Reason::Mentioned => "named in your message",
+        scene::Reason::Floor => "in the conversation",
+        scene::Reason::OnlyOne => "the only one here",
+        scene::Reason::Nobody => "nobody called: the narrator answers",
+    }
+}
+
+/// In a story with several characters: a chip for everyone present, lit for those who will
+/// answer the message as it is typed, and why. A click adds or removes `@name` in the message.
+fn speaker_bar(app: &mut App, ui: &mut Ui) {
+    let Some(transcript) = app.transcript.as_ref() else {
+        return;
+    };
+    if transcript.characters.len() < 2 {
+        return;
+    }
+    let cast: Vec<Character> = transcript
+        .characters
+        .iter()
+        .map(|name| {
+            app.characters
+                .iter()
+                .find(|e| &e.item.name == name)
+                .map_or_else(
+                    || Character {
+                        name: name.clone(),
+                        ..Character::default()
+                    },
+                    |e| e.item.clone(),
+                )
+        })
+        .collect();
+    let resolution = scene::resolve(
+        &app.chat.input,
+        &cast,
+        &transcript.present,
+        &transcript.floor,
+        app.settings.style.max_responders as usize,
+    );
+    let narrator = app.settings.style.narrator_mode;
+    let present = transcript.present.clone();
+    let mut toggled = None;
+    ui.horizontal_wrapped(|ui| {
+        ui.add(Label::new("To").small().muted());
+        for name in &present {
+            let lit = !narrator && resolution.responders.contains(name);
+            let button = Button::new(name)
+                .variant(if lit {
+                    ButtonVariant::Secondary
+                } else {
+                    ButtonVariant::Ghost
+                })
+                .size(ButtonSize::Sm);
+            if ui
+                .add(button)
+                .ir_tooltip("Talk to this character: adds or removes @name")
+                .clicked()
+            {
+                toggled = Some(name.clone());
+            }
+        }
+        let why = if narrator || present.is_empty() {
+            "the narrator answers"
+        } else {
+            reason_text(resolution.reason)
+        };
+        ui.add(Label::new(why).small().muted());
+    });
+    if let Some(name) = toggled {
+        toggle_mention(&mut app.chat.input, &name);
+        if let Some(id) = app.chat.input_id {
+            focus_at_end(ui.ctx(), id, &app.chat.input);
+        }
+    }
+}
+
 /// Draw the message box and its buttons in a floating island at the bottom of `ui`.
 fn composer(app: &mut App, ui: &mut Ui) {
     let generating = app.chat.generating;
@@ -396,6 +504,7 @@ fn composer(app: &mut App, ui: &mut Ui) {
         .as_ref()
         .and_then(|t| usage_donut(&app.settings, t.session.tokens_used));
     FloatingBar::new(COMPOSER).show(ui.ctx(), ui.max_rect(), |ui| {
+        speaker_bar(app, ui);
         // The token monitor stays at the top left and the buttons at the top right, however
         // tall the text grows.
         ui.horizontal_top(|ui| {
@@ -485,6 +594,24 @@ mod tests {
 
     fn names(input: &str) -> Vec<&'static str> {
         command_hints(input).into_iter().map(|c| c.name).collect()
+    }
+
+    #[test]
+    fn a_mention_is_added_and_taken_out_again() {
+        let mut input = String::from("hello there");
+        toggle_mention(&mut input, "Mira Valen");
+        assert_eq!(input, "@Mira Valen hello there");
+        toggle_mention(&mut input, "Orrin");
+        assert_eq!(input, "@Orrin @Mira Valen hello there");
+        toggle_mention(&mut input, "mira valen");
+        assert_eq!(input, "@Orrin hello there");
+        toggle_mention(&mut input, "Orrin");
+        assert_eq!(input, "hello there");
+        let mut empty = String::new();
+        toggle_mention(&mut empty, "Mira");
+        assert_eq!(empty, "@Mira ");
+        toggle_mention(&mut empty, "Mira");
+        assert_eq!(empty, "");
     }
 
     #[test]

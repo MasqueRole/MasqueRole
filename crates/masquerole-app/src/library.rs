@@ -358,6 +358,7 @@ mod tests {
             entries: vec![masquerole_core::lorebook::LoreEntry {
                 keys: vec![],
                 content: "x".into(),
+                known_by: vec![],
             }],
             ..Lorebook::default()
         };
