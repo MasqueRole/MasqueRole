@@ -20,7 +20,7 @@ use masquerole_ui::motion;
 
 use crate::app::App;
 use crate::backend::Request;
-use crate::format;
+use crate::format::{self, Notice};
 use crate::prompts;
 use crate::story_info;
 
@@ -155,6 +155,34 @@ fn message_actions(
     }
 }
 
+/// A message from a command as a card with a button that dismisses it. Returns whether the
+/// button was clicked.
+fn notice_card(ui: &mut Ui, notice: &Notice) -> bool {
+    let mut dismissed = false;
+    Card::new()
+        .content(|ui| {
+            ui.horizontal_top(|ui| {
+                let room = (ui.available_width() - 32.0 - spacing::SM).max(0.0);
+                ui.allocate_ui(egui::vec2(room, 0.0), |ui| {
+                    let mut label = Label::new(&notice.text).small().muted();
+                    if notice.monospace {
+                        label = label.monospace();
+                    }
+                    ui.add(label);
+                });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                    let close = Button::new("")
+                        .icon(IconKind::Close)
+                        .variant(ButtonVariant::Ghost)
+                        .size(ButtonSize::Icon);
+                    dismissed = ui.add(close).ir_tooltip("Dismiss").clicked();
+                });
+            });
+        })
+        .show(ui);
+    dismissed
+}
+
 /// Draw the story. Without a session, draw the welcome card.
 pub fn body(app: &mut App, ui: &mut Ui) {
     if app.transcript.is_none() {
@@ -241,6 +269,7 @@ pub fn body(app: &mut App, ui: &mut Ui) {
     };
     let selected = app.chat.selected;
     let mut action = MessageAction::default();
+    let mut dismiss: Option<usize> = None;
 
     let speaker = app
         .chat
@@ -253,6 +282,14 @@ pub fn body(app: &mut App, ui: &mut Ui) {
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = spacing::MD;
             ui.add_space(spacing::SM);
+            let mut notices = |ui: &mut Ui, after: Option<NodeId>| {
+                for (index, placed) in app.notices.iter().enumerate() {
+                    if placed.after == after && notice_card(ui, &placed.notice) {
+                        dismiss = Some(index);
+                    }
+                }
+            };
+            notices(ui, None);
             for node in &transcript.nodes {
                 let picked = selected == Some(node.id);
                 let tag = format::tag(node.id);
@@ -269,6 +306,7 @@ pub fn body(app: &mut App, ui: &mut Ui) {
                     action.pick = Some(node.id);
                 }
                 message_actions(ui, node, picked, &mut action);
+                notices(ui, Some(node.id));
             }
             if app.chat.generating {
                 let text = &app.chat.streaming;
@@ -281,20 +319,14 @@ pub fn body(app: &mut App, ui: &mut Ui) {
                     None => ui.add(ChatBubble::narrator(text).streaming(true)),
                 };
             }
-            for notice in &app.notices {
-                Card::new()
-                    .content(|ui| {
-                        let mut label = Label::new(&notice.text).small().muted();
-                        if notice.monospace {
-                            label = label.monospace();
-                        }
-                        ui.add(label);
-                    })
-                    .show(ui);
-            }
             // Room for the message box that floats over the end of the story.
             ui.add_space(spacing::SM + FloatingBar::new(COMPOSER).height(ui.ctx()));
         });
+    if let Some(index) = dismiss {
+        if index < app.notices.len() {
+            app.notices.remove(index);
+        }
+    }
     if let Some(id) = action.pick {
         app.chat.selected = (app.chat.selected != Some(id)).then_some(id);
     }
