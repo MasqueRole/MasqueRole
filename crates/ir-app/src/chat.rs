@@ -1,14 +1,16 @@
 //! The chat screen: the story so far, and the box for the next message.
 
-use eframe::egui::{self, Key, Modifiers, Ui};
+use std::collections::HashMap;
+
+use eframe::egui::{self, Key, Modifiers, TextureHandle, Ui};
 use ir_core::commands::{CommandInfo, COMMANDS};
 use ir_core::db::NodeId;
 use ir_core::db::NodeKind;
 use ir_core::settings::Settings;
 use ir_ui::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ChatBubble, FloatingBar,
-    IconKind, Label, ScrollArea, Separator, Suggestion, Suggestions, Textarea, Toast, TooltipExt,
-    UsageDonut,
+    IconKind, Label, Picture, ScrollArea, Separator, Suggestion, Suggestions, Textarea, Toast,
+    TooltipExt, UsageDonut,
 };
 use ir_ui::spacing;
 
@@ -91,6 +93,9 @@ struct MessageAction {
 /// How much of the header the story title may take before it is cut.
 const HEADER_TITLE_SHARE: f32 = 0.4;
 
+/// Diameter of the world's picture in the header.
+const HEADER_PICTURE: f32 = 32.0;
+
 /// The widest a world or character badge in the header gets.
 const HEADER_BADGE_WIDTH: f32 = 160.0;
 
@@ -158,6 +163,17 @@ pub fn body(app: &mut App, ui: &mut Ui) {
         story_info::show(app, ui);
         return;
     }
+    // The pictures of the world and of the characters, for the header and the messages.
+    let ctx = ui.ctx().clone();
+    let (names, world) = match app.transcript.as_ref() {
+        Some(t) => (t.characters.clone(), t.session.world.clone()),
+        None => return,
+    };
+    let avatars: HashMap<String, TextureHandle> = names
+        .iter()
+        .filter_map(|name| Some((name.clone(), app.character_picture(&ctx, name)?)))
+        .collect();
+    let world_picture = world.and_then(|name| app.world_picture(&ctx, &name));
     let Some(transcript) = app.transcript.as_ref() else {
         return;
     };
@@ -175,6 +191,14 @@ pub fn body(app: &mut App, ui: &mut Ui) {
                 .on_hover_cursor(egui::CursorIcon::PointingHand);
             open_info |= click.clicked();
         };
+        if let Some(picture) = &world_picture {
+            let image = ui.add(
+                Picture::new(Some(picture), IconKind::Globe)
+                    .size(HEADER_PICTURE)
+                    .circle(),
+            );
+            clickable(ui, image);
+        }
         let title_width = ui.available_width() * HEADER_TITLE_SHARE;
         let title = ui.add(
             Label::new(&transcript.session.name)
@@ -228,10 +252,11 @@ pub fn body(app: &mut App, ui: &mut Ui) {
                 let tag = format::tag(node.id);
                 let bubble = match node.kind {
                     NodeKind::User => ChatBubble::user(&node.content),
-                    NodeKind::Character => ChatBubble::character(
-                        node.speaker.as_deref().unwrap_or("Character"),
-                        &node.content,
-                    ),
+                    NodeKind::Character => {
+                        let name = node.speaker.as_deref().unwrap_or("Character");
+                        ChatBubble::character(name, &node.content)
+                            .avatar(avatars.get(name).cloned(), IconKind::User)
+                    }
                     NodeKind::Narrator | NodeKind::System => ChatBubble::narrator(&node.content),
                 };
                 if ui.add(bubble.tag(tag)).clicked() {
@@ -242,7 +267,11 @@ pub fn body(app: &mut App, ui: &mut Ui) {
             if app.chat.generating {
                 let text = &app.chat.streaming;
                 match &speaker {
-                    Some(name) => ui.add(ChatBubble::character(name, text).streaming(true)),
+                    Some(name) => ui.add(
+                        ChatBubble::character(name, text)
+                            .streaming(true)
+                            .avatar(avatars.get(name).cloned(), IconKind::User),
+                    ),
                     None => ui.add(ChatBubble::narrator(text).streaming(true)),
                 };
             }

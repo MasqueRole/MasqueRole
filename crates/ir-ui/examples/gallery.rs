@@ -490,7 +490,14 @@ impl Gallery {
             ui.add(Picture::new(Some(&sample), IconKind::User));
             ui.add(Picture::new(None, IconKind::User));
             ui.add(Picture::new(None, IconKind::Globe).size(64.0));
+            ui.add(
+                Picture::new(Some(&sample), IconKind::User)
+                    .size(32.0)
+                    .circle(),
+            );
+            ui.add(Picture::new(None, IconKind::User).size(32.0).circle());
         });
+        ui.add(Picture::banner(Some(&sample), IconKind::Globe, 80.0));
 
         Self::section(ui, "Suggestions");
         ui.add(
@@ -576,6 +583,10 @@ impl Gallery {
             "Mira",
             "Ah, another one who got lost?",
         ));
+        ui.add(
+            ChatBubble::character("Mira", "With an avatar beside the message.")
+                .avatar(None, IconKind::User),
+        );
         ui.add(ChatBubble::user("I follow her toward the lighthouse."));
         ui.add(
             ChatBubble::character("Mira", "Keep up, then. The tide waits for no one")
