@@ -133,6 +133,8 @@ pub enum Request {
     },
     /// Delete a session and its story.
     DeleteSession(SessionId),
+    /// Take the character with this name out of the open story. Its earlier messages stay.
+    RemoveCharacter(String),
     /// Chat input: a message to the story, or a slash command.
     Send(String),
     /// Stop the response that is being generated, keeping what arrived so far.
@@ -416,6 +418,7 @@ impl Actor {
                 character,
             } => self.create_session(&name, world, character),
             Request::DeleteSession(id) => self.delete_session(id),
+            Request::RemoveCharacter(name) => self.remove_character(&name),
             Request::Send(text) => self.send(&text),
             Request::Stop => self.stop(),
             Request::SaveSettings { settings, api_key } => self.save_settings(settings, api_key),
@@ -914,6 +917,26 @@ impl Actor {
                 self.open(id);
                 self.emit_sessions();
             }
+            Err(e) => self.error(e),
+        }
+    }
+
+    fn remove_character(&mut self, name: &str) {
+        let Some(session) = self.session else { return };
+        let result = (|| -> Result<(), String> {
+            let found = self
+                .db
+                .list_characters(session)
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .find(|c| c.name == name);
+            match found {
+                Some(c) => self.db.remove_character(c.id).map_err(|e| e.to_string()),
+                None => Ok(()),
+            }
+        })();
+        match result {
+            Ok(()) => self.emit_transcript(),
             Err(e) => self.error(e),
         }
     }
@@ -2114,6 +2137,20 @@ entries:
         assert_eq!(after.session.id, second.session.id);
         rig.backend.send(Request::DeleteSession(second.session.id));
         rig.wait_for(|e| matches!(e, Event::NoSession).then_some(()));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_character_can_be_taken_out_of_the_story() {
+        let rig = Rig::start("remove-character", Mock::new(&["x"]), true, false);
+        let story = rig.start_story();
+        assert!(!story.characters.is_empty());
+        let name = story.characters[0].clone();
+        rig.backend.send(Request::RemoveCharacter(name.clone()));
+        let after = rig.wait_for_transcript(|t| !t.characters.contains(&name));
+        assert_eq!(after.nodes.len(), story.nodes.len(), "the messages stay");
+        rig.backend.send(Request::RemoveCharacter(name));
+        rig.backend.send(Request::OpenSession(after.session.id));
+        rig.wait_for_transcript(|t| t.characters.is_empty());
     }
 
     /// The next tree event, skipping everything else.
