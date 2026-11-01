@@ -1555,6 +1555,11 @@ impl Actor {
                     self.emit_transcript();
                 }
                 self.emit_sessions();
+                // The next character takes over the streaming bubble at once, so the answer
+                // that was just stored is not shown again in it while the next one is prepared.
+                if let Some(next) = self.queue.front().cloned() {
+                    self.emit(Event::Speaker(next));
+                }
                 self.after_turn(node);
                 if self.queue.is_empty() {
                     self.emit(Event::Generating(false));
@@ -2983,5 +2988,44 @@ entries:
             1,
             "one narrator for the whole scene"
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_next_character_takes_over_before_its_first_word_and_after_the_last_is_stored() {
+        let rig = Rig::start("group-stream", Mock::new(&["Yes."]), true, false);
+        rig.start_group();
+        rig.backend
+            .send(Request::Send("Everyone, did you hear that?".into()));
+        let mut log: Vec<String> = Vec::new();
+        rig.wait_for(|e| {
+            match e {
+                Event::Transcript(t) => log.push(format!(
+                    "stored:{}",
+                    t.nodes
+                        .last()
+                        .and_then(|n| n.speaker.as_deref())
+                        .unwrap_or("-")
+                )),
+                Event::Speaker(name) => {
+                    log.push(format!("speaker:{}", name.as_deref().unwrap_or("-")))
+                }
+                Event::Chunk(_) => log.push("chunk".into()),
+                Event::Error(e) => panic!("{e}"),
+                _ => {}
+            }
+            matches!(e, Event::Generating(false)).then_some(())
+        });
+        let stored = log.iter().position(|l| l == "stored:Mira Valen").unwrap();
+        let next = log[stored + 1..]
+            .iter()
+            .find(|l| l.starts_with("speaker:") || *l == "chunk")
+            .unwrap();
+        assert_eq!(next, "speaker:Orrin Hale", "{log:?}");
+        let orrin_first = log.iter().position(|l| l == "speaker:Orrin Hale").unwrap();
+        let chunks_between = log[stored..orrin_first]
+            .iter()
+            .filter(|l| *l == "chunk")
+            .count();
+        assert_eq!(chunks_between, 0, "{log:?}");
     }
 }
