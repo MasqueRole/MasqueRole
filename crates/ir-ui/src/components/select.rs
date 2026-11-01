@@ -2,7 +2,11 @@
 
 use std::hash::Hash;
 
-use egui::{ComboBox, Id, Response, Stroke, Ui, Widget};
+use egui::text::LayoutJob;
+use egui::{
+    Align2, Color32, ComboBox, FontId, Id, Image, Rect, Response, Sense, Stroke, TextFormat,
+    TextureHandle, Ui, Vec2, Widget,
+};
 
 use crate::theme::{ThemeExt, BORDER_WIDTH};
 
@@ -14,10 +18,45 @@ pub struct Select<'a> {
     id_salt: Id,
     selected: &'a mut usize,
     options: Vec<String>,
+    marks: Vec<SelectMark>,
     placeholder: String,
     width: Option<f32>,
     enabled: bool,
 }
+
+/// The small mark before an option.
+#[derive(Clone)]
+pub enum SelectMark {
+    /// No mark.
+    None,
+    /// One or two letters on a rounded square of the given color.
+    Letters(String, Color32),
+    /// A white-on-transparent picture, drawn in the text color.
+    Picture(TextureHandle),
+}
+
+impl std::fmt::Debug for SelectMark {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::None => f.write_str("None"),
+            Self::Letters(letters, _) => write!(f, "Letters({letters})"),
+            Self::Picture(_) => f.write_str("Picture"),
+        }
+    }
+}
+
+impl SelectMark {
+    /// Letters on a colored square.
+    pub fn letters(letters: impl Into<String>, color: Color32) -> Self {
+        Self::Letters(letters.into(), color)
+    }
+}
+
+/// Side of the small colored mark before an option.
+const MARK_SIZE: f32 = 18.0;
+
+/// Space between a mark and its text.
+const MARK_GAP: f32 = 8.0;
 
 impl<'a> Select<'a> {
     /// A select with these options. `id_salt` keeps its open state apart from other selects.
@@ -30,10 +69,18 @@ impl<'a> Select<'a> {
             id_salt: Id::new(id_salt),
             selected,
             options: options.into_iter().map(Into::into).collect(),
+            marks: Vec::new(),
             placeholder: "Select\u{2026}".into(),
             width: None,
             enabled: true,
         }
+    }
+
+    /// A small mark before each option and before the chosen one in the closed select, one per
+    /// option in order. Options without a mark leave it out.
+    pub fn marks(mut self, marks: impl IntoIterator<Item = SelectMark>) -> Self {
+        self.marks = marks.into_iter().collect();
+        self
     }
 
     /// Text shown when the index points at no option.
@@ -67,6 +114,9 @@ impl Widget for Select<'_> {
 
         let selected = self.selected;
         let options = &self.options;
+        let marks = &self.marks;
+        let mark_of = |i: usize| marks.get(i).filter(|m| !matches!(m, SelectMark::None));
+        let closed_mark = mark_of(before).cloned();
         let width = self.width.unwrap_or_else(|| ui.available_width());
         let inner = ui.add_enabled_ui(self.enabled, |ui| {
             // An outlined look: the closed select on the page background, a border like inputs.
@@ -77,20 +127,83 @@ impl Widget for Select<'_> {
                 state.bg_stroke = Stroke::new(BORDER_WIDTH, t.input);
                 state.fg_stroke = Stroke::new(BORDER_WIDTH, t.foreground);
             }
-            ComboBox::from_id_salt(self.id_salt)
-                .selected_text(text)
+            let mut shown = LayoutJob::default();
+            shown.append(
+                &text,
+                if closed_mark.is_some() {
+                    MARK_SIZE + MARK_GAP
+                } else {
+                    0.0
+                },
+                TextFormat {
+                    font_id: FontId::proportional(t.text_base),
+                    color: t.foreground,
+                    ..Default::default()
+                },
+            );
+            let combo = ComboBox::from_id_salt(self.id_salt)
+                .selected_text(shown)
                 .width(width)
                 .show_ui(ui, |ui| {
                     for (i, option) in options.iter().enumerate() {
-                        ui.selectable_value(selected, i, option);
+                        match mark_of(i) {
+                            Some(mark) => {
+                                ui.horizontal(|ui| {
+                                    paint_mark(ui, mark);
+                                    ui.selectable_value(selected, i, option);
+                                });
+                            }
+                            None => {
+                                ui.selectable_value(selected, i, option);
+                            }
+                        }
                     }
-                })
+                });
+            if let Some(mark) = &closed_mark {
+                // The mark sits in the space left at the start of the closed select's text.
+                let rect = combo.response.rect;
+                let at = egui::pos2(
+                    rect.left() + ui.spacing().button_padding.x,
+                    rect.center().y - MARK_SIZE / 2.0,
+                );
+                draw_mark(ui, Rect::from_min_size(at, Vec2::splat(MARK_SIZE)), mark);
+            }
+            combo
         });
         let mut response = inner.inner.response;
         if *selected != before {
             response.mark_changed();
         }
         response
+    }
+}
+
+/// Allocate room for a mark and draw it.
+fn paint_mark(ui: &mut Ui, mark: &SelectMark) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::splat(MARK_SIZE), Sense::hover());
+    draw_mark(ui, rect, mark);
+}
+
+/// Draw `mark` in `rect`.
+fn draw_mark(ui: &Ui, rect: Rect, mark: &SelectMark) {
+    let t = ui.ir_theme();
+    match mark {
+        SelectMark::None => {}
+        SelectMark::Letters(letters, color) => {
+            ui.painter().rect_filled(rect, t.corner_sm(), *color);
+            ui.painter().text(
+                rect.center(),
+                Align2::CENTER_CENTER,
+                letters,
+                FontId::proportional(t.text_xs),
+                Color32::WHITE,
+            );
+        }
+        SelectMark::Picture(texture) => {
+            Image::new((texture.id(), rect.size()))
+                .tint(t.foreground)
+                .paint_at(ui, rect);
+        }
     }
 }
 
@@ -107,6 +220,34 @@ mod tests {
         let mut selected = 1;
         h.idle(&mut |ui: &mut Ui| {
             ui.add(Select::new("provider", &mut selected, OPTIONS).width(200.0));
+        });
+        assert_eq!(selected, 1);
+    }
+
+    #[test]
+    fn options_can_carry_a_colored_mark() {
+        let mut h = Harness::new();
+        let mut selected = 1;
+        let marks = [
+            SelectMark::letters("O", Color32::from_rgb(16, 163, 127)),
+            SelectMark::letters("X", Color32::GRAY),
+            SelectMark::None,
+        ];
+        let mut closed = egui::Rect::NOTHING;
+        h.idle(&mut |ui: &mut Ui| {
+            closed = ui
+                .add(
+                    Select::new("provider", &mut selected, OPTIONS)
+                        .marks(marks.clone())
+                        .width(200.0),
+                )
+                .rect;
+        });
+        h.click(closed.center(), &mut |ui: &mut Ui| {
+            ui.add(Select::new("provider", &mut selected, OPTIONS).marks(marks.clone()));
+        });
+        h.idle(&mut |ui: &mut Ui| {
+            ui.add(Select::new("provider", &mut selected, OPTIONS).marks(marks.clone()));
         });
         assert_eq!(selected, 1);
     }

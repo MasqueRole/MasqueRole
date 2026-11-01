@@ -61,7 +61,7 @@ pub use picture::Picture;
 pub use popover::Popover;
 pub use rail::{RailButton, RAIL_WIDTH};
 pub use scroll_area::ScrollArea;
-pub use select::Select;
+pub use select::{Select, SelectMark};
 pub use separator::Separator;
 pub use slider::Slider;
 pub use suggestions::{Suggestion, Suggestions, SuggestionsOutput};

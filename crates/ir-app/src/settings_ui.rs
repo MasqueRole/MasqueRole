@@ -1,11 +1,11 @@
 //! The settings screen.
 
-use eframe::egui::Ui;
+use eframe::egui::{Color32, TextureHandle, Ui};
 use ir_core::client::{is_paid_provider, PRESETS};
 use ir_core::settings::{NodeLabel, Settings};
 use ir_ui::components::{
     Alert, Badge, BadgeVariant, Button, ButtonVariant, Card, FormField, Input, Label, Select,
-    Slider, Switch, Tabs,
+    SelectMark, Slider, Switch, Tabs,
 };
 use ir_ui::{spacing, ThemeMode};
 
@@ -127,7 +127,12 @@ impl SettingsForm {
 
     /// Draw the provider settings flat on the page: the cost warning for paid providers, then
     /// the provider, endpoint, model and API key. The page supplies the title.
-    pub fn show_provider(&mut self, key_available: bool, ui: &mut Ui) -> Option<SettingsAction> {
+    pub fn show_provider(
+        &mut self,
+        key_available: bool,
+        logos: &[Option<TextureHandle>],
+        ui: &mut Ui,
+    ) -> Option<SettingsAction> {
         let mut action = None;
         if self.is_paid() {
             ui.add(Alert::new(COST_WARNING_TITLE, COST_WARNING));
@@ -139,9 +144,23 @@ impl SettingsForm {
                 .muted(),
         );
         let names = PRESETS.iter().map(|p| p.name);
+        let marks = PRESETS.iter().enumerate().map(|(i, p)| {
+            // The logo when it is loaded, else the letters on the provider's color.
+            match logos.get(i).cloned().flatten() {
+                Some(logo) => SelectMark::Picture(logo),
+                None => {
+                    let [_, r, g, b] = p.mark_color.to_be_bytes();
+                    SelectMark::letters(p.mark, Color32::from_rgb(r, g, b))
+                }
+            }
+        });
         FormField::new("Provider").show(ui, |ui| {
             if ui
-                .add(Select::new("settings-provider", &mut self.provider, names).width(320.0))
+                .add(
+                    Select::new("settings-provider", &mut self.provider, names)
+                        .marks(marks)
+                        .width(320.0),
+                )
                 .changed()
             {
                 self.apply_provider();

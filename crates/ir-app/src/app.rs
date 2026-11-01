@@ -12,6 +12,7 @@ use eframe::egui::{
 };
 use ir_core::cards::Card as _;
 use ir_core::character::Character;
+use ir_core::client::PRESETS;
 use ir_core::commands;
 use ir_core::db::{NodeId, Session, SessionId};
 use ir_core::lorebook::Lorebook;
@@ -213,6 +214,8 @@ pub struct App {
     pub settings_form: Option<SettingsForm>,
     /// The provider page's form, while that page is open.
     pub provider_form: Option<SettingsForm>,
+    /// The logos of the providers, in the order of the presets, once loaded.
+    provider_logos: Vec<Option<TextureHandle>>,
     /// The tutorial, when open.
     pub tutorial: Option<Tutorial>,
     /// Whether the first-run tutorial was already offered during this run.
@@ -283,6 +286,7 @@ impl App {
             key_available: false,
             settings_form: None,
             provider_form: None,
+            provider_logos: Vec::new(),
             tutorial: None,
             tutorial_offered: false,
             sessions: Vec::new(),
@@ -827,6 +831,22 @@ impl App {
     /// The provider page: the provider settings on the content area, saved from the footer.
     fn provider_body(&mut self, ui: &mut Ui) {
         let key_available = self.key_available;
+        if self.provider_logos.is_empty() {
+            self.provider_logos = PRESETS
+                .iter()
+                .map(|preset| {
+                    let image = image::load_from_memory(preset.logo?).ok()?.to_rgba8();
+                    let size = [image.width() as usize, image.height() as usize];
+                    let image = ColorImage::from_rgba_unmultiplied(size, image.as_raw());
+                    Some(ui.ctx().load_texture(
+                        format!("logo-{}", preset.id),
+                        image,
+                        TextureOptions::LINEAR,
+                    ))
+                })
+                .collect();
+        }
+        let logos = &self.provider_logos;
         let Some(form) = &mut self.provider_form else {
             return;
         };
@@ -835,7 +855,7 @@ impl App {
             .show(ui, |ui| {
                 ui.add(Label::new("Provider").heading());
                 ui.add_space(spacing::SM);
-                form.show_provider(key_available, ui)
+                form.show_provider(key_available, logos, ui)
             })
             .inner;
         if action == Some(SettingsAction::RemoveKey) {
