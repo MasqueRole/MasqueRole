@@ -210,7 +210,7 @@ logging = false           # write masquerole.log next to settings.toml (after a 
 | `limits.token_limit_enabled` | Stop a story from generating once it reaches the limit        |
 | `limits.token_limit`       | Estimated tokens one story may use (prompts, responses, summaries) |
 
-> ⚠️ The API key is stored in your operating system's keychain, never in `settings.toml`. Don't commit keys to version control.
+> The API key is stored in your operating system's keychain, never in `settings.toml`. Don't commit keys to version control.
 
 ## Character Cards
 
