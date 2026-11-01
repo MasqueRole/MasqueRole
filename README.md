@@ -234,7 +234,7 @@ example_dialogue:
 image: "1a2b3c.png"   # optional; set with "Add picture" in the editor
 ```
 
-Pictures (PNG, JPEG, or WebP) are shrunk to at most 512 pixels, stored as PNG in the library's `images` folder, and removed again when the character is deleted. In a story, a character's picture shows beside its messages. A world's picture shows next to the story title and as a banner on the story's info page.
+Pictures (PNG, JPEG, or WebP) are shrunk to at most 512 pixels, stored as PNG in the library's `images` folder, and removed again when the character is deleted. In a story, a character's picture shows beside its messages. A world's picture shows next to the story title and as the backdrop of the story's info page, fading into the background.
 
 ## Worlds & Scenarios
 

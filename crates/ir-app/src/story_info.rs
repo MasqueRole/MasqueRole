@@ -1,19 +1,30 @@
 //! The story info page: the world and the characters of the open story, as a full tab in
-//! place of the chat, like the info page of a group chat.
+//! place of the chat, like the info page of a group chat. The world's picture is the
+//! backdrop of the page, fading into the background.
 
-use eframe::egui::Ui;
-use ir_core::character::Character;
+use eframe::egui::{
+    self, epaint::Vertex, pos2, vec2, Color32, Mesh, Rect, Shape, TextureHandle, Ui,
+};
 use ir_core::lorebook::Lorebook;
 use ir_ui::components::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, IconKind, Label, Picture, ScrollArea,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, IconKind, Label, Picture, ScrollArea,
+    Separator,
 };
 use ir_ui::spacing;
+use ir_ui::theme::ThemeExt;
 
 use crate::app::App;
+use crate::backend::Request;
 use crate::format;
 
-/// Size of a character's or world's picture on the page.
-const PICTURE_SIZE: f32 = 88.0;
+/// Size of a character's picture in the list.
+const AVATAR_SIZE: f32 = 40.0;
+
+/// Height of the world's picture behind the top of the page.
+const BANNER_HEIGHT: f32 = 240.0;
+
+/// Space above the picture, so it hangs a little below the top edge.
+const BANNER_INSET: f32 = spacing::MD;
 
 /// A small muted caption above a text, left out when the text is empty.
 fn field(ui: &mut Ui, caption: &str, text: &str) {
@@ -24,92 +35,99 @@ fn field(ui: &mut Ui, caption: &str, text: &str) {
     ui.add(Label::new(text.trim()));
 }
 
-/// Height of the world's banner.
-const BANNER_HEIGHT: f32 = 140.0;
-
-fn world_card(
-    ui: &mut Ui,
-    name: &str,
-    world: Option<&Lorebook>,
-    banner: Option<&eframe::egui::TextureHandle>,
-) {
-    Card::new()
-        .header(|ui| {
-            // The world's picture is a banner across the top of its card.
-            if banner.is_some() {
-                ui.add(Picture::banner(banner, IconKind::Globe, BANNER_HEIGHT));
-            }
-            Card::title(ui, "World");
-            Card::description(ui, name);
-        })
-        .content(|ui| match world {
-            Some(world) => {
-                field(ui, "Setting", &world.setting);
-                if !world.entries.is_empty() {
-                    ui.add(Label::new("Lore entries").small().muted());
-                    for entry in &world.entries {
-                        ui.horizontal_wrapped(|ui| {
-                            for key in &entry.keys {
-                                ui.add(Badge::new(key).variant(BadgeVariant::Outline));
-                            }
-                        });
-                        ui.add(Label::new(&entry.content).small());
-                    }
-                }
-            }
-            None => {
-                ui.add(
-                    Label::new("This world is not in your library any more. The story keeps working without its lore.")
-                        .small()
-                        .muted(),
-                );
-            }
-        })
-        .show(ui);
+/// Paint the world's picture across the top of `ui`, fading into the page background.
+fn paint_backdrop(ui: &Ui, texture: &TextureHandle) {
+    let background = ui.ir_theme().background;
+    let top = ui.max_rect();
+    let rect = Rect::from_min_size(
+        pos2(top.left(), top.top() + BANNER_INSET),
+        vec2(top.width(), BANNER_HEIGHT),
+    );
+    // Crop the picture from the middle to fill the rect.
+    let aspect = texture.aspect_ratio() / (rect.width() / rect.height()).max(f32::EPSILON);
+    let (u, v) = if aspect >= 1.0 {
+        (1.0 / aspect, 1.0)
+    } else {
+        (1.0, aspect)
+    };
+    let uv = Rect::from_min_max(
+        pos2((1.0 - u) / 2.0, (1.0 - v) / 2.0),
+        pos2((1.0 + u) / 2.0, (1.0 + v) / 2.0),
+    );
+    let mut mesh = Mesh::with_texture(texture.id());
+    mesh.add_rect_with_uv(rect, uv, Color32::WHITE);
+    ui.painter().add(Shape::mesh(mesh));
+    // The fade: clear at the top, the page background at the bottom.
+    let mut fade = Mesh::default();
+    let corners = [
+        (rect.left_top(), Color32::TRANSPARENT),
+        (rect.right_top(), Color32::TRANSPARENT),
+        (rect.right_bottom(), background),
+        (rect.left_bottom(), background),
+    ];
+    for (pos, color) in corners {
+        fade.vertices.push(Vertex {
+            pos,
+            uv: egui::epaint::WHITE_UV,
+            color,
+        });
+    }
+    fade.indices.extend([0, 1, 2, 0, 2, 3]);
+    ui.painter().add(Shape::mesh(fade));
 }
 
-fn character_card(
-    ui: &mut Ui,
-    name: &str,
-    card: Option<&Character>,
-    texture: Option<&eframe::egui::TextureHandle>,
-) {
-    Card::new()
-        .header(|ui| {
-            Card::title(ui, name);
-            Card::description(ui, "Character");
-        })
-        .content(|ui| match card {
-            Some(card) => {
-                ui.horizontal_top(|ui| {
-                    ui.add(Picture::new(texture, IconKind::User).size(PICTURE_SIZE));
-                    ui.vertical(|ui| {
-                        field(ui, "Description", &card.description);
-                        if !card.personality.is_empty() {
-                            ui.add(Label::new("Personality").small().muted());
-                            ui.horizontal_wrapped(|ui| {
-                                for trait_ in &card.personality {
-                                    ui.add(Badge::new(trait_).variant(BadgeVariant::Secondary));
-                                }
-                            });
+fn world_section(ui: &mut Ui, name: &str, world: Option<&Lorebook>) {
+    ui.add(Label::new("World").small().muted());
+    ui.add(Label::new(name).heading());
+    match world {
+        Some(world) => {
+            field(ui, "Setting", &world.setting);
+            if !world.entries.is_empty() {
+                ui.add(Label::new("Lore entries").small().muted());
+                for entry in &world.entries {
+                    ui.horizontal_wrapped(|ui| {
+                        for key in &entry.keys {
+                            ui.add(Badge::new(key).variant(BadgeVariant::Outline));
                         }
                     });
-                });
-                field(ui, "Speaking style", &card.speaking_style);
-                field(ui, "Background", &card.background);
-                field(ui, "Greeting", &card.greeting);
+                    ui.add(Label::new(&entry.content).small());
+                }
             }
-            None => {
-                ui.add(
-                    Label::new(
-                        "This card is not in your library any more. The story keeps its own copy.",
-                    )
+        }
+        None => {
+            ui.add(
+                Label::new("This world is not in your library any more. The story keeps working without its lore.")
                     .small()
                     .muted(),
-                );
-            }
-        })
-        .show(ui);
+            );
+        }
+    }
+}
+
+/// One character as a list item: picture, name, and a button to take it out of the story.
+/// Returns whether remove was clicked.
+fn character_item(ui: &mut Ui, name: &str, texture: Option<&TextureHandle>) -> bool {
+    let mut remove = false;
+    ui.horizontal(|ui| {
+        ui.add(
+            Picture::new(texture, IconKind::User)
+                .size(AVATAR_SIZE)
+                .circle(),
+        );
+        let room = (ui.available_width() - 32.0 - spacing::SM).max(0.0);
+        ui.add(Label::new(name).max_width(room));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let button = Button::new("")
+                .icon(IconKind::Trash)
+                .variant(ButtonVariant::Ghost)
+                .size(ButtonSize::Icon);
+            remove = ui
+                .add(button)
+                .on_hover_text("Remove from the story")
+                .clicked();
+        });
+    });
+    remove
 }
 
 /// Draw the page. The back button returns to the chat.
@@ -132,25 +150,33 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         .characters
         .iter()
         .map(|name| {
-            let card = app
+            let image = app
                 .characters
                 .iter()
                 .find(|e| e.item.name == *name)
-                .map(|e| e.item.clone());
-            let texture = card
-                .as_ref()
-                .and_then(|c| c.image.clone())
-                .and_then(|image| app.picture(&ctx, &image));
-            (name.clone(), card, texture)
+                .and_then(|e| e.item.image.clone());
+            let texture = image.and_then(|image| app.picture(&ctx, &image));
+            (name.clone(), texture)
         })
         .collect();
 
-    ui.horizontal(|ui| {
+    let mut remove = None;
+    ScrollArea::vertical().id_salt("story-info").show(ui, |ui| {
+        let banner = world.as_ref().and_then(|(_, _, banner)| banner.as_ref());
+        if let Some(texture) = banner {
+            paint_backdrop(ui, texture);
+        }
+        ui.spacing_mut().item_spacing.y = spacing::MD;
+        ui.add_space(BANNER_INSET);
         let back = Button::new("Back")
             .icon(IconKind::ArrowLeft)
             .variant(ButtonVariant::Outline);
         if ui.add(back).clicked() {
             app.story_info = false;
+        }
+        if banner.is_some() {
+            // The title sits low on the picture, where it has faded out.
+            ui.add_space(BANNER_HEIGHT - 120.0);
         }
         let room = ui.available_width();
         ui.add(
@@ -158,10 +184,6 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 .heading()
                 .max_width(room),
         );
-    });
-    ui.add_space(spacing::SM);
-    ScrollArea::vertical().id_salt("story-info").show(ui, |ui| {
-        ui.spacing_mut().item_spacing.y = spacing::MD;
         ui.add(
             Label::new(format!(
                 "{} \u{b7} {} \u{b7} ~{} tokens used",
@@ -172,27 +194,26 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             .small()
             .muted(),
         );
+        ui.add(Separator::horizontal());
         match &world {
-            Some((name, card, banner)) => world_card(ui, name, card.as_ref(), banner.as_ref()),
+            Some((name, card, _)) => world_section(ui, name, card.as_ref()),
             None => {
-                Card::new()
-                    .header(|ui| {
-                        Card::title(ui, "World");
-                        Card::description(ui, "This story has no world.");
-                    })
-                    .show(ui);
+                ui.add(Label::new("World").small().muted());
+                ui.add(Label::new("This story has no world.").small().muted());
             }
         }
+        ui.add(Separator::horizontal());
+        ui.add(Label::new("Characters").small().muted());
         if characters.is_empty() {
-            Card::new()
-                .header(|ui| {
-                    Card::title(ui, "Characters");
-                    Card::description(ui, "Nobody is in the scene yet.");
-                })
-                .show(ui);
+            ui.add(Label::new("Nobody is in the scene yet.").small().muted());
         }
-        for (name, card, texture) in &characters {
-            character_card(ui, name, card.as_ref(), texture.as_ref());
+        for (name, texture) in &characters {
+            if character_item(ui, name, texture.as_ref()) {
+                remove = Some(name.clone());
+            }
         }
     });
+    if let Some(name) = remove {
+        app.backend.send(Request::RemoveCharacter(name));
+    }
 }
