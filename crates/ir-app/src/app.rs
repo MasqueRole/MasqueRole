@@ -607,16 +607,16 @@ impl App {
             }
             (Section::Provider, FormAction::Save) => {
                 if let Some(form) = self.provider_form.take() {
+                    let settings = form.to_settings();
                     self.backend.send(Request::SaveSettings {
-                        settings: form.to_settings(),
+                        settings: settings.clone(),
                         api_key: form.new_api_key(),
                     });
-                    // Keep the page; the saved settings come back as an event.
-                    self.provider_form = Some(form);
+                    // Keep the page with what was saved, so Save waits for the next change;
+                    // the backend confirms with the same settings as an event.
+                    self.settings = settings;
+                    self.provider_form = Some(SettingsForm::new(&self.settings));
                 }
-            }
-            (Section::Provider, FormAction::Cancel) => {
-                self.provider_form = Some(SettingsForm::new(&self.settings));
             }
             (Section::Stories | Section::Tree | Section::Provider, _) => {}
         }
@@ -795,6 +795,14 @@ impl App {
         }
     }
 
+    /// Whether the provider page has an unsaved change: another provider, endpoint or model, or
+    /// a newly typed key.
+    fn provider_changed(&self) -> bool {
+        self.provider_form
+            .as_ref()
+            .is_some_and(|form| *form != SettingsForm::new(&self.settings))
+    }
+
     fn editor_footer(&mut self, ui: &mut Ui) {
         let can_delete = match self.section {
             Section::Characters => self
@@ -804,14 +812,18 @@ impl App {
             Section::Worlds => self.world_form.as_ref().is_some_and(|f| f.path.is_some()),
             Section::Stories | Section::Tree | Section::Provider => false,
         };
+        // The provider page has nothing to cancel; its Save waits for a change.
+        let provider = self.section == Section::Provider;
+        let can_save = !provider || self.provider_changed();
         let mut action = None;
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if ui.add(Button::new("Save")).clicked() {
+            if ui.add(Button::new("Save").enabled(can_save)).clicked() {
                 action = Some(FormAction::Save);
             }
-            if ui
-                .add(Button::new("Cancel").variant(ButtonVariant::Outline))
-                .clicked()
+            if !provider
+                && ui
+                    .add(Button::new("Cancel").variant(ButtonVariant::Outline))
+                    .clicked()
             {
                 action = Some(FormAction::Cancel);
             }
@@ -1765,11 +1777,14 @@ entries:
             form.to_settings().api.provider,
             rig.app.settings.api.provider
         );
-        // Saving keeps the page open, and cancelling starts the form over.
+        // Saving keeps the page open, and Save waits for the next change.
+        assert!(!rig.app.provider_changed(), "nothing changed yet");
+        rig.app.provider_form.as_mut().unwrap().api_key = "sk-test".into();
+        assert!(rig.app.provider_changed());
         rig.app.form_action(FormAction::Save);
         assert!(rig.app.provider_form.is_some());
-        rig.app.form_action(FormAction::Cancel);
-        assert!(rig.app.provider_form.is_some());
+        assert!(!rig.app.provider_changed(), "saved, so Save is off again");
+        rig.frame();
         rig.app.show_section(Section::Stories);
         rig.frame();
     }

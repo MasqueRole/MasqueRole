@@ -6,7 +6,7 @@
 name = "ir-app"
 product-name = "MasqueRole"
 identifier = "io.github.masquerole.masquerole"
-version = "0.10.7"
+version = "0.10.8"
 description = "Endless, consistent roleplay with the AI model of your choice."
 authors = ["MasqueRole"]
 license-file = "LICENSE"
