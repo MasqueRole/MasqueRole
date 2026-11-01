@@ -225,6 +225,9 @@ pub struct StyleSettings {
     pub profile: String,
     /// Let a narrator describe scenes.
     pub narrator_mode: bool,
+    /// Most characters that answer one message in a scene with several characters. Every
+    /// answer is another request, so a higher number costs more.
+    pub max_responders: u32,
 }
 
 impl Default for StyleSettings {
@@ -232,6 +235,7 @@ impl Default for StyleSettings {
         Self {
             profile: "default".into(),
             narrator_mode: false,
+            max_responders: crate::scene::DEFAULT_MAX_RESPONDERS as u32,
         }
     }
 }

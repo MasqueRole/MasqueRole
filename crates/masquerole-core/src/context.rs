@@ -11,6 +11,7 @@ use crate::character::Character;
 use crate::client::{ChatMessage, Role};
 use crate::db::{Node, NodeKind};
 use crate::lorebook::LoreEntry;
+use crate::scene::{witnessed, Scenes};
 use crate::settings::ContextSettings;
 
 /// Extra tokens counted per message for role markers and framing.
@@ -87,6 +88,46 @@ pub fn node_message(node: &Node) -> ChatMessage {
     }
 }
 
+/// The conversation as one character saw it: only the messages they witnessed. Their own
+/// lines are the assistant's, everything else (the player, other characters, the narrator,
+/// scene notes) comes in as labelled user messages, and neighbours of one kind are joined.
+pub fn scene_messages(path: &[Node], scenes: &Scenes, speaker: &str) -> Vec<ChatMessage> {
+    let mut out: Vec<ChatMessage> = Vec::new();
+    for node in path {
+        let scene = scenes.get(&node.id);
+        if !witnessed(scene, speaker) {
+            continue;
+        }
+        let message = match node.kind {
+            NodeKind::Character if node.speaker.as_deref() == Some(speaker) => {
+                ChatMessage::assistant(&node.content)
+            }
+            NodeKind::Character => {
+                let who = node.speaker.as_deref().unwrap_or("Someone");
+                ChatMessage::user(format!("{who}: {}", node.content))
+            }
+            NodeKind::Narrator => ChatMessage::user(format!("Narrator: {}", node.content)),
+            NodeKind::System => ChatMessage::user(format!("[Scene] {}", node.content)),
+            NodeKind::User => {
+                let to = scene.map(|s| s.addressed.as_slice()).unwrap_or_default();
+                if to.is_empty() || to == [speaker.to_string()] {
+                    ChatMessage::user(&node.content)
+                } else {
+                    ChatMessage::user(format!("Player (to {}): {}", to.join(", "), node.content))
+                }
+            }
+        };
+        match out.last_mut() {
+            Some(last) if last.role == message.role => {
+                last.content.push_str("\n\n");
+                last.content.push_str(&message.content);
+            }
+            _ => out.push(message),
+        }
+    }
+    out
+}
+
 /// Everything that can go into a prompt.
 #[derive(Clone, Copy, Debug)]
 pub struct ContextInput<'a> {
@@ -94,6 +135,9 @@ pub struct ContextInput<'a> {
     pub system_prompt: &'a str,
     /// The characters in the scene.
     pub characters: &'a [Character],
+    /// Other characters present whom the speaker can only see from outside: their names and
+    /// descriptions, nothing of their background or inner life. Empty outside group scenes.
+    pub others: &'a [Character],
     /// The world's general setting, always relevant. May be empty.
     pub world_setting: &'a str,
     /// Lorebook entries triggered by recent messages, most relevant first.
@@ -147,6 +191,7 @@ pub fn build(input: &ContextInput<'_>, settings: &ContextSettings) -> BuiltConte
     let base = Base {
         prompt: input.system_prompt,
         characters: input.characters,
+        others: input.others,
         setting: input.world_setting,
     };
 
@@ -218,6 +263,7 @@ pub fn build(input: &ContextInput<'_>, settings: &ContextSettings) -> BuiltConte
 struct Base<'a> {
     prompt: &'a str,
     characters: &'a [Character],
+    others: &'a [Character],
     setting: &'a str,
 }
 
@@ -237,6 +283,20 @@ fn render_system(base: &Base<'_>, summary: Option<&str>, facts: &[&str], lore: &
     if !base.characters.is_empty() {
         let cards: Vec<String> = base.characters.iter().map(render_character).collect();
         sections.push(format!("## Characters\n\n{}", cards.join("\n\n")));
+    }
+    if !base.others.is_empty() {
+        let lines: Vec<String> = base
+            .others
+            .iter()
+            .map(|c| match c.description.trim() {
+                "" => format!("- {}", c.name.trim()),
+                d => format!("- {}: {}", c.name.trim(), d),
+            })
+            .collect();
+        sections.push(format!(
+            "## Also present\n\nWhat you can see of the others in the scene:\n{}",
+            lines.join("\n")
+        ));
     }
     if !base.setting.trim().is_empty() {
         sections.push(format!("## World\n\n{}", base.setting.trim()));
@@ -322,6 +382,7 @@ mod tests {
                 character: "Past the map.".into(),
             }],
             image: None,
+            aliases: Vec::new(),
         }
     }
 
@@ -342,6 +403,7 @@ mod tests {
             .map(|i| LoreEntry {
                 keys: vec![format!("key{i}")],
                 content: format!("lore entry {i} {}", "z".repeat(60)),
+                known_by: Vec::new(),
             })
             .collect()
     }
@@ -378,6 +440,7 @@ mod tests {
                 &ContextInput {
                     system_prompt: "You are the game master.",
                     characters: &self.characters,
+                    others: &[],
                     world_setting: "A foggy coast.",
                     lore: &lore,
                     facts: &self.facts,
@@ -456,6 +519,7 @@ mod tests {
             &ContextInput {
                 system_prompt: "Be brief.",
                 characters: &[],
+                others: &[],
                 world_setting: "  ",
                 lore: &[],
                 facts: &[],
@@ -474,6 +538,7 @@ mod tests {
             &ContextInput {
                 system_prompt: "",
                 characters: &[],
+                others: &[],
                 world_setting: "",
                 lore: &[],
                 facts: &[],
@@ -642,5 +707,145 @@ mod tests {
             node_message(&node(NodeKind::System, None)),
             ChatMessage::system("Hello.")
         );
+    }
+
+    fn scene_node(id: i64, kind: NodeKind, speaker: Option<&str>, content: &str) -> Node {
+        Node {
+            id: crate::db::NodeId(id),
+            session_id: crate::db::SessionId(1),
+            parent_id: None,
+            kind,
+            speaker: speaker.map(Into::into),
+            content: content.into(),
+            label: None,
+            bookmark: None,
+            active_lore: Vec::new(),
+            created_at: 0,
+        }
+    }
+
+    fn who(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn a_character_only_sees_what_they_witnessed() {
+        use crate::db::{NodeId, NodeScene};
+        let path = vec![
+            scene_node(1, NodeKind::User, None, "Where is the key?"),
+            scene_node(2, NodeKind::Character, Some("Orrin"), "Mira has it."),
+            scene_node(3, NodeKind::User, None, "Orrin, the vault code is 1234."),
+            scene_node(4, NodeKind::Character, Some("Orrin"), "Understood."),
+            scene_node(5, NodeKind::System, None, "Orrin leaves."),
+            scene_node(6, NodeKind::User, None, "Mira, what now?"),
+        ];
+        let mut scenes = Scenes::new();
+        scenes.insert(
+            NodeId(3),
+            NodeScene {
+                witnesses: Some(who(&["Orrin"])),
+                addressed: who(&["Orrin"]),
+                present: None,
+            },
+        );
+        scenes.insert(
+            NodeId(4),
+            NodeScene {
+                witnesses: Some(who(&["Orrin"])),
+                ..NodeScene::default()
+            },
+        );
+        scenes.insert(
+            NodeId(6),
+            NodeScene {
+                witnesses: Some(who(&["Mira"])),
+                addressed: who(&["Mira"]),
+                present: None,
+            },
+        );
+
+        let mira = scene_messages(&path, &scenes, "Mira");
+        let text: String = mira
+            .iter()
+            .map(|m| m.content.as_str())
+            .collect::<Vec<_>>()
+            .join("|");
+        assert!(
+            !text.contains("1234"),
+            "the whisper never reaches Mira: {text}"
+        );
+        assert!(!text.contains("Understood"));
+        assert!(text.contains("Orrin: Mira has it."));
+        let last = &mira.last().unwrap().content;
+        assert!(
+            last.ends_with("Mira, what now?") && !last.contains("Player (to"),
+            "{last}"
+        );
+        // The player's message and Orrin's answer are one user message, then the next.
+        assert!(mira.iter().all(|m| m.role == Role::User));
+
+        let orrin = scene_messages(&path, &scenes, "Orrin");
+        let roles: Vec<Role> = orrin.iter().map(|m| m.role).collect();
+        assert_eq!(
+            roles,
+            vec![
+                Role::User,
+                Role::Assistant,
+                Role::User,
+                Role::Assistant,
+                Role::User
+            ]
+        );
+        assert!(orrin[2].content.contains("1234"));
+        assert!(orrin[4].content.contains("[Scene] Orrin leaves."));
+        assert!(
+            !orrin[4].content.contains("what now"),
+            "he was gone for that"
+        );
+    }
+
+    #[test]
+    fn messages_to_someone_else_are_labelled() {
+        use crate::db::{NodeId, NodeScene};
+        let path = vec![scene_node(1, NodeKind::User, None, "Take the lamp.")];
+        let scenes = Scenes::from([(
+            NodeId(1),
+            NodeScene {
+                addressed: who(&["Orrin", "Gil"]),
+                ..NodeScene::default()
+            },
+        )]);
+        let seen = scene_messages(&path, &scenes, "Mira");
+        assert_eq!(seen[0].content, "Player (to Orrin, Gil): Take the lamp.");
+    }
+
+    #[test]
+    fn others_in_the_scene_are_only_seen_from_outside() {
+        let orrin = Character {
+            name: "Orrin".into(),
+            description: "A hunter.".into(),
+            background: "Burned the old mill.".into(),
+            personality: vec!["secretive".into()],
+            ..Character::default()
+        };
+        let built = build(
+            &ContextInput {
+                system_prompt: "Be.",
+                characters: &[mira()],
+                others: &[orrin],
+                world_setting: "",
+                lore: &[],
+                facts: &[],
+                summary: None,
+                messages: &[ChatMessage::user("hi")],
+            },
+            &settings(1000, 10),
+        );
+        let system = &built.messages[0].content;
+        assert!(system.contains("## Also present"));
+        assert!(system.contains("- Orrin: A hunter."));
+        assert!(!system.contains("Burned the old mill"));
+        assert!(!system.contains("secretive"));
+        assert!(system.contains("Maps coasts."), "her own card is complete");
     }
 }

@@ -5,6 +5,7 @@
 //! actor owns the database and handles requests one at a time; model calls run as separate
 //! tasks and report back with requests of their own.
 
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::{mpsc, Arc};
 
@@ -16,9 +17,10 @@ use masquerole_core::client::{
 };
 use masquerole_core::commands::{self, CommandContext, CommandOutput};
 use masquerole_core::context::{self, ContextInput};
-use masquerole_core::db::{Db, NewNode, Node, NodeId, Session, SessionId};
+use masquerole_core::db::{Db, NewNode, Node, NodeId, NodeKind, NodeScene, Session, SessionId};
 use masquerole_core::lorebook::{LoreEntry, Lorebook};
-use masquerole_core::memory;
+use masquerole_core::memory::{self, NewFact, SceneCast};
+use masquerole_core::scene::{self, Scenes};
 use masquerole_core::settings::{self, SecretStore, Settings};
 use masquerole_core::tree::{Branch, StoryTree, Turn};
 use masquerole_core::update::{self, Release};
@@ -94,8 +96,13 @@ pub struct Transcript {
     pub session: Session,
     /// The messages on the current path, oldest first.
     pub nodes: Vec<Node>,
-    /// The names of the characters in the scene.
+    /// The names of the characters in the story.
     pub characters: Vec<String>,
+    /// The characters present now. Empty unless the story has several characters.
+    pub present: Vec<String>,
+    /// The characters the conversation is with now. Empty unless the story has several
+    /// characters.
+    pub floor: Vec<String>,
     /// Every storyline of the session, each ending at a tip. The sidebar lists them as
     /// sub-chats of the story.
     pub branches: Vec<Branch>,
@@ -216,6 +223,9 @@ pub enum Request {
         text: String,
         /// Identifiers of the lore entries that were active.
         lore: Vec<String>,
+        /// The character who answered; `None` for the narrator or a story with at most one
+        /// character.
+        speaker: Option<String>,
     },
     /// A response failed with nothing to keep.
     GenerationFailed(String),
@@ -227,13 +237,15 @@ pub enum Request {
         node: NodeId,
         /// The summary.
         text: String,
+        /// The character whose point of view it takes; `None` for the shared summary.
+        character: Option<String>,
     },
     /// New facts were extracted.
     FactsReady {
         /// The node they were learned at.
         node: NodeId,
-        /// The facts.
-        facts: Vec<String>,
+        /// The facts, with who knows them.
+        facts: Vec<NewFact>,
     },
 }
 
@@ -277,6 +289,9 @@ pub enum Event {
     Chunk(String),
     /// A response started or ended.
     Generating(bool),
+    /// The character who is about to answer, or `None` for the narrator or the end of the
+    /// answers.
+    Speaker(Option<String>),
     /// Something worth a brief message, such as a save.
     Info(String),
     /// Something went wrong.
@@ -351,6 +366,7 @@ pub fn spawn(
         characters: Vec::new(),
         worlds: Vec::new(),
         cancel: None,
+        queue: VecDeque::new(),
         watch_tree: false,
         requests: tx.clone(),
         events: events_tx,
@@ -374,6 +390,9 @@ struct Actor {
     worlds: Vec<Entry<Lorebook>>,
     /// Set while a response is being generated.
     cancel: Option<Arc<Notify>>,
+    /// The characters who still have to answer the last message, in order. `None` is the
+    /// narrator, or the only voice of a story with at most one character.
+    queue: VecDeque<Option<String>>,
     /// Whether the tree view is open and wants every change.
     watch_tree: bool,
     requests: UnboundedSender<Request>,
@@ -385,6 +404,26 @@ struct Prompt {
     messages: Vec<ChatMessage>,
     parent: NodeId,
     lore: Vec<String>,
+    speaker: Option<String>,
+}
+
+/// A story with several characters, as it stands at one node.
+struct Group {
+    cast: Vec<Character>,
+    names: Vec<String>,
+    path: Vec<Node>,
+    scenes: Scenes,
+    present: Vec<String>,
+}
+
+impl Group {
+    /// The characters the conversation is with, among those present.
+    fn floor(&self) -> Vec<String> {
+        scene::floor(&self.path, &self.scenes, &self.names)
+            .into_iter()
+            .filter(|name| self.present.contains(name))
+            .collect()
+    }
 }
 
 impl Actor {
@@ -501,24 +540,35 @@ impl Actor {
                 parent,
                 text,
                 lore,
-            } => self.generated(session, parent, &text, lore),
+                speaker,
+            } => self.generated(session, parent, &text, lore, speaker),
             Request::Usage { session, tokens } => self.add_usage(session, tokens),
             Request::GenerationFailed(message) => {
                 self.cancel = None;
+                self.queue.clear();
                 self.emit(Event::Generating(false));
+                self.emit(Event::Speaker(None));
                 self.error(message);
             }
             Request::GenerationStopped => {
                 self.cancel = None;
+                self.queue.clear();
                 self.emit(Event::Generating(false));
+                self.emit(Event::Speaker(None));
             }
-            Request::SummaryReady { node, text } => {
+            Request::SummaryReady {
+                node,
+                text,
+                character,
+            } => {
                 // The node may have been pruned meanwhile; then the summary is moot.
-                let _ = self.db.add_summary(node, &text);
+                let _ = self.db.add_summary_for(node, &text, character.as_deref());
             }
             Request::FactsReady { node, facts } => {
                 for fact in facts {
-                    let _ = self.db.add_fact(node, &fact);
+                    let _ = self
+                        .db
+                        .add_fact_for(node, &fact.text, fact.known_by.as_deref());
                 }
             }
         }
@@ -733,10 +783,19 @@ impl Actor {
                 .map(|c| c.name)
                 .collect();
             let branches = StoryTree::new(&self.db, id).branches().unwrap_or_default();
+            let (present, floor) = match self.group(id) {
+                Ok(Some(group)) => {
+                    let floor = group.floor();
+                    (group.present, floor)
+                }
+                _ => (Vec::new(), Vec::new()),
+            };
             Ok(Transcript {
                 session,
                 nodes,
                 characters,
+                present,
+                floor,
                 branches,
             })
         })();
@@ -815,24 +874,39 @@ impl Actor {
     /// `/compact`: summarize everything before the newest two messages. The summary arrives
     /// as [`Request::SummaryReady`], like the automatic ones.
     fn compact(&self, session: SessionId) {
-        let plan = (|| -> Result<Option<memory::SummaryJob>, String> {
+        let plan = (|| -> Result<Vec<memory::SummaryJob>, String> {
             let db_err = |e: masquerole_core::db::DbError| e.to_string();
             let Some(current) = self.db.session(session).map_err(db_err)?.current_node_id else {
-                return Ok(None);
+                return Ok(Vec::new());
             };
             let path = self.db.path_to_root(current).map_err(db_err)?;
             let summary = self.db.summary_at(current).map_err(db_err)?;
-            Ok(memory::plan_compact(&path, summary.as_ref()))
+            let mut jobs: Vec<memory::SummaryJob> = memory::plan_compact(&path, summary.as_ref())
+                .into_iter()
+                .collect();
+            // In a scene with several characters each one keeps a summary of their own.
+            if let Some(group) = self.group(session)? {
+                for name in &group.names {
+                    let seen: Vec<Node> = scene::witnessed_by(&path, &group.scenes, name)
+                        .into_iter()
+                        .cloned()
+                        .collect();
+                    let own = self.db.summary_for(current, Some(name)).map_err(db_err)?;
+                    jobs.extend(memory::plan_compact_as(&seen, own.as_ref(), Some(name)));
+                }
+            }
+            Ok(jobs)
         })();
-        let job = match plan {
-            Ok(Some(job)) => job,
-            Ok(None) => {
+        let jobs = match plan {
+            Ok(jobs) if !jobs.is_empty() => jobs,
+            Ok(_) => {
                 return self.emit(Event::Notice(Notice::plain(
                     "There is nothing to compact yet. The newest two messages always stay.",
                 )))
             }
             Err(e) => return self.error(e),
         };
+        let message_count = jobs[0].message_count;
         if self.limit_reached(session) {
             return self.error("This story has reached the token limit.");
         }
@@ -840,10 +914,11 @@ impl Actor {
             Ok(provider) => provider,
             Err(e) => return self.error(e),
         };
-        self.add_usage(session, job.estimated_tokens());
+        for job in &jobs {
+            self.add_usage(session, job.estimated_tokens());
+        }
         self.emit(Event::Notice(Notice::plain(format!(
-            "Compacting {} messages...",
-            job.message_count
+            "Compacting {message_count} messages..."
         ))));
         let (requests, events, wake) = (
             self.requests.clone(),
@@ -851,24 +926,29 @@ impl Actor {
             self.wake.clone(),
         );
         tokio::spawn(async move {
-            match memory::summarize(provider.as_ref(), &job).await {
-                Ok(text) => {
-                    let _ = requests.send(Request::Usage {
-                        session,
-                        tokens: context::estimate_tokens(&text),
-                    });
-                    let _ = requests.send(Request::SummaryReady {
-                        node: job.through_node,
-                        text,
-                    });
-                    let _ = events.send(Event::Info(format!(
-                        "Compacted {} messages.",
-                        job.message_count
-                    )));
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "compacting failed");
-                    let _ = events.send(Event::Error(format!("Could not compact: {e}")));
+            for job in jobs {
+                match memory::summarize(provider.as_ref(), &job).await {
+                    Ok(text) => {
+                        let _ = requests.send(Request::Usage {
+                            session,
+                            tokens: context::estimate_tokens(&text),
+                        });
+                        let _ = requests.send(Request::SummaryReady {
+                            node: job.through_node,
+                            text,
+                            character: job.character.clone(),
+                        });
+                        if job.character.is_none() {
+                            let _ = events.send(Event::Info(format!(
+                                "Compacted {} messages.",
+                                job.message_count
+                            )));
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "compacting failed");
+                        let _ = events.send(Event::Error(format!("Could not compact: {e}")));
+                    }
                 }
             }
             wake();
@@ -982,14 +1062,118 @@ impl Actor {
         match commands::parse(text) {
             Err(e) => self.error(e),
             Ok(Some(command)) => self.run_command(session, &command),
-            Ok(None) => match StoryTree::new(&self.db, session).append(Turn::user(text)) {
-                Ok(_) => {
-                    self.emit_transcript();
-                    self.start_generation();
-                }
-                Err(e) => self.error(e),
-            },
+            Ok(None) => self.send_message(session, text),
         }
+    }
+
+    /// Store the player's message and start the answers. In a story with several characters
+    /// this decides who is spoken to and who answers; otherwise there is one answer.
+    fn send_message(&mut self, session: SessionId, text: &str) {
+        let result = (|| -> Result<Vec<Option<String>>, String> {
+            let group = self.group(session)?;
+            let node = StoryTree::new(&self.db, session)
+                .append(Turn::user(text))
+                .map_err(|e| e.to_string())?;
+            let Some(group) = group else {
+                return Ok(vec![None]);
+            };
+            let resolution = scene::resolve(
+                text,
+                &group.cast,
+                &group.present,
+                &group.floor(),
+                self.settings.style.max_responders as usize,
+            );
+            self.db
+                .set_node_scene(
+                    node.id,
+                    &NodeScene {
+                        witnesses: Some(group.present.clone()),
+                        addressed: resolution.addressed.clone(),
+                        present: None,
+                    },
+                )
+                .map_err(|e| e.to_string())?;
+            Ok(self.voices(resolution.responders))
+        })();
+        match result {
+            Ok(voices) => {
+                self.queue = voices.into();
+                self.emit_transcript();
+                self.next_voice();
+            }
+            Err(e) => self.error(e),
+        }
+    }
+
+    /// Who answers, given the characters the message called for: with narrator mode on, or
+    /// when nobody was called, the narrator does.
+    fn voices(&self, responders: Vec<String>) -> Vec<Option<String>> {
+        if self.settings.style.narrator_mode || responders.is_empty() {
+            vec![None]
+        } else {
+            responders.into_iter().map(Some).collect()
+        }
+    }
+
+    /// Start the next answer in the queue, if there is one.
+    fn next_voice(&mut self) {
+        if let Some(speaker) = self.queue.pop_front() {
+            self.start_generation(speaker);
+        }
+    }
+
+    /// Answer again after `/retry`. The answer that was set aside names who answers; with
+    /// none, the last message decides again.
+    fn regenerate(&mut self, session: SessionId, replaced: Option<NodeId>) {
+        let voices = match replaced.and_then(|id| self.db.node(id).ok()) {
+            Some(node) if node.kind == NodeKind::Character && node.speaker.is_some() => {
+                vec![node.speaker]
+            }
+            Some(_) => vec![None],
+            None => self.voices_for_last_message(session),
+        };
+        self.queue = voices.into();
+        self.next_voice();
+    }
+
+    /// Who answers the player's last message: those it was addressed to, or else whoever the
+    /// scene before it calls for.
+    fn voices_for_last_message(&self, session: SessionId) -> Vec<Option<String>> {
+        let lookup = || -> Result<Vec<String>, String> {
+            let db_err = |e: masquerole_core::db::DbError| e.to_string();
+            let current = self
+                .db
+                .session(session)
+                .map_err(db_err)?
+                .current_node_id
+                .ok_or("no message")?;
+            let node = self.db.node(current).map_err(db_err)?;
+            let stored = self
+                .db
+                .scenes_on_path(current)
+                .map_err(db_err)?
+                .remove(&current)
+                .map(|s| s.addressed)
+                .unwrap_or_default();
+            if !stored.is_empty() {
+                return Ok(stored);
+            }
+            let Some(group) = self.group_at(session, node.parent_id)? else {
+                return Ok(Vec::new());
+            };
+            Ok(scene::resolve(
+                &node.content,
+                &group.cast,
+                &group.present,
+                &group.floor(),
+                self.settings.style.max_responders as usize,
+            )
+            .responders)
+        };
+        let responders = lookup().unwrap_or_default();
+        let max = self.settings.style.max_responders.max(1) as usize;
+        self.voices(responders.into_iter().take(max).collect())
     }
 
     fn run_command(&mut self, session: SessionId, command: &commands::Command) {
@@ -1014,7 +1198,11 @@ impl Actor {
                 self.emit_transcript();
                 self.emit_sessions();
                 match output {
-                    CommandOutput::Regenerate { .. } => self.start_generation(),
+                    CommandOutput::Regenerate { replaced, .. } => self.regenerate(active, replaced),
+                    CommandOutput::Whisper { target } => {
+                        self.queue = VecDeque::from([Some(target)]);
+                        self.next_voice();
+                    }
                     CommandOutput::Compact => self.compact(active),
                     other => self.emit(Event::Notice(format::notice(&other))),
                 }
@@ -1034,15 +1222,78 @@ impl Actor {
             .collect())
     }
 
-    fn build_prompt(&self, session_id: SessionId) -> Result<Prompt, String> {
+    /// The story at its current node as a scene with several characters, or `None` when it
+    /// has at most one.
+    fn group(&self, session: SessionId) -> Result<Option<Group>, String> {
+        let current = self
+            .db
+            .session(session)
+            .map_err(|e| e.to_string())?
+            .current_node_id;
+        self.group_at(session, current)
+    }
+
+    /// Like [`group`](Self::group), at the end of the path to `node`.
+    fn group_at(&self, session: SessionId, node: Option<NodeId>) -> Result<Option<Group>, String> {
+        let cast = self.session_characters(session)?;
+        if cast.len() < 2 {
+            return Ok(None);
+        }
+        let db_err = |e: masquerole_core::db::DbError| e.to_string();
+        let (path, scenes) = match node {
+            Some(id) => (
+                self.db.path_to_root(id).map_err(db_err)?,
+                self.db.scenes_on_path(id).map_err(db_err)?,
+            ),
+            None => (Vec::new(), Scenes::new()),
+        };
+        let names: Vec<String> = cast.iter().map(|c| c.name.clone()).collect();
+        let present = scene::present_on(&path, &scenes, &names);
+        Ok(Some(Group {
+            cast,
+            names,
+            path,
+            scenes,
+            present,
+        }))
+    }
+
+    /// The prompt for `speaker`, or for the narrator when `None`. In a story with several
+    /// characters a speaker's prompt holds only what that character witnessed and knows.
+    fn build_prompt(&self, session_id: SessionId, speaker: Option<&str>) -> Result<Prompt, String> {
         let db_err = |e: masquerole_core::db::DbError| e.to_string();
         let session = self.db.session(session_id).map_err(db_err)?;
         let current = session
             .current_node_id
             .ok_or("The story has no messages yet.")?;
         let path = self.db.path_to_root(current).map_err(db_err)?;
-        let messages: Vec<ChatMessage> = path.iter().map(context::node_message).collect();
-        let characters = self.session_characters(session_id)?;
+        let group = self.group(session_id)?;
+        let view = match (&group, speaker) {
+            (Some(group), Some(name)) => Some((group, name)),
+            _ => None,
+        };
+        let messages: Vec<ChatMessage> = match view {
+            Some((group, name)) => context::scene_messages(&path, &group.scenes, name),
+            None => path.iter().map(context::node_message).collect(),
+        };
+        let all_characters = self.session_characters(session_id)?;
+        let (characters, others): (Vec<Character>, Vec<Character>) = match view {
+            Some((group, name)) => (
+                group
+                    .cast
+                    .iter()
+                    .filter(|c| c.name == name)
+                    .cloned()
+                    .collect(),
+                group
+                    .cast
+                    .iter()
+                    .filter(|c| c.name != name && group.present.contains(&c.name))
+                    .cloned()
+                    .collect(),
+            ),
+            None => (all_characters.clone(), Vec::new()),
+        };
 
         let world = session
             .world
@@ -1053,24 +1304,45 @@ impl Actor {
         let recent: Vec<&str> = path
             .iter()
             .rev()
+            .filter(|n| match view {
+                Some((group, name)) => scene::witnessed(group.scenes.get(&n.id), name),
+                None => true,
+            })
             .take(window)
             .map(|n| n.content.as_str())
             .collect();
-        let lore: Vec<&LoreEntry> = world.map(|w| w.triggered(&recent)).unwrap_or_default();
+        let lore: Vec<&LoreEntry> = world
+            .map(|w| w.triggered(&recent))
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|entry| view.is_none_or(|(_, name)| entry.is_known_by(name)))
+            .collect();
         let facts: Vec<String> = self
             .db
             .facts_at(current)
             .map_err(db_err)?
             .into_iter()
+            .filter(|f| match (view, &f.known_by) {
+                (Some((_, name)), Some(known_by)) => known_by.iter().any(|n| n == name),
+                _ => true,
+            })
             .map(|f| f.text)
             .collect();
-        let summary = self.db.summary_at(current).map_err(db_err)?.map(|s| s.text);
+        let summary = match view {
+            Some((_, name)) => self.db.summary_for(current, Some(name)).map_err(db_err)?,
+            None => self.db.summary_at(current).map_err(db_err)?,
+        }
+        .map(|s| s.text);
 
-        let system_prompt = prompts::system_prompt(&self.settings, &characters);
+        let system_prompt = match view {
+            Some((_, name)) => prompts::speaker_prompt(&self.settings, name),
+            None => prompts::system_prompt(&self.settings, &characters),
+        };
         let built = context::build(
             &ContextInput {
                 system_prompt: &system_prompt,
                 characters: &characters,
+                others: &others,
                 world_setting: world.map_or("", |w| w.setting.as_str()),
                 lore: &lore,
                 facts: &facts,
@@ -1083,6 +1355,7 @@ impl Actor {
             messages: built.messages,
             parent: current,
             lore: lore.iter().map(|e| e.id().to_string()).collect(),
+            speaker: speaker.map(Into::into),
         })
     }
 
@@ -1117,21 +1390,31 @@ impl Actor {
         self.settings.limits.reached(used)
     }
 
-    fn start_generation(&mut self) {
-        let Some(session) = self.session else { return };
+    fn start_generation(&mut self, speaker: Option<String>) {
+        let Some(session) = self.session else {
+            self.queue.clear();
+            return;
+        };
         if self.limit_reached(session) {
+            self.queue.clear();
             return self.error(format!(
                 "This story has reached the token limit ({}). Raise the limit or turn it off in Settings, under Limits.",
                 format::tokens(i64::from(self.settings.limits.token_limit))
             ));
         }
-        let prompt = match self.build_prompt(session) {
+        let prompt = match self.build_prompt(session, speaker.as_deref()) {
             Ok(prompt) => prompt,
-            Err(e) => return self.error(e),
+            Err(e) => {
+                self.queue.clear();
+                return self.error(e);
+            }
         };
         let provider = match self.provider() {
             Ok(provider) => provider,
-            Err(e) => return self.error(e),
+            Err(e) => {
+                self.queue.clear();
+                return self.error(e);
+            }
         };
         self.add_usage(
             session,
@@ -1146,6 +1429,7 @@ impl Actor {
         self.cancel = Some(cancel.clone());
         tracing::debug!(session = ?session, "generation started");
         self.emit(Event::Generating(true));
+        self.emit(Event::Speaker(prompt.speaker.clone()));
 
         let (requests, events, wake) = (
             self.requests.clone(),
@@ -1179,6 +1463,7 @@ impl Actor {
                         parent: prompt.parent,
                         text: outcome.text,
                         lore: prompt.lore,
+                        speaker: prompt.speaker,
                     }
                 }
                 (true, End::Cancelled) => Request::GenerationStopped,
@@ -1192,12 +1477,21 @@ impl Actor {
     }
 
     fn stop(&mut self) {
+        // Stopping ends the whole round of answers, not only the one that is being written.
+        self.queue.clear();
         if let Some(cancel) = &self.cancel {
             cancel.notify_one();
         }
     }
 
-    fn generated(&mut self, session: SessionId, parent: NodeId, text: &str, lore: Vec<String>) {
+    fn generated(
+        &mut self,
+        session: SessionId,
+        parent: NodeId,
+        text: &str,
+        lore: Vec<String>,
+        speaker: Option<String>,
+    ) {
         self.cancel = None;
         self.add_usage(session, context::estimate_tokens(text));
         let result = (|| -> Result<NodeId, String> {
@@ -1211,7 +1505,12 @@ impl Actor {
                 .into_iter()
                 .map(|c| c.name)
                 .collect();
-            let turn = prompts::response_turn(&self.settings, &names, text.trim()).with_lore(lore);
+            let group = self.group_at(session, Some(parent))?;
+            let turn = match (&group, &speaker) {
+                (Some(_), Some(name)) => Turn::character(name, prompts::clean_reply(text, name)),
+                _ => prompts::response_turn(&self.settings, &names, text.trim()),
+            }
+            .with_lore(lore);
             let node = self
                 .db
                 .add_node(&NewNode {
@@ -1224,6 +1523,24 @@ impl Actor {
                     active_lore: turn.active_lore,
                 })
                 .map_err(|e| e.to_string())?;
+            if let Some(group) = &group {
+                // Whoever was present saw the answer, unless it answers a whisper: then only
+                // those who heard the whisper did.
+                let heard = group.scenes.get(&parent).and_then(|s| s.witnesses.clone());
+                let witnesses = match heard {
+                    Some(heard) if heard.len() < group.present.len() => heard,
+                    _ => group.present.clone(),
+                };
+                self.db
+                    .set_node_scene(
+                        node.id,
+                        &NodeScene {
+                            witnesses: Some(witnesses),
+                            ..NodeScene::default()
+                        },
+                    )
+                    .map_err(|e| e.to_string())?;
+            }
             // Move on to the response unless the user went elsewhere in the meantime.
             if current == Some(parent) {
                 self.db
@@ -1238,11 +1555,18 @@ impl Actor {
                     self.emit_transcript();
                 }
                 self.emit_sessions();
-                self.emit(Event::Generating(false));
                 self.after_turn(node);
+                if self.queue.is_empty() {
+                    self.emit(Event::Generating(false));
+                    self.emit(Event::Speaker(None));
+                } else {
+                    self.next_voice();
+                }
             }
             Err(e) => {
+                self.queue.clear();
                 self.emit(Event::Generating(false));
+                self.emit(Event::Speaker(None));
                 self.error(e);
             }
         }
@@ -1268,30 +1592,55 @@ impl Actor {
             return;
         }
 
+        let group = self.group_at(session, Some(node)).ok().flatten();
+        let mut jobs: Vec<memory::SummaryJob> = Vec::new();
         if let Ok(summary) = self.db.summary_at(node) {
-            if let Some(job) = memory::plan_summary(&path, summary.as_ref(), &self.settings) {
-                self.add_usage(session, job.estimated_tokens());
-                let (provider, requests, events) =
-                    (provider.clone(), self.requests.clone(), self.events.clone());
-                tokio::spawn(async move {
-                    match memory::summarize(provider.as_ref(), &job).await {
-                        Ok(text) => {
-                            let _ = requests.send(Request::Usage {
-                                session,
-                                tokens: context::estimate_tokens(&text),
-                            });
-                            let _ = requests.send(Request::SummaryReady {
-                                node: job.through_node,
-                                text,
-                            });
-                        }
-                        Err(e) => {
-                            tracing::warn!(error = %e, "summarizing failed");
-                            let _ = events.send(Event::Error(format!("Could not summarize: {e}")));
-                        }
-                    }
-                });
+            jobs.extend(memory::plan_summary(
+                &path,
+                summary.as_ref(),
+                &self.settings,
+            ));
+        }
+        // In a scene with several characters each one also keeps a summary of what they saw.
+        if let Some(group) = &group {
+            for name in &group.names {
+                let seen: Vec<Node> = scene::witnessed_by(&path, &group.scenes, name)
+                    .into_iter()
+                    .cloned()
+                    .collect();
+                if let Ok(own) = self.db.summary_for(node, Some(name)) {
+                    jobs.extend(memory::plan_summary_as(
+                        &seen,
+                        own.as_ref(),
+                        &self.settings,
+                        Some(name),
+                    ));
+                }
             }
+        }
+        for job in jobs {
+            self.add_usage(session, job.estimated_tokens());
+            let (provider, requests, events) =
+                (provider.clone(), self.requests.clone(), self.events.clone());
+            tokio::spawn(async move {
+                match memory::summarize(provider.as_ref(), &job).await {
+                    Ok(text) => {
+                        let _ = requests.send(Request::Usage {
+                            session,
+                            tokens: context::estimate_tokens(&text),
+                        });
+                        let _ = requests.send(Request::SummaryReady {
+                            node: job.through_node,
+                            text,
+                            character: job.character.clone(),
+                        });
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "summarizing failed");
+                        let _ = events.send(Event::Error(format!("Could not summarize: {e}")));
+                    }
+                }
+            });
         }
 
         let known: Vec<String> = self
@@ -1300,15 +1649,40 @@ impl Actor {
             .map(|facts| facts.into_iter().map(|f| f.text).collect())
             .unwrap_or_default();
         let newest = &path[path.len().saturating_sub(2)..];
-        if let Some(job) = memory::plan_fact_extraction(newest, &known, &self.settings) {
+        let cast = group.as_ref().map(|g| SceneCast {
+            names: &g.present,
+            scenes: &g.scenes,
+        });
+        if let Some(job) = memory::plan_scene_fact_extraction(newest, &known, &self.settings, cast)
+        {
             self.add_usage(session, job.estimated_tokens());
             let (requests, events) = (self.requests.clone(), self.events.clone());
+            let names = group.map(|g| g.names);
             tokio::spawn(async move {
-                match memory::extract_facts(provider.as_ref(), &job, &known).await {
+                let found = match &names {
+                    Some(names) => {
+                        memory::extract_scene_facts(provider.as_ref(), &job, &known, names).await
+                    }
+                    None => memory::extract_facts(provider.as_ref(), &job, &known)
+                        .await
+                        .map(|facts| {
+                            facts
+                                .into_iter()
+                                .map(|text| NewFact {
+                                    text,
+                                    known_by: None,
+                                })
+                                .collect()
+                        }),
+                };
+                match found {
                     Ok(facts) if !facts.is_empty() => {
                         let _ = requests.send(Request::Usage {
                             session,
-                            tokens: facts.iter().map(|f| context::estimate_tokens(f)).sum(),
+                            tokens: facts
+                                .iter()
+                                .map(|f| context::estimate_tokens(&f.text))
+                                .sum(),
                         });
                         let _ = requests.send(Request::FactsReady {
                             node: job.node_id,
@@ -1422,6 +1796,30 @@ mod tests {
             })
         }
 
+        /// Like [`new`](Self::new), but `complete` answers with `reply`.
+        fn with_reply(chunks: &[&'static str], reply: &str) -> Arc<Self> {
+            Arc::new(Self {
+                reply: reply.into(),
+                ..Arc::try_unwrap(Self::new(chunks)).ok().expect("fresh mock")
+            })
+        }
+
+        /// The prompts sent for `speaker`'s answers, oldest first.
+        fn prompts_for(&self, speaker: &str) -> Vec<Vec<ChatMessage>> {
+            let start = if speaker.is_empty() {
+                "You are the game master".to_string()
+            } else {
+                format!("You are {speaker},")
+            };
+            self.seen
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|m| m.first().is_some_and(|s| s.content.starts_with(&start)))
+                .cloned()
+                .collect()
+        }
+
         fn slow(chunks: &[&'static str], delay: Duration) -> Arc<Self> {
             Arc::new(Self {
                 delay,
@@ -1489,6 +1887,13 @@ description: "A cartographer and reluctant adventurer."
 personality: [curious, sarcastic]
 speaking_style: "Dry, short sentences."
 greeting: "Ah, another one who got lost?"
+"#;
+
+    const ORRIN: &str = r#"
+name: "Orrin Hale"
+description: "A quiet hunter."
+personality: [guarded]
+background: "Secretly burned the old mill."
 "#;
 
     const COAST: &str = r#"
@@ -1602,6 +2007,17 @@ entries:
                 character: Some("Mira Valen".into()),
             });
             self.wait_for_transcript(|t| t.nodes.len() == 1)
+        }
+
+        /// A story with Mira and Orrin, both present.
+        fn start_group(&self) -> Transcript {
+            self.backend.send(Request::SaveCharacter {
+                path: None,
+                character: Character::from_yaml(ORRIN).unwrap(),
+            });
+            self.start_story();
+            self.backend.send(Request::Send("/char Orrin Hale".into()));
+            self.wait_for_transcript(|t| t.characters.len() == 2)
         }
 
         /// Send a message and wait until the response is stored and generation ends.
@@ -2356,5 +2772,216 @@ entries:
         let t = rig.chat("Another path.");
         assert_eq!(t.branches.len(), 2, "the old storyline and the new one");
         assert_eq!(t.nodes.len(), 3);
+    }
+
+    fn text_of(messages: &[ChatMessage]) -> String {
+        messages
+            .iter()
+            .map(|m| m.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_character_who_is_called_answers_from_a_prompt_that_is_only_theirs() {
+        let rig = Rig::start("group-call", Mock::new(&["I saw nothing."]), true, false);
+        rig.start_group();
+        let t = rig.chat("Orrin Hale, what did you see?");
+        let last = t.nodes.last().unwrap();
+        assert_eq!(
+            (last.kind, last.speaker.as_deref(), last.content.as_str()),
+            (NodeKind::Character, Some("Orrin Hale"), "I saw nothing.")
+        );
+        assert_eq!(t.present, ["Mira Valen", "Orrin Hale"]);
+        assert_eq!(t.floor, ["Orrin Hale"]);
+
+        let prompts = rig.mock.prompts_for("Orrin Hale");
+        assert_eq!(prompts.len(), 1);
+        let system = &prompts[0][0].content;
+        assert!(
+            system.contains("Secretly burned the old mill"),
+            "his own card"
+        );
+        assert!(
+            system.contains("Mira Valen: A cartographer"),
+            "others from outside"
+        );
+        assert!(
+            !system.contains("sarcastic"),
+            "nothing of Mira's inner life"
+        );
+        assert!(!system.contains("Dry, short sentences"));
+        assert!(
+            rig.mock.prompts_for("Mira Valen").is_empty(),
+            "she was not asked"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_conversation_stays_with_whoever_has_the_floor() {
+        let rig = Rig::start("group-floor", Mock::new(&["Hm."]), true, false);
+        rig.start_group();
+        rig.chat("@Orrin Hale hello");
+        let t = rig.chat("And what about the lamp?");
+        let speakers: Vec<_> = t
+            .nodes
+            .iter()
+            .filter(|n| n.kind == NodeKind::Character)
+            .map(|n| n.speaker.as_deref().unwrap())
+            .collect();
+        assert_eq!(speakers, ["Mira Valen", "Orrin Hale", "Orrin Hale"]);
+        // Calling the other one by name hands the floor over.
+        let t = rig.chat("Mira, what do you think?");
+        assert_eq!(
+            t.nodes.last().unwrap().speaker.as_deref(),
+            Some("Mira Valen")
+        );
+        assert_eq!(t.floor, ["Mira Valen"]);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn everyone_answers_in_turn_and_later_voices_hear_the_earlier_ones() {
+        let rig = Rig::start("group-all", Mock::new(&["Yes."]), true, false);
+        rig.start_group();
+        let t = rig.chat("Everyone, did you hear that?");
+        let answers: Vec<_> = t.nodes[t.nodes.len() - 2..]
+            .iter()
+            .map(|n| (n.kind, n.speaker.as_deref().unwrap()))
+            .collect();
+        assert_eq!(
+            answers,
+            [
+                (NodeKind::Character, "Mira Valen"),
+                (NodeKind::Character, "Orrin Hale")
+            ]
+        );
+        let orrin = &rig.mock.prompts_for("Orrin Hale")[0];
+        assert!(
+            text_of(orrin).contains("Mira Valen: Yes."),
+            "he heard her answer first"
+        );
+        assert_eq!(
+            orrin.last().unwrap().role,
+            masquerole_core::client::Role::User
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_whisper_is_heard_by_one_character_only() {
+        let rig = Rig::start("group-whisper", Mock::new(&["Understood."]), true, false);
+        rig.start_group();
+        let t = rig.chat("/whisper Mira Valen: the vault code is 1234");
+        assert_eq!(
+            t.nodes.last().unwrap().speaker.as_deref(),
+            Some("Mira Valen")
+        );
+
+        rig.chat("Orrin Hale, what do you know?");
+        let orrin = &rig.mock.prompts_for("Orrin Hale")[0];
+        assert!(!text_of(orrin).contains("1234"), "he never heard it");
+        assert!(!text_of(orrin).contains("Understood"), "nor her answer");
+
+        rig.chat("Mira Valen, remind me.");
+        let mira = rig.mock.prompts_for("Mira Valen");
+        assert!(
+            text_of(mira.last().unwrap()).contains("1234"),
+            "she remembers"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn someone_who_left_neither_answers_nor_hears_what_follows() {
+        let rig = Rig::start("group-leave", Mock::new(&["Gone."]), true, false);
+        rig.start_group();
+        rig.backend.send(Request::Send("/leave Orrin Hale".into()));
+        let t = rig.wait_for_transcript(|t| t.present.len() == 1);
+        assert_eq!(t.present, ["Mira Valen"]);
+
+        let t = rig.chat("Is anyone there?");
+        assert_eq!(
+            t.nodes.last().unwrap().speaker.as_deref(),
+            Some("Mira Valen")
+        );
+        // Asking for the one who left reaches nobody: the only one here answers.
+        let t = rig.chat("Orrin Hale, come back!");
+        assert_eq!(
+            t.nodes.last().unwrap().speaker.as_deref(),
+            Some("Mira Valen")
+        );
+
+        rig.backend.send(Request::Send("/enter Orrin Hale".into()));
+        rig.wait_for_transcript(|t| t.present.len() == 2);
+        rig.chat("Orrin Hale, what did I miss?");
+        let orrin = &rig.mock.prompts_for("Orrin Hale")[0];
+        assert!(!text_of(orrin).contains("Is anyone there"), "he was away");
+        assert!(text_of(orrin).contains("what did I miss"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn facts_reach_only_the_characters_who_know_them() {
+        let rig = Rig::start(
+            "group-facts",
+            Mock::with_reply(
+                &["Noted."],
+                "- The vault code is 1234. [known by: Mira Valen]",
+            ),
+            true,
+            false,
+        );
+        rig.start_group();
+        rig.chat("Mira Valen, the vault code is 1234.");
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            rig.backend.send(Request::Send("/memory".into()));
+            let text = rig.wait_for(|e| match e {
+                Event::Notice(n) => Some(n.text.clone()),
+                _ => None,
+            });
+            if text.contains("vault code") {
+                break;
+            }
+            assert!(Instant::now() < deadline, "facts never arrived: {text}");
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+
+        rig.chat("Orrin Hale, what is the code?");
+        // The player said it out loud, so it is in the conversation Orrin heard. What the
+        // story remembers as a fact is only for Mira.
+        let orrin = &rig.mock.prompts_for("Orrin Hale")[0][0].content;
+        assert!(!orrin.contains("Known facts"), "{orrin}");
+        rig.chat("Mira Valen, what is the code?");
+        let mira = rig.mock.prompts_for("Mira Valen");
+        let system = &mira.last().unwrap()[0].content;
+        assert!(system.contains("- The vault code is 1234."), "{system}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn retry_asks_the_same_character_again_and_narrator_mode_keeps_one_voice() {
+        let rig = Rig::start("group-retry", Mock::new(&["Hm."]), true, false);
+        rig.start_group();
+        rig.chat("Orrin Hale, speak.");
+        let t = rig.chat("/retry");
+        let last = t.nodes.last().unwrap();
+        assert_eq!(last.speaker.as_deref(), Some("Orrin Hale"));
+        assert_eq!(rig.mock.prompts_for("Orrin Hale").len(), 2);
+
+        let mut settings = Settings::default();
+        settings.style.narrator_mode = true;
+        rig.backend.send(Request::SaveSettings {
+            settings,
+            api_key: None,
+        });
+        let t = rig.chat("Everyone, speak.");
+        let last = t.nodes.last().unwrap();
+        assert_eq!(
+            (last.kind, last.speaker.as_deref()),
+            (NodeKind::Narrator, None)
+        );
+        assert_eq!(
+            rig.mock.prompts_for("").len(),
+            1,
+            "one narrator for the whole scene"
+        );
     }
 }

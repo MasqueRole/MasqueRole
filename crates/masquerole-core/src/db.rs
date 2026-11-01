@@ -82,6 +82,18 @@ const MIGRATIONS: &[&str] = &[
         y       REAL NOT NULL
     );
 "#,
+    // Scenes with several characters: who saw a message, who it was said to, and who is
+    // present from this node on. Facts and summaries can belong to some characters only.
+    r#"
+    CREATE TABLE node_scenes (
+        node_id   INTEGER PRIMARY KEY REFERENCES nodes(id) ON DELETE CASCADE,
+        witnesses TEXT,
+        addressed TEXT,
+        present   TEXT
+    );
+    ALTER TABLE facts ADD COLUMN known_by TEXT;
+    ALTER TABLE summaries ADD COLUMN character TEXT;
+"#,
 ];
 
 /// The schema version this build writes.
@@ -287,6 +299,8 @@ pub struct Fact {
     pub text: String,
     /// Creation time, Unix seconds.
     pub created_at: i64,
+    /// The characters who know the fact; `None` means everyone.
+    pub known_by: Option<Vec<String>>,
 }
 
 /// A summary of the story up to a node.
@@ -302,6 +316,21 @@ pub struct Summary {
     pub text: String,
     /// Creation time, Unix seconds.
     pub created_at: i64,
+    /// The character whose point of view the summary is written from; `None` for the
+    /// shared summary that knows everything.
+    pub character: Option<String>,
+}
+
+/// Who took part in a message of a scene with several characters. A node without a scene
+/// belongs to a story with at most one character: everyone saw it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct NodeScene {
+    /// The characters who saw the message; `None` means everyone.
+    pub witnesses: Option<Vec<String>>,
+    /// The characters the message was said to. Empty when it was not addressed.
+    pub addressed: Vec<String>,
+    /// The characters present from this node on, when it changes who is present.
+    pub present: Option<Vec<String>>,
 }
 
 fn now() -> i64 {
@@ -354,6 +383,15 @@ fn session_from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
     })
 }
 
+/// Read a JSON list of names stored in a text column. A bad value counts as "everyone".
+fn names_from_json(text: Option<String>) -> Option<Vec<String>> {
+    serde_json::from_str(&text?).ok()
+}
+
+fn names_to_json(names: &[String]) -> String {
+    serde_json::to_string(names).unwrap_or_else(|_| "[]".into())
+}
+
 fn fact_from_row(row: &Row<'_>) -> rusqlite::Result<Fact> {
     Ok(Fact {
         id: row.get(0)?,
@@ -361,6 +399,7 @@ fn fact_from_row(row: &Row<'_>) -> rusqlite::Result<Fact> {
         node_id: row.get(2)?,
         text: row.get(3)?,
         created_at: row.get(4)?,
+        known_by: names_from_json(row.get(5)?),
     })
 }
 
@@ -371,6 +410,7 @@ fn summary_from_row(row: &Row<'_>) -> rusqlite::Result<Summary> {
         node_id: row.get(2)?,
         text: row.get(3)?,
         created_at: row.get(4)?,
+        character: row.get(5)?,
     })
 }
 
@@ -747,13 +787,25 @@ impl Db {
 
     // ---- facts ----
 
-    /// Record a fact learned at `node`.
+    /// Record a fact learned at `node` that everyone knows.
     pub fn add_fact(&self, node: NodeId, text: &str) -> Result<Fact, DbError> {
+        self.add_fact_for(node, text, None)
+    }
+
+    /// Record a fact learned at `node`. `known_by` names the characters who know it;
+    /// `None` means everyone.
+    pub fn add_fact_for(
+        &self,
+        node: NodeId,
+        text: &str,
+        known_by: Option<&[String]>,
+    ) -> Result<Fact, DbError> {
         let session = self.node(node)?.session_id;
         let t = now();
         self.conn.execute(
-            "INSERT INTO facts (session_id, node_id, text, created_at) VALUES (?1, ?2, ?3, ?4)",
-            params![session, node, text, t],
+            "INSERT INTO facts (session_id, node_id, text, created_at, known_by) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![session, node, text, t, known_by.map(names_to_json)],
         )?;
         Ok(Fact {
             id: FactId(self.conn.last_insert_rowid()),
@@ -761,6 +813,7 @@ impl Db {
             node_id: node,
             text: text.into(),
             created_at: t,
+            known_by: known_by.map(<[String]>::to_vec),
         })
     }
 
@@ -768,7 +821,7 @@ impl Db {
     /// other branches or from later nodes are excluded.
     pub fn facts_at(&self, node: NodeId) -> Result<Vec<Fact>, DbError> {
         let mut stmt = self.conn.prepare(&format!(
-            "{PATH_CTE} SELECT id, session_id, node_id, text, created_at FROM facts \
+            "{PATH_CTE} SELECT id, session_id, node_id, text, created_at, known_by FROM facts \
              WHERE node_id IN (SELECT id FROM path) ORDER BY id"
         ))?;
         let rows = stmt.query_map([node], fact_from_row)?;
@@ -778,7 +831,7 @@ impl Db {
     /// Every fact of a session, regardless of branch.
     pub fn list_facts(&self, session: SessionId) -> Result<Vec<Fact>, DbError> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, session_id, node_id, text, created_at FROM facts \
+            "SELECT id, session_id, node_id, text, created_at, known_by FROM facts \
              WHERE session_id = ?1 ORDER BY id",
         )?;
         let rows = stmt.query_map([session], fact_from_row)?;
@@ -795,13 +848,25 @@ impl Db {
 
     // ---- summaries ----
 
-    /// Store a summary written at `node`.
+    /// Store the shared summary written at `node`.
     pub fn add_summary(&self, node: NodeId, text: &str) -> Result<Summary, DbError> {
+        self.add_summary_for(node, text, None)
+    }
+
+    /// Store a summary written at `node`, from the point of view of `character`, or the
+    /// shared one when `None`.
+    pub fn add_summary_for(
+        &self,
+        node: NodeId,
+        text: &str,
+        character: Option<&str>,
+    ) -> Result<Summary, DbError> {
         let session = self.node(node)?.session_id;
         let t = now();
         self.conn.execute(
-            "INSERT INTO summaries (session_id, node_id, text, created_at) VALUES (?1, ?2, ?3, ?4)",
-            params![session, node, text, t],
+            "INSERT INTO summaries (session_id, node_id, text, created_at, character) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![session, node, text, t, character],
         )?;
         Ok(Summary {
             id: SummaryId(self.conn.last_insert_rowid()),
@@ -809,24 +874,75 @@ impl Db {
             node_id: node,
             text: text.into(),
             created_at: t,
+            character: character.map(Into::into),
         })
     }
 
     /// The summary in effect at `node`: the newest one written at the nearest ancestor (or
     /// the node itself) that has one.
     pub fn summary_at(&self, node: NodeId) -> Result<Option<Summary>, DbError> {
+        self.summary_for(node, None)
+    }
+
+    /// Like [`summary_at`](Self::summary_at), for the summary written from the point of view
+    /// of `character` (or the shared one when `None`).
+    pub fn summary_for(
+        &self,
+        node: NodeId,
+        character: Option<&str>,
+    ) -> Result<Option<Summary>, DbError> {
         Ok(self
             .conn
             .query_row(
                 &format!(
-                    "{PATH_CTE} SELECT s.id, s.session_id, s.node_id, s.text, s.created_at \
-                     FROM summaries s JOIN path p ON s.node_id = p.id \
-                     ORDER BY p.depth ASC, s.id DESC LIMIT 1"
+                    "{PATH_CTE} SELECT s.id, s.session_id, s.node_id, s.text, s.created_at, \
+                     s.character FROM summaries s JOIN path p ON s.node_id = p.id \
+                     WHERE s.character IS ?2 ORDER BY p.depth ASC, s.id DESC LIMIT 1"
                 ),
-                [node],
+                params![node, character],
                 summary_from_row,
             )
             .optional()?)
+    }
+
+    // ---- scenes ----
+
+    /// Record who took part in `node`, replacing an earlier record.
+    pub fn set_node_scene(&self, node: NodeId, scene: &NodeScene) -> Result<(), DbError> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO node_scenes (node_id, witnesses, addressed, present) \
+             VALUES (?1, ?2, ?3, ?4)",
+            params![
+                node,
+                scene.witnesses.as_deref().map(names_to_json),
+                (!scene.addressed.is_empty()).then(|| names_to_json(&scene.addressed)),
+                scene.present.as_deref().map(names_to_json),
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// The scene records of the nodes on the path from the root to `node`. Nodes without a
+    /// record are not in the map.
+    pub fn scenes_on_path(
+        &self,
+        node: NodeId,
+    ) -> Result<std::collections::HashMap<NodeId, NodeScene>, DbError> {
+        let mut stmt = self.conn.prepare(&format!(
+            "{PATH_CTE} SELECT node_id, witnesses, addressed, present FROM node_scenes \
+             WHERE node_id IN (SELECT id FROM path)"
+        ))?;
+        let rows = stmt.query_map([node], |row| {
+            Ok((
+                row.get::<_, NodeId>(0)?,
+                NodeScene {
+                    witnesses: names_from_json(row.get(1)?),
+                    addressed: names_from_json(row.get(2)?).unwrap_or_default(),
+                    present: names_from_json(row.get(3)?),
+                },
+            ))
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
     }
 
     // ---- helpers ----
@@ -1371,5 +1487,63 @@ mod tests {
             db.add_tokens(SessionId(999), 5),
             Err(DbError::NotFound(_))
         ));
+    }
+
+    #[test]
+    fn scenes_facts_and_summaries_can_belong_to_some_characters() {
+        let db = db();
+        let s = db.create_session("Harbor", None).unwrap().id;
+        let a = db.add_node(&new_node(s, None, "a")).unwrap();
+        let b = db.add_node(&new_node(s, Some(a.id), "b")).unwrap();
+
+        let scene = NodeScene {
+            witnesses: Some(vec!["Mira".into()]),
+            addressed: vec!["Mira".into()],
+            present: Some(vec!["Mira".into(), "Orrin".into()]),
+        };
+        db.set_node_scene(b.id, &scene).unwrap();
+        let scenes = db.scenes_on_path(b.id).unwrap();
+        assert_eq!(scenes.len(), 1);
+        assert_eq!(scenes[&b.id], scene);
+        assert!(db.scenes_on_path(a.id).unwrap().is_empty());
+        db.set_node_scene(b.id, &NodeScene::default()).unwrap();
+        assert_eq!(
+            db.scenes_on_path(b.id).unwrap()[&b.id],
+            NodeScene::default()
+        );
+
+        db.add_fact(a.id, "The sea is cold.").unwrap();
+        db.add_fact_for(b.id, "Mira hides a key.", Some(&["Mira".to_string()]))
+            .unwrap();
+        let facts = db.facts_at(b.id).unwrap();
+        assert_eq!(facts[0].known_by, None);
+        assert_eq!(facts[1].known_by, Some(vec!["Mira".to_string()]));
+        assert_eq!(db.list_facts(s).unwrap()[1].known_by, facts[1].known_by);
+
+        db.add_summary(a.id, "shared").unwrap();
+        db.add_summary_for(b.id, "Mira's view", Some("Mira"))
+            .unwrap();
+        assert_eq!(db.summary_at(b.id).unwrap().unwrap().text, "shared");
+        let mine = db.summary_for(b.id, Some("Mira")).unwrap().unwrap();
+        assert_eq!(
+            (mine.text.as_str(), mine.character.as_deref()),
+            ("Mira's view", Some("Mira"))
+        );
+        assert!(db.summary_for(b.id, Some("Orrin")).unwrap().is_none());
+    }
+
+    #[test]
+    fn deleting_a_node_deletes_its_scene() {
+        let db = db();
+        let s = db.create_session("Harbor", None).unwrap().id;
+        let a = db.add_node(&new_node(s, None, "a")).unwrap();
+        let b = db.add_node(&new_node(s, Some(a.id), "b")).unwrap();
+        db.set_node_scene(b.id, &NodeScene::default()).unwrap();
+        db.delete_session(s).unwrap();
+        let count: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM node_scenes", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
     }
 }

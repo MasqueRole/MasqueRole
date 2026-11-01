@@ -127,6 +127,55 @@ pub fn notice(output: &CommandOutput) -> Notice {
         CommandOutput::Style(profile) => Notice::plain(format!("Style set to {profile}.")),
         CommandOutput::Narrator(true) => Notice::plain("Narrator mode is on."),
         CommandOutput::Narrator(false) => Notice::plain("Narrator mode is off."),
+        CommandOutput::Addressed(names) => {
+            Notice::plain(format!("You are talking to {}.", join_names(names)))
+        }
+        CommandOutput::Presence {
+            name,
+            entered: true,
+            changed: true,
+        } => Notice::plain(format!("{name} enters the scene.")),
+        CommandOutput::Presence {
+            name,
+            entered: true,
+            changed: false,
+        } => Notice::plain(format!("{name} is already in the scene.")),
+        CommandOutput::Presence {
+            name,
+            entered: false,
+            changed: true,
+        } => Notice::plain(format!("{name} leaves the scene.")),
+        CommandOutput::Presence {
+            name,
+            entered: false,
+            changed: false,
+        } => Notice::plain(format!("{name} is not in the scene.")),
+        CommandOutput::Scene {
+            present,
+            away,
+            floor,
+        } => {
+            let mut lines = vec![format!("Present: {}", join_names(present))];
+            if !away.is_empty() {
+                lines.push(format!("Away: {}", join_names(away)));
+            }
+            lines.push(if floor.is_empty() {
+                "Talking to: nobody in particular".to_string()
+            } else {
+                format!("Talking to: {}", join_names(floor))
+            });
+            Notice::plain(lines.join("\n"))
+        }
+        CommandOutput::Whisper { target } => Notice::plain(format!("You whisper to {target}.")),
+    }
+}
+
+/// Names for a sentence: `A`, `A and B`, `A, B and C`, or `nobody`.
+fn join_names(names: &[String]) -> String {
+    match names {
+        [] => "nobody".into(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
     }
 }
 
@@ -224,6 +273,7 @@ mod tests {
             node_id: NodeId(1),
             text: text.into(),
             created_at: 0,
+            known_by: None,
         }
     }
 
@@ -290,6 +340,7 @@ mod tests {
                     node_id: NodeId(1),
                     text: "They met.".into(),
                     created_at: 0,
+                    character: None,
                 })),
                 "They met.",
             ),

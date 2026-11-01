@@ -22,6 +22,9 @@ pub struct ExampleDialogue {
 pub struct Character {
     /// The character's name.
     pub name: String,
+    /// Other names the character answers to when someone calls them in a group scene.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<String>,
     /// A short description.
     #[serde(default)]
     pub description: String,

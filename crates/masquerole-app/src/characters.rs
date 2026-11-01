@@ -129,6 +129,8 @@ pub struct CharacterForm {
     /// The file being edited, or `None` for a new character.
     pub path: Option<PathBuf>,
     pub name: String,
+    /// Other names the character answers to, separated by commas.
+    pub aliases: String,
     pub description: String,
     /// One trait per line.
     pub personality: String,
@@ -165,6 +167,7 @@ impl CharacterForm {
         Self {
             path: Some(path),
             name: character.name.clone(),
+            aliases: character.aliases.join(", "),
             description: character.description.clone(),
             personality: character.personality.join("\n"),
             speaking_style: character.speaking_style.clone(),
@@ -216,6 +219,13 @@ impl CharacterForm {
     pub fn to_character(&self) -> Character {
         Character {
             name: self.name.trim().to_string(),
+            aliases: self
+                .aliases
+                .split(',')
+                .map(str::trim)
+                .filter(|a| !a.is_empty())
+                .map(String::from)
+                .collect(),
             description: self.description.trim().to_string(),
             personality: self
                 .personality
@@ -260,6 +270,15 @@ impl CharacterForm {
                     Input::new(&mut self.name)
                         .placeholder("Mira Valen")
                         .id_salt("char-name"),
+                )
+            });
+        FormField::new("Nicknames")
+            .help("Other names that call this character in a scene with several, separated by commas.")
+            .show(ui, |ui| {
+                ui.add(
+                    Input::new(&mut self.aliases)
+                        .placeholder("Cartographer, Mira")
+                        .id_salt("char-aliases"),
                 )
             });
         FormField::new("Description").show(ui, |ui| {
@@ -394,6 +413,9 @@ pub struct WorldForm {
     pub setting: String,
     /// Pairs of comma-separated keywords and the text they trigger.
     pub entries: Vec<(String, String)>,
+    /// For each entry, the characters who know it (empty: everyone). The editor does not
+    /// show this, but keeps what a world file says so saving does not lose it.
+    pub known_by: Vec<Vec<String>>,
     /// The entry open in the overlay, if any.
     pub editing_entry: Option<EntryDraft>,
     /// File name of the picture in the library, if any.
@@ -440,6 +462,7 @@ impl WorldForm {
                 .iter()
                 .map(|e| (e.keys.join(", "), e.content.clone()))
                 .collect(),
+            known_by: world.entries.iter().map(|e| e.known_by.clone()).collect(),
             editing_entry: None,
             image: world.image.clone(),
             error: None,
@@ -471,9 +494,13 @@ impl WorldForm {
         }
         commit_pending(&mut draft.keywords, &mut draft.pending);
         let pair = (draft.keywords.join(", "), draft.text);
+        self.known_by.resize(self.entries.len(), Vec::new());
         match draft.index.filter(|i| *i < self.entries.len()) {
             Some(i) => self.entries[i] = pair,
-            None if !pair.0.is_empty() || !pair.1.trim().is_empty() => self.entries.push(pair),
+            None if !pair.0.is_empty() || !pair.1.trim().is_empty() => {
+                self.entries.push(pair);
+                self.known_by.push(Vec::new());
+            }
             None => {}
         }
     }
@@ -486,8 +513,12 @@ impl WorldForm {
             entries: self
                 .entries
                 .iter()
-                .filter(|(keys, content)| !keys.trim().is_empty() || !content.trim().is_empty())
-                .map(|(keys, content)| LoreEntry {
+                .enumerate()
+                .filter(|(_, (keys, content))| {
+                    !keys.trim().is_empty() || !content.trim().is_empty()
+                })
+                .map(|(i, (keys, content))| LoreEntry {
+                    known_by: self.known_by.get(i).cloned().unwrap_or_default(),
                     keys: keys
                         .split(',')
                         .map(str::trim)
@@ -552,6 +583,9 @@ impl WorldForm {
         }
         if let Some(i) = remove {
             self.entries.remove(i);
+            if i < self.known_by.len() {
+                self.known_by.remove(i);
+            }
         }
         if ui
             .add(
@@ -627,6 +661,9 @@ impl WorldForm {
             if let Some(i) = self.editing_entry.take().and_then(|d| d.index) {
                 if i < self.entries.len() {
                     self.entries.remove(i);
+                    if i < self.known_by.len() {
+                        self.known_by.remove(i);
+                    }
                 }
             }
         } else if save {
