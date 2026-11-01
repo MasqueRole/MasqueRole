@@ -142,6 +142,9 @@ pub struct ProviderPreset {
     pub mark: &'static str,
     /// Background color of the mark, as `0xRRGGBB`.
     pub mark_color: u32,
+    /// The provider's logo as a white PNG on a transparent background, when there is one.
+    /// It is shown instead of the mark.
+    pub logo: Option<&'static [u8]>,
 }
 
 /// Built-in presets. Add new OpenAI-compatible providers here, not in code.
@@ -154,6 +157,7 @@ pub const PRESETS: &[ProviderPreset] = &[
         key_required: false,
         mark: "+",
         mark_color: 0x71717A,
+        logo: None,
     },
     ProviderPreset {
         id: "xai",
@@ -162,6 +166,7 @@ pub const PRESETS: &[ProviderPreset] = &[
         key_required: true,
         mark: "X",
         mark_color: 0x52525B,
+        logo: None,
     },
     ProviderPreset {
         id: "openai",
@@ -170,6 +175,7 @@ pub const PRESETS: &[ProviderPreset] = &[
         key_required: true,
         mark: "O",
         mark_color: 0x10A37F,
+        logo: Some(include_bytes!("../../../assets/providers/openai.png")),
     },
     ProviderPreset {
         id: "anthropic",
@@ -178,6 +184,7 @@ pub const PRESETS: &[ProviderPreset] = &[
         key_required: true,
         mark: "A",
         mark_color: 0xD97757,
+        logo: Some(include_bytes!("../../../assets/providers/anthropic.png")),
     },
     ProviderPreset {
         id: "openrouter",
@@ -186,6 +193,7 @@ pub const PRESETS: &[ProviderPreset] = &[
         key_required: true,
         mark: "R",
         mark_color: 0x6366F1,
+        logo: None,
     },
     ProviderPreset {
         id: "ollama",
@@ -194,6 +202,7 @@ pub const PRESETS: &[ProviderPreset] = &[
         key_required: false,
         mark: "Ol",
         mark_color: 0x3F3F46,
+        logo: Some(include_bytes!("../../../assets/providers/ollama.png")),
     },
     ProviderPreset {
         id: "lmstudio",
@@ -202,6 +211,7 @@ pub const PRESETS: &[ProviderPreset] = &[
         key_required: false,
         mark: "LM",
         mark_color: 0x7C3AED,
+        logo: None,
     },
 ];
 

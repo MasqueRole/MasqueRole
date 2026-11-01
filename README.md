@@ -404,6 +404,8 @@ Please describe your changes clearly, run `cargo fmt` and `cargo clippy` before 
 
 Released under the [MIT License](LICENSE).
 
+The provider logos in `assets/providers/` come from [Simple Icons](https://simpleicons.org) (CC0). They belong to their owners and only identify the providers in the app.
+
 ---
 
 <p align="center">Made for stories that never end.</p>

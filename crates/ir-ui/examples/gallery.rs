@@ -8,9 +8,9 @@ use eframe::egui;
 use ir_ui::components::{
     Alert, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, ChatBubble, Checkbox,
     ChipInput, Dialog, Figure, FloatingBar, FormField, Icon, IconKind, Input, Label, LabelTone,
-    ListItem, Logo, MenuItem, Panel, Picture, Popover, RailButton, ScrollArea, Select, Separator,
-    Slider, Suggestion, Suggestions, Switch, Tabs, Textarea, Toast, Toasts, TooltipExt, TopBar,
-    TreeNode, TreeNodeState, UsageDonut, WindowControls,
+    ListItem, Logo, MenuItem, Panel, Picture, Popover, RailButton, ScrollArea, Select, SelectMark,
+    Separator, Slider, Suggestion, Suggestions, Switch, Tabs, Textarea, Toast, Toasts, TooltipExt,
+    TopBar, TreeNode, TreeNodeState, UsageDonut, WindowControls,
 };
 use ir_ui::{spacing, Theme, ThemeExt, ThemeMode};
 
@@ -291,9 +291,9 @@ impl Gallery {
                 ["OpenAI", "xAI", "Ollama (local)"],
             )
             .marks([
-                ("O", egui::Color32::from_rgb(16, 163, 127)),
-                ("X", egui::Color32::from_rgb(82, 82, 91)),
-                ("Ol", egui::Color32::from_rgb(63, 63, 70)),
+                SelectMark::letters("O", egui::Color32::from_rgb(16, 163, 127)),
+                SelectMark::letters("X", egui::Color32::from_rgb(82, 82, 91)),
+                SelectMark::letters("Ol", egui::Color32::from_rgb(63, 63, 70)),
             ])
             .width(220.0),
         );

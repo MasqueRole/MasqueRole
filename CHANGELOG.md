@@ -7,7 +7,7 @@ This file lists only the current and the previous version.
 
 ### Added
 
-- **Provider marks:** every provider in the drop-down on the provider page has a small colored mark before its name, in the list and in the closed field, so it is quicker to find.
+- **Provider logos:** the provider drop-down on the provider page shows the logo of OpenAI, Anthropic and Ollama before the name, in the list and in the closed field. Providers without a logo file get a small colored letter mark.
 
 ## [0.10.5] - 2026-11-02
 
