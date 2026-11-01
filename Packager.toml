@@ -5,10 +5,10 @@
 # cargo-packager silently ignores a root-level config without a package name.
 name = "ir-app"
 product-name = "MasqueRole"
-identifier = "io.github.roleplayharness.masquerole"
+identifier = "io.github.masquerole.masquerole"
 version = "0.9.0"
 description = "Endless, consistent roleplay with the AI model of your choice."
-authors = ["RoleplayHarness"]
+authors = ["MasqueRole"]
 license-file = "LICENSE"
 icons = ["assets/icon.ico", "assets/icon.png"]
 out-dir = "dist"
