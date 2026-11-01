@@ -18,8 +18,8 @@ use ir_core::lorebook::Lorebook;
 use ir_core::settings::Settings;
 use ir_core::update::Release;
 use ir_ui::components::{
-    Button, ButtonSize, ButtonVariant, Card, Dialog, FormField, IconKind, Input, Logo, Panel,
-    RailButton, ScrollArea, Select, Toast, Toasts, TooltipExt, TopBar, WindowAction,
+    Button, ButtonSize, ButtonVariant, Card, Dialog, FormField, IconKind, Input, Label, Logo,
+    Panel, RailButton, ScrollArea, Select, Toast, Toasts, TooltipExt, TopBar, WindowAction,
     WindowControls, RAIL_WIDTH,
 };
 use ir_ui::{spacing, Theme, ThemeMode};
@@ -62,15 +62,18 @@ pub enum Section {
     Worlds,
     /// The tree of the open story.
     Tree,
+    /// The provider, endpoint, model and key, without opening the settings.
+    Provider,
 }
 
 impl Section {
     /// Every section, in navigation order.
-    pub const ALL: [Section; 4] = [
+    pub const ALL: [Section; 5] = [
         Section::Stories,
         Section::Characters,
         Section::Worlds,
         Section::Tree,
+        Section::Provider,
     ];
 
     /// The icon in the top navigation.
@@ -80,6 +83,7 @@ impl Section {
             Self::Characters => IconKind::User,
             Self::Worlds => IconKind::Globe,
             Self::Tree => IconKind::Branch,
+            Self::Provider => IconKind::Plug,
         }
     }
 
@@ -90,6 +94,7 @@ impl Section {
             Self::Characters => "Characters",
             Self::Worlds => "Worlds",
             Self::Tree => "Tree",
+            Self::Provider => "Provider",
         }
     }
 }
@@ -206,6 +211,8 @@ pub struct App {
     pub key_available: bool,
     /// The settings overlay, when open.
     pub settings_form: Option<SettingsForm>,
+    /// The provider page's form, while that page is open.
+    pub provider_form: Option<SettingsForm>,
     /// The tutorial, when open.
     pub tutorial: Option<Tutorial>,
     /// Whether the first-run tutorial was already offered during this run.
@@ -275,6 +282,7 @@ impl App {
             settings: Settings::default(),
             key_available: false,
             settings_form: None,
+            provider_form: None,
             tutorial: None,
             tutorial_offered: false,
             sessions: Vec::new(),
@@ -320,6 +328,9 @@ impl App {
             } => {
                 self.settings = settings;
                 self.key_available = key_available;
+                if self.section == Section::Provider {
+                    self.provider_form = Some(SettingsForm::new(&self.settings));
+                }
                 // The very first start shows the tutorial, once.
                 if !self.settings.ui.tutorial_seen && !self.tutorial_offered {
                     self.tutorial_offered = true;
@@ -467,6 +478,9 @@ impl App {
         if section == Section::Tree && self.section != Section::Tree {
             self.tree_view = TreeView::new();
         }
+        if section == Section::Provider && self.section != Section::Provider {
+            self.provider_form = Some(SettingsForm::new(&self.settings));
+        }
         self.section = section;
     }
 
@@ -587,7 +601,20 @@ impl App {
                     }
                 }
             }
-            (Section::Stories | Section::Tree, _) => {}
+            (Section::Provider, FormAction::Save) => {
+                if let Some(form) = self.provider_form.take() {
+                    self.backend.send(Request::SaveSettings {
+                        settings: form.to_settings(),
+                        api_key: form.new_api_key(),
+                    });
+                    // Keep the page; the saved settings come back as an event.
+                    self.provider_form = Some(form);
+                }
+            }
+            (Section::Provider, FormAction::Cancel) => {
+                self.provider_form = Some(SettingsForm::new(&self.settings));
+            }
+            (Section::Stories | Section::Tree | Section::Provider, _) => {}
         }
     }
 
@@ -617,7 +644,7 @@ impl App {
         }
         self.top_bar(ctx);
         Panel::rail("rail", RAIL_WIDTH).show(ctx, |ui| self.rail(ui));
-        if self.sidebar_open {
+        if self.sidebar_open && self.section != Section::Provider {
             Panel::side("sidebar", SIDEBAR_WIDTH).show(ctx, |ui| sidebar::show(self, ui));
         }
         Panel::surface(ctx);
@@ -750,6 +777,7 @@ impl App {
             // The story's message box floats over the page instead of sitting in a footer.
             Section::Stories => false,
             Section::Tree => false,
+            Section::Provider => true,
             Section::Characters => self.character_form.is_some(),
             Section::Worlds => self.world_form.is_some(),
         }
@@ -759,7 +787,7 @@ impl App {
         match self.section {
             Section::Stories => {}
             Section::Tree => {}
-            Section::Characters | Section::Worlds => self.editor_footer(ui),
+            Section::Characters | Section::Worlds | Section::Provider => self.editor_footer(ui),
         }
     }
 
@@ -770,7 +798,7 @@ impl App {
                 .as_ref()
                 .is_some_and(|f| f.path.is_some()),
             Section::Worlds => self.world_form.as_ref().is_some_and(|f| f.path.is_some()),
-            Section::Stories | Section::Tree => false,
+            Section::Stories | Section::Tree | Section::Provider => false,
         };
         let mut action = None;
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -796,10 +824,30 @@ impl App {
         }
     }
 
+    /// The provider page: the provider settings on the content area, saved from the footer.
+    fn provider_body(&mut self, ui: &mut Ui) {
+        let key_available = self.key_available;
+        let Some(form) = &mut self.provider_form else {
+            return;
+        };
+        let action = ScrollArea::vertical()
+            .id_salt("provider-page")
+            .show(ui, |ui| {
+                ui.add(Label::new("Provider").heading());
+                ui.add_space(spacing::SM);
+                form.show_provider(key_available, ui)
+            })
+            .inner;
+        if action == Some(SettingsAction::RemoveKey) {
+            self.backend.send(Request::DeleteApiKey);
+        }
+    }
+
     fn body(&mut self, ui: &mut Ui) {
         match self.section {
             Section::Stories => chat::body(self, ui),
             Section::Tree => self.tree_body(ui),
+            Section::Provider => self.provider_body(ui),
             Section::Characters => {
                 let texture = self
                     .character_form
@@ -1686,6 +1734,31 @@ entries:
     }
 
     #[test]
+    fn the_provider_page_edits_the_provider_without_the_settings_overlay() {
+        let mut rig = Rig::new();
+        rig.app.show_section(Section::Provider);
+        rig.frame();
+        rig.frame();
+        assert!(rig.app.settings_form.is_none(), "no overlay is needed");
+        let form = rig
+            .app
+            .provider_form
+            .as_ref()
+            .expect("the page has its form");
+        assert_eq!(
+            form.to_settings().api.provider,
+            rig.app.settings.api.provider
+        );
+        // Saving keeps the page open, and cancelling starts the form over.
+        rig.app.form_action(FormAction::Save);
+        assert!(rig.app.provider_form.is_some());
+        rig.app.form_action(FormAction::Cancel);
+        assert!(rig.app.provider_form.is_some());
+        rig.app.show_section(Section::Stories);
+        rig.frame();
+    }
+
+    #[test]
     fn settings_open_as_an_overlay_over_the_current_section() {
         let mut rig = Rig::new();
         rig.app.show_section(Section::Worlds);
@@ -2011,7 +2084,10 @@ entries:
         rig.frame();
         assert!(rig.app.logo.is_some());
         let labels: Vec<_> = Section::ALL.iter().map(|s| s.label()).collect();
-        assert_eq!(labels, ["Stories", "Characters", "Worlds", "Tree"]);
+        assert_eq!(
+            labels,
+            ["Stories", "Characters", "Worlds", "Tree", "Provider"]
+        );
     }
 
     #[test]

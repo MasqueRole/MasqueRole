@@ -18,6 +18,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             Section::Stories | Section::Tree => sessions(app, ui),
             Section::Characters => characters(app, ui),
             Section::Worlds => worlds(app, ui),
+            Section::Provider => {}
         }
     });
 }
