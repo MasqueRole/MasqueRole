@@ -84,11 +84,13 @@ pub enum IconKind {
     Compress,
     /// A triangle with an exclamation mark: warning.
     Warning,
+    /// A plug: the connection to a provider.
+    Plug,
 }
 
 impl IconKind {
     /// Every icon, for galleries and tests.
-    pub const ALL: [IconKind; 34] = [
+    pub const ALL: [IconKind; 35] = [
         IconKind::Settings,
         IconKind::Trash,
         IconKind::More,
@@ -123,6 +125,7 @@ impl IconKind {
         IconKind::Store,
         IconKind::Compress,
         IconKind::Warning,
+        IconKind::Plug,
     ];
 }
 
@@ -363,6 +366,17 @@ fn drawing(kind: IconKind) -> Drawing {
             .circle((12.0, 12.0), 9.0)
             .dot((12.0, 7.75), 1.1)
             .open(&[(12.0, 11.0), (12.0, 17.0)]),
+        IconKind::Plug => d
+            .open(&[(9.0, 3.0), (9.0, 8.0)])
+            .open(&[(15.0, 3.0), (15.0, 8.0)])
+            .closed(&[
+                (6.0, 8.0),
+                (18.0, 8.0),
+                (18.0, 12.0),
+                (12.0, 17.0),
+                (6.0, 12.0),
+            ])
+            .open(&[(12.0, 17.0), (12.0, 21.0)]),
         IconKind::Warning => d
             .closed(&[(12.0, 3.0), (22.0, 20.0), (2.0, 20.0)])
             .open(&[(12.0, 9.5), (12.0, 14.0)])
