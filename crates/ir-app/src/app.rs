@@ -77,6 +77,11 @@ impl Section {
         Section::Provider,
     ];
 
+    /// Whether the section has a list in the sidebar next to the rail.
+    pub fn has_list(self) -> bool {
+        self != Self::Provider
+    }
+
     /// The icon in the top navigation.
     pub fn icon(self) -> IconKind {
         match self {
@@ -648,7 +653,7 @@ impl App {
         }
         self.top_bar(ctx);
         Panel::rail("rail", RAIL_WIDTH).show(ctx, |ui| self.rail(ui));
-        if self.sidebar_open && self.section != Section::Provider {
+        if self.sidebar_open && self.section.has_list() {
             Panel::side("sidebar", SIDEBAR_WIDTH).show(ctx, |ui| sidebar::show(self, ui));
         }
         Panel::surface(ctx);
@@ -679,9 +684,12 @@ impl App {
             } else {
                 (IconKind::Sidebar, "Show the list")
             };
-            let toggle = RailButton::new(icon).selected(self.sidebar_open);
-            if ui.add(toggle).ir_tooltip(tip).clicked() {
-                self.sidebar_open = !self.sidebar_open;
+            // Only sections with a list next to the rail have anything to hide.
+            if self.section.has_list() {
+                let toggle = RailButton::new(icon).selected(self.sidebar_open);
+                if ui.add(toggle).ir_tooltip(tip).clicked() {
+                    self.sidebar_open = !self.sidebar_open;
+                }
             }
             let store = RailButton::new(IconKind::Store).enabled(false);
             if ui
@@ -1759,6 +1767,13 @@ entries:
         rig.app.form_action(FormAction::Cancel);
         assert!(rig.app.character_form.is_none());
         assert!(rig.sent().is_empty());
+    }
+
+    #[test]
+    fn only_sections_with_a_list_have_the_sidebar_button() {
+        for section in Section::ALL {
+            assert_eq!(section.has_list(), section != Section::Provider);
+        }
     }
 
     #[test]
