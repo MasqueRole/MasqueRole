@@ -3,6 +3,13 @@
 All notable changes to MasqueRole. The project follows [Semantic Versioning](https://semver.org).
 This file lists only the current and the previous version.
 
+## [0.10.0] - 2026-11-01
+
+### Added
+
+- **Pictures in the chat:** the picture of a character shows as a round avatar beside its messages, with an icon while the card has none. The picture of the story's world shows next to the story title.
+- **World banner:** on the story's info page, the world's picture is a wide banner across the top of the world card.
+
 ## [0.9.0] - 2026-10-31
 
 ### Changed
@@ -11,17 +18,3 @@ This file lists only the current and the previous version.
 - **Tree nodes:** nodes are cards again, with the title and a date pill, all of the same size so the columns stay tidy. Hovering a card shows its whole title and where it stands (where you are now, on the path you took, or another branch). A collapsed branch shows how many nodes it hides in front of the title.
 - Opening a node still grows it into a larger card with the whole message and the buttons to jump or collapse.
 - **Movable cards:** drag a card to put it anywhere. Each story saves where you put its cards and shows them there the next time. A moved card keeps its lines to its parent and replies. *Tidy* puts all cards of the story back in their automatic places.
-
-## [0.8.1] - 2026-10-31
-
-### Added
-
-- **Keyword beans:** a new chip field. Type a keyword and press comma or Enter, and it turns into a bean. Click the cross on a bean to delete it, or press Backspace in the empty field to remove the last one. Pasting `a, b, c` makes three.
-
-### Changed
-
-- **Name:** the app is now called MasqueRole. Stories, settings, and saved API keys from the old name are found as before.
-- **Story tree:** the preview bar at the bottom is gone. Click a dot and it grows into a card with the whole message, the date, and the *Jump here* and *Collapse branch* buttons. The card shrinks back into the dot when you close it with its cross or Escape.
-- **Lore entries and example dialogue:** the forms inside boxes are gone. Entries are single lines with edit and delete buttons, and editing one opens an overlay with the keyword beans and the text. *Add entry* and *Add example* open the same overlay.
-- **Close button:** the cross of the window's close button is red.
-- **Red:** the red of the dark theme is brighter (`#dc2626`, as in the light theme), so the close button's cross, delete buttons, and error toasts read clearly.

@@ -409,6 +409,26 @@ impl App {
         loaded
     }
 
+    /// The picture of the character card called `name`, if it has one that can be shown.
+    pub(crate) fn character_picture(&mut self, ctx: &Context, name: &str) -> Option<TextureHandle> {
+        let image = self
+            .characters
+            .iter()
+            .find(|e| e.item.name == name)
+            .and_then(|e| e.item.image.clone())?;
+        self.picture(ctx, &image)
+    }
+
+    /// The picture of the world called `name`, if it has one that can be shown.
+    pub(crate) fn world_picture(&mut self, ctx: &Context, name: &str) -> Option<TextureHandle> {
+        let image = self
+            .worlds
+            .iter()
+            .find(|e| e.item.name == name)
+            .and_then(|e| e.item.image.clone())?;
+        self.picture(ctx, &image)
+    }
+
     fn load_picture(&self, ctx: &Context, name: &str) -> Option<TextureHandle> {
         // The name comes from a card file the user can edit, so it must not leave the folder.
         if !crate::library::is_plain_file_name(name) {
@@ -1878,6 +1898,68 @@ entries:
             "no leaving the folder"
         );
         assert!(rig.app.picture(&ctx, "").is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A rig with a character and a world that both have the picture `ok.png`, and a story
+    /// that uses them.
+    fn rig_with_pictured_cast() -> (Rig, PathBuf) {
+        let (mut rig, dir) = rig_with_a_picture();
+        let mira = Character::from_yaml("name: Mira\nimage: ok.png").unwrap();
+        let orrin = Character::from_yaml("name: Orrin").unwrap();
+        let world = Lorebook::from_yaml("name: The Misty Coast\nimage: ok.png").unwrap();
+        rig.push(Event::Library {
+            characters: vec![entry("mira", mira), entry("orrin", orrin)],
+            worlds: vec![entry("coast", world)],
+            images_dir: dir.clone(),
+        });
+        let mut story = transcript(1, "The lighthouse");
+        story.characters = vec!["Mira".into(), "Orrin".into()];
+        story.nodes.push(node(
+            4,
+            NodeKind::Character,
+            Some("Orrin"),
+            "Who goes there?",
+        ));
+        story
+            .nodes
+            .push(node(5, NodeKind::Character, Some("Stranger"), "Nobody."));
+        rig.push(Event::Transcript(story));
+        (rig, dir)
+    }
+
+    #[test]
+    fn the_chat_loads_the_pictures_of_the_world_and_the_characters() {
+        let (mut rig, dir) = rig_with_pictured_cast();
+        rig.frame();
+        rig.frame();
+        let loaded = rig.app.pictures.get("ok.png").cloned().flatten();
+        assert!(
+            loaded.is_some(),
+            "the picture was loaded for the header and the messages"
+        );
+        let ctx = rig.ctx.clone();
+        assert!(rig.app.character_picture(&ctx, "Mira").is_some());
+        assert!(
+            rig.app.character_picture(&ctx, "Orrin").is_none(),
+            "a card without a picture has none"
+        );
+        assert!(
+            rig.app.character_picture(&ctx, "Stranger").is_none(),
+            "not in the library"
+        );
+        assert!(rig.app.world_picture(&ctx, "The Misty Coast").is_some());
+        assert!(rig.app.world_picture(&ctx, "Nowhere").is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_story_info_page_shows_the_world_picture_as_a_banner() {
+        let (mut rig, dir) = rig_with_pictured_cast();
+        rig.app.story_info = true;
+        rig.frame();
+        rig.frame();
+        assert!(rig.app.pictures.get("ok.png").cloned().flatten().is_some());
         let _ = std::fs::remove_dir_all(dir);
     }
 

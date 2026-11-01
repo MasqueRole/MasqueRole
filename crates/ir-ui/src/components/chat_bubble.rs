@@ -5,7 +5,12 @@ use egui::{
     TextWrapMode, Ui, Widget, WidgetText,
 };
 
+use super::icon::IconKind;
+use super::picture::Picture;
 use crate::theme::{spacing, Theme, ThemeExt, BORDER_WIDTH};
+
+/// Diameter of the avatar beside a character's message.
+const AVATAR_SIZE: f32 = 32.0;
 
 /// The widest a bubble grows, as a fraction of the space available.
 const MAX_WIDTH_FRACTION: f32 = 0.8;
@@ -25,6 +30,22 @@ pub enum BubbleKind {
     Narrator,
 }
 
+/// The avatar of a character's message: a picture, or an icon while there is none.
+#[derive(Clone)]
+struct Avatar {
+    picture: Option<egui::TextureHandle>,
+    fallback: IconKind,
+}
+
+impl std::fmt::Debug for Avatar {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Avatar")
+            .field("has_picture", &self.picture.is_some())
+            .field("fallback", &self.fallback)
+            .finish()
+    }
+}
+
 /// A chat message. Text wraps and can be selected.
 #[derive(Clone, Debug)]
 pub struct ChatBubble {
@@ -33,6 +54,7 @@ pub struct ChatBubble {
     text: String,
     streaming: bool,
     tag: Option<String>,
+    avatar: Option<Avatar>,
 }
 
 impl ChatBubble {
@@ -43,7 +65,15 @@ impl ChatBubble {
             text: text.into(),
             streaming: false,
             tag: None,
+            avatar: None,
         }
+    }
+
+    /// Show a round avatar beside a character's message: `picture`, or `fallback` while there
+    /// is no picture. Other kinds of message have no avatar.
+    pub fn avatar(mut self, picture: Option<egui::TextureHandle>, fallback: IconKind) -> Self {
+        self.avatar = Some(Avatar { picture, fallback });
+        self
     }
 
     /// A message from the player.
@@ -94,7 +124,27 @@ impl ChatBubble {
 }
 
 impl Widget for ChatBubble {
-    fn ui(self, ui: &mut Ui) -> Response {
+    fn ui(mut self, ui: &mut Ui) -> Response {
+        match self.avatar.take() {
+            Some(Avatar { picture, fallback }) if self.kind == BubbleKind::Character => {
+                ui.horizontal_top(|ui| {
+                    ui.add(
+                        Picture::new(picture.as_ref(), fallback)
+                            .size(AVATAR_SIZE)
+                            .circle(),
+                    );
+                    self.body(ui)
+                })
+                .inner
+            }
+            _ => self.body(ui),
+        }
+    }
+}
+
+impl ChatBubble {
+    /// Draw the bubble with its heading, without the avatar.
+    fn body(self, ui: &mut Ui) -> Response {
         let t = ui.ir_theme();
         let (fill, text_color, stroke) = Self::colors(self.kind, &t);
         let max_width = ui.available_width() * MAX_WIDTH_FRACTION;
@@ -356,5 +406,34 @@ mod tests {
             }
         });
         assert!(sizes.iter().all(|s| s.x > 0.0 && s.y > 0.0), "{sizes:?}");
+    }
+
+    #[test]
+    fn a_character_with_an_avatar_is_drawn_beside_it_and_others_ignore_it() {
+        let mut h = Harness::new();
+        let (mut plain, mut with, mut user) = (
+            egui::Rect::NOTHING,
+            egui::Rect::NOTHING,
+            egui::Rect::NOTHING,
+        );
+        h.idle(&mut |ui: &mut Ui| {
+            ui.set_width(600.0);
+            plain = ui.add(ChatBubble::character("Mira", "Hello there.")).rect;
+            with = ui
+                .add(ChatBubble::character("Mira", "Hello there.").avatar(None, IconKind::User))
+                .rect;
+            user = ui
+                .add(ChatBubble::user("Hi.").avatar(None, IconKind::User))
+                .rect;
+        });
+        // The returned rectangle is the bubble's, which the avatar pushes to the right.
+        assert!(
+            with.min.x - plain.min.x >= AVATAR_SIZE,
+            "{with:?} vs {plain:?}"
+        );
+        assert!(
+            user.width() < 100.0,
+            "a player's message has no avatar: {user:?}"
+        );
     }
 }

@@ -24,9 +24,21 @@ fn field(ui: &mut Ui, caption: &str, text: &str) {
     ui.add(Label::new(text.trim()));
 }
 
-fn world_card(ui: &mut Ui, name: &str, world: Option<&Lorebook>) {
+/// Height of the world's banner.
+const BANNER_HEIGHT: f32 = 140.0;
+
+fn world_card(
+    ui: &mut Ui,
+    name: &str,
+    world: Option<&Lorebook>,
+    banner: Option<&eframe::egui::TextureHandle>,
+) {
     Card::new()
         .header(|ui| {
+            // The world's picture is a banner across the top of its card.
+            if banner.is_some() {
+                ui.add(Picture::banner(banner, IconKind::Globe, BANNER_HEIGHT));
+            }
             Card::title(ui, "World");
             Card::description(ui, name);
         })
@@ -106,15 +118,16 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         app.story_info = false;
         return;
     };
+    let ctx = ui.ctx().clone();
     let world = transcript.session.world.as_deref().map(|name| {
         let card = app
             .worlds
             .iter()
             .find(|e| e.item.name == name)
             .map(|e| e.item.clone());
-        (name.to_string(), card)
+        let banner = app.world_picture(&ctx, name);
+        (name.to_string(), card, banner)
     });
-    let ctx = ui.ctx().clone();
     let characters: Vec<_> = transcript
         .characters
         .iter()
@@ -160,7 +173,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             .muted(),
         );
         match &world {
-            Some((name, card)) => world_card(ui, name, card.as_ref()),
+            Some((name, card, banner)) => world_card(ui, name, card.as_ref(), banner.as_ref()),
             None => {
                 Card::new()
                     .header(|ui| {
