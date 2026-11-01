@@ -3,6 +3,13 @@
 All notable changes to MasqueRole. The project follows [Semantic Versioning](https://semver.org).
 This file lists only the current and the previous version.
 
+## [0.12.1] - 2026-11-02
+
+### Fixed
+
+- **Command messages:** the message a command leaves in the chat (for example from `/enter`, `/leave` or `/tree`) now stays where it happened, between the messages around it, instead of piling up at the bottom of the chat.
+- **Dismiss:** every such message has an X button that removes it.
+
 ## [0.12.0] - 2026-11-02
 
 ### Added
@@ -12,11 +19,3 @@ This file lists only the current and the previous version.
 - **Whispers:** `/whisper <name>: <text>` is heard by that character alone, and so is their answer.
 - **Knowledge per character:** a character's prompt holds only the messages they witnessed, their own card in full, and only the name and description of the others. Facts are remembered with the characters who know them, each character keeps their own summary, and lore entries can list who knows them with `known_by`. The narrator still sees everything.
 - **Settings and cards:** `style.max_responders` (default 2) caps how many characters answer one message, since every answer is another request. Character cards got *Nicknames* that call them in a group scene.
-
-## [0.11.0] - 2026-11-02
-
-### Changed
-
-- **Names:** the crates are now `masquerole-core`, `masquerole-ui` and `masquerole-app` instead of the old `ir-` names. Build and run the app with `cargo run -p masquerole-app`.
-- **Installers:** the installers are named `masquerole_<version>_...` instead of `ir-app_<version>_...`.
-- **Program name:** the installed program is `masquerole.exe` (`masquerole` on Linux) instead of `ir-app.exe`.

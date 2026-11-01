@@ -146,6 +146,16 @@ impl Confirm {
     }
 }
 
+/// A message from a command, and where in the story it was shown: right after the message
+/// that was the newest when it arrived.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PlacedNotice {
+    /// The message.
+    pub notice: Notice,
+    /// The message it follows, or `None` when the story was still empty.
+    pub after: Option<NodeId>,
+}
+
 /// The state of the chat input.
 #[derive(Debug, Default)]
 pub struct ChatState {
@@ -232,8 +242,8 @@ pub struct App {
     pub sessions: Vec<Session>,
     /// The open story, if any.
     pub transcript: Option<Transcript>,
-    /// Messages from commands, shown after the story.
-    pub notices: Vec<Notice>,
+    /// Messages from commands, each shown in the story where it happened.
+    pub notices: Vec<PlacedNotice>,
     /// The character library.
     pub characters: Vec<Entry<Character>>,
     /// The world library.
@@ -394,7 +404,14 @@ impl App {
                 self.transcript = None;
                 self.notices.clear();
             }
-            Event::Notice(notice) => self.notices.push(notice),
+            Event::Notice(notice) => {
+                let after = self
+                    .transcript
+                    .as_ref()
+                    .and_then(|t| t.nodes.last())
+                    .map(|n| n.id);
+                self.notices.push(PlacedNotice { notice, after });
+            }
             Event::Chunk(text) => self.chat.streaming.push_str(&text),
             Event::Speaker(name) => self.chat.speaker = name,
             Event::Generating(on) => {
@@ -1341,6 +1358,30 @@ mod tests {
         assert_eq!(rig.app.notices.len(), 1);
         rig.push(Event::Transcript(transcript(2, "Reef")));
         assert!(rig.app.notices.is_empty());
+    }
+
+    #[test]
+    fn a_notice_stays_where_it_happened_and_can_be_dismissed() {
+        let mut rig = Rig::new();
+        rig.push(Event::Transcript(transcript(1, "Harbor")));
+        rig.push(Event::Notice(Notice::plain("first")));
+        // The story moves on: a new message arrives after the notice.
+        let mut longer = transcript(1, "Harbor");
+        longer
+            .nodes
+            .push(node(4, NodeKind::User, None, "I walk on."));
+        rig.push(Event::Transcript(longer));
+        rig.push(Event::Notice(Notice::plain("second")));
+        let after: Vec<_> = rig.app.notices.iter().map(|p| p.after).collect();
+        assert_eq!(after, [Some(NodeId(3)), Some(NodeId(4))]);
+        rig.frame();
+        rig.frame();
+
+        // Before any message there is still a place for a notice.
+        let mut empty = Rig::new();
+        empty.push(Event::Notice(Notice::plain("early")));
+        assert_eq!(empty.app.notices[0].after, None);
+        empty.frame();
     }
 
     #[test]
