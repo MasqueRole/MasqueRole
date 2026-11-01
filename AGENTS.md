@@ -28,6 +28,9 @@ This file tells an AI coding agent how to work on MasqueRole. Read it fully befo
 - `fix/<bug-name>` or `bugfix/<bug-name>`: errors, regressions, or system faults (e.g. `fix/session-timeout`).
 - `release/<version>`: preparing code for deployment or testing a specific version (e.g. `release/v1.2.0`).
 - `hotfix/<urgent-fix-name>`: critical patches applied directly to production environments.
+- `refactor/<name>`: restructuring or renaming code without changing what the app does (e.g. `refactor/crates-installer-app-names`).
+- `deslop/<name>`: cleanup that removes needless, duplicated, or sloppy code and comments and simplifies what is left (e.g. `deslop/dead-code`).
+- `ui/<name>`: changes to the look and feel: layout, styling, motion, or the design system (e.g. `ui/story-info-banner`).
 
 ## Tutorial Screenshots
 
