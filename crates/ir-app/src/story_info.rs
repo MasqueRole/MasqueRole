@@ -3,15 +3,17 @@
 //! backdrop of the page, fading into the background.
 
 use eframe::egui::{
-    self, epaint::Vertex, pos2, vec2, Color32, Mesh, Rect, Shape, TextureHandle, Ui,
+    self,
+    epaint::{RectShape, Vertex},
+    pos2, vec2, Color32, CornerRadius, Mesh, Rect, Shape, TextureHandle, Ui,
 };
 use ir_core::lorebook::Lorebook;
 use ir_ui::components::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, IconKind, Label, Picture, ScrollArea,
-    Separator,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, IconKind, Label, Panel, Picture,
+    ScrollArea, Separator,
 };
 use ir_ui::spacing;
-use ir_ui::theme::ThemeExt;
+use ir_ui::theme::{ThemeExt, BORDER_WIDTH};
 
 use crate::app::App;
 use crate::backend::Request;
@@ -20,11 +22,8 @@ use crate::format;
 /// Size of a character's picture in the list.
 const AVATAR_SIZE: f32 = 40.0;
 
-/// Height of the world's picture behind the top of the page.
+/// Height of the world's picture behind the top of the content area.
 const BANNER_HEIGHT: f32 = 240.0;
-
-/// Space above the picture, so it hangs a little below the top edge.
-const BANNER_INSET: f32 = spacing::MD;
 
 /// A small muted caption above a text, left out when the text is empty.
 fn field(ui: &mut Ui, caption: &str, text: &str) {
@@ -35,14 +34,12 @@ fn field(ui: &mut Ui, caption: &str, text: &str) {
     ui.add(Label::new(text.trim()));
 }
 
-/// Paint the world's picture across the top of `ui`, fading into the page background.
+/// Paint the world's picture across the top of the whole content area, edge to edge and cut
+/// off by its rounded corner, fading into the page background.
 fn paint_backdrop(ui: &Ui, texture: &TextureHandle) {
-    let background = ui.ir_theme().background;
-    let top = ui.max_rect();
-    let rect = Rect::from_min_size(
-        pos2(top.left(), top.top() + BANNER_INSET),
-        vec2(top.width(), BANNER_HEIGHT),
-    );
+    let t = ui.ir_theme();
+    let sheet = Panel::surface_rect(ui.ctx()).shrink(BORDER_WIDTH);
+    let rect = Rect::from_min_size(sheet.min, vec2(sheet.width(), BANNER_HEIGHT));
     // Crop the picture from the middle to fill the rect.
     let aspect = texture.aspect_ratio() / (rect.width() / rect.height()).max(f32::EPSILON);
     let (u, v) = if aspect >= 1.0 {
@@ -54,16 +51,19 @@ fn paint_backdrop(ui: &Ui, texture: &TextureHandle) {
         pos2((1.0 - u) / 2.0, (1.0 - v) / 2.0),
         pos2((1.0 + u) / 2.0, (1.0 + v) / 2.0),
     );
-    let mut mesh = Mesh::with_texture(texture.id());
-    mesh.add_rect_with_uv(rect, uv, Color32::WHITE);
-    ui.painter().add(Shape::mesh(mesh));
-    // The fade: clear at the top, the page background at the bottom.
+    let painter = ui.ctx().layer_painter(egui::LayerId::background());
+    let corner = CornerRadius {
+        nw: t.radius_lg,
+        ..CornerRadius::ZERO
+    };
+    painter.add(RectShape::filled(rect, corner, Color32::WHITE).with_texture(texture.id(), uv));
+    // The fade: clear at the top, the card color the sheet is made of at the bottom.
     let mut fade = Mesh::default();
     let corners = [
         (rect.left_top(), Color32::TRANSPARENT),
         (rect.right_top(), Color32::TRANSPARENT),
-        (rect.right_bottom(), background),
-        (rect.left_bottom(), background),
+        (rect.right_bottom(), t.card),
+        (rect.left_bottom(), t.card),
     ];
     for (pos, color) in corners {
         fade.vertices.push(Vertex {
@@ -73,7 +73,7 @@ fn paint_backdrop(ui: &Ui, texture: &TextureHandle) {
         });
     }
     fade.indices.extend([0, 1, 2, 0, 2, 3]);
-    ui.painter().add(Shape::mesh(fade));
+    painter.add(Shape::mesh(fade));
 }
 
 fn world_section(ui: &mut Ui, name: &str, world: Option<&Lorebook>) {
@@ -167,7 +167,6 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             paint_backdrop(ui, texture);
         }
         ui.spacing_mut().item_spacing.y = spacing::MD;
-        ui.add_space(BANNER_INSET);
         let back = Button::new("Back")
             .icon(IconKind::ArrowLeft)
             .variant(ButtonVariant::Outline);
@@ -176,7 +175,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         }
         if banner.is_some() {
             // The title sits low on the picture, where it has faded out.
-            ui.add_space(BANNER_HEIGHT - 120.0);
+            ui.add_space(BANNER_HEIGHT - 150.0);
         }
         let room = ui.available_width();
         ui.add(

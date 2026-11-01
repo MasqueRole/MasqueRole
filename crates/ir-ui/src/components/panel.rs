@@ -108,6 +108,14 @@ impl Panel {
             Stroke::new(BORDER_WIDTH, t.border),
             StrokeKind::Inside,
         );
+        ctx.data_mut(|d| d.insert_temp(Id::new("ir-surface-rect"), rect));
+    }
+
+    /// The rectangle of the sheet painted by [`surface`](Self::surface) in this frame, edge to
+    /// edge. Falls back to the space available when no surface was painted.
+    pub fn surface_rect(ctx: &Context) -> Rect {
+        ctx.data(|d| d.get_temp(Id::new("ir-surface-rect")))
+            .unwrap_or_else(|| ctx.available_rect())
     }
 
     /// Draw the panel with `add` as its content.
