@@ -4,20 +4,13 @@ use eframe::egui::Ui;
 use ir_core::client::{is_paid_provider, PRESETS};
 use ir_core::settings::{NodeLabel, Settings};
 use ir_ui::components::{
-    Alert, Badge, BadgeVariant, Button, ButtonVariant, Card, FormField, Input, Select, Slider,
-    Switch, Tabs,
+    Alert, Badge, BadgeVariant, Button, ButtonVariant, Card, FormField, Input, Label, Select,
+    Slider, Switch, Tabs,
 };
 use ir_ui::{spacing, ThemeMode};
 
 /// The settings tabs.
-const TAB_NAMES: [&str; 6] = [
-    "General",
-    "Provider",
-    "Generation",
-    "Memory",
-    "Story",
-    "Limits",
-];
+const TAB_NAMES: [&str; 5] = ["General", "Generation", "Memory", "Story", "Limits"];
 
 /// The theme choices, in the order the tabs show them.
 const THEMES: [(&str, ThemeMode); 3] = [
@@ -132,67 +125,63 @@ impl SettingsForm {
         is_paid_provider(PRESETS[self.provider].id, &self.settings.api.base_url)
     }
 
-    /// Draw the provider settings: the cost warning for paid providers, then the provider,
-    /// endpoint, model and API key. The settings screen shows them on its Provider tab and the
-    /// provider page shows them on their own.
+    /// Draw the provider settings flat on the page: the cost warning for paid providers, then
+    /// the provider, endpoint, model and API key. The page supplies the title.
     pub fn show_provider(&mut self, key_available: bool, ui: &mut Ui) -> Option<SettingsAction> {
         let mut action = None;
         if self.is_paid() {
             ui.add(Alert::new(COST_WARNING_TITLE, COST_WARNING));
             ui.add_space(spacing::LG);
         }
-        {
-            Card::new()
-                .header(|ui| {
-                    Card::title(ui, "Provider");
-                    Card::description(ui, "Where responses come from. Any OpenAI-compatible endpoint works.");
-                })
-                .content(|ui| {
-                    let names = PRESETS.iter().map(|p| p.name);
-                    FormField::new("Provider").show(ui, |ui| {
-                        if ui
-                            .add(Select::new("settings-provider", &mut self.provider, names).width(320.0))
-                            .changed()
-                        {
-                            self.apply_provider();
-                        }
-                    });
-                    FormField::new("Base URL").show(ui, |ui| {
-                        ui.add(Input::new(&mut self.settings.api.base_url).id_salt("settings-url"))
-                    });
-                    FormField::new("Model")
-                        .help("Check your provider's documentation for current model names.")
-                        .show(ui, |ui| ui.add(Input::new(&mut self.settings.api.model).id_salt("settings-model")));
-                    FormField::new("API key")
-                        .help("Stored in your operating system's keychain, never in a file. Leave empty to keep the current key.")
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                ui.add(Input::new(&mut self.api_key).password(true).placeholder("Paste a key").id_salt("settings-key"));
-                            });
-                            ui.horizontal(|ui| {
-                                let (text, variant) =
-                                    key_status(PRESETS[self.provider].key_required, key_available);
-                                ui.add(Badge::new(text).variant(variant));
-                                if key_available
-                                    && ui
-                                        .add(Button::new("Remove stored key").variant(ButtonVariant::Ghost))
-                                        .clicked()
-                                {
-                                    action = Some(SettingsAction::RemoveKey);
-                                }
-                            });
-                        });
-                })
-                .show(ui);
-            ui.add_space(spacing::LG);
-        }
+        ui.add(
+            Label::new("Where responses come from. Any OpenAI-compatible endpoint works.")
+                .small()
+                .muted(),
+        );
+        let names = PRESETS.iter().map(|p| p.name);
+        FormField::new("Provider").show(ui, |ui| {
+            if ui
+                .add(Select::new("settings-provider", &mut self.provider, names).width(320.0))
+                .changed()
+            {
+                self.apply_provider();
+            }
+        });
+        FormField::new("Base URL").show(ui, |ui| {
+            ui.add(Input::new(&mut self.settings.api.base_url).id_salt("settings-url"))
+        });
+        FormField::new("Model")
+            .help("Check your provider's documentation for current model names.")
+            .show(ui, |ui| {
+                ui.add(Input::new(&mut self.settings.api.model).id_salt("settings-model"))
+            });
+        FormField::new("API key")
+            .help("Stored in your operating system's keychain, never in a file. Leave empty to keep the current key.")
+            .show(ui, |ui| {
+                ui.add(
+                    Input::new(&mut self.api_key)
+                        .password(true)
+                        .placeholder("Paste a key")
+                        .id_salt("settings-key"),
+                );
+                ui.horizontal(|ui| {
+                    let (text, variant) =
+                        key_status(PRESETS[self.provider].key_required, key_available);
+                    ui.add(Badge::new(text).variant(variant));
+                    if key_available
+                        && ui
+                            .add(Button::new("Remove stored key").variant(ButtonVariant::Ghost))
+                            .clicked()
+                    {
+                        action = Some(SettingsAction::RemoveKey);
+                    }
+                });
+            });
         action
     }
 
-    /// Draw the form. Returns an action if a button other than save or cancel was pressed.
-    pub fn show(&mut self, key_available: bool, ui: &mut Ui) -> Option<SettingsAction> {
-        let mut action = None;
-
+    /// Draw the form.
+    pub fn show(&mut self, ui: &mut Ui) {
         let mut tab = self.tab;
         ui.add(Tabs::new(&mut tab, TAB_NAMES));
         self.tab = tab;
@@ -239,9 +228,6 @@ impl SettingsForm {
             ui.add_space(spacing::LG);
         }
         if self.tab == 1 {
-            action = self.show_provider(key_available, ui);
-        }
-        if self.tab == 2 {
             Card::new()
                 .header(|ui| Card::title(ui, "Generation"))
                 .content(|ui| {
@@ -267,7 +253,7 @@ impl SettingsForm {
                 .show(ui);
             ui.add_space(spacing::LG);
         }
-        if self.tab == 3 {
+        if self.tab == 2 {
             Card::new()
                 .header(|ui| {
                     Card::title(ui, "Context and memory");
@@ -304,7 +290,7 @@ impl SettingsForm {
                 .show(ui);
             ui.add_space(spacing::LG);
         }
-        if self.tab == 4 {
+        if self.tab == 3 {
             Card::new()
                 .header(|ui| Card::title(ui, "Style"))
                 .content(|ui| {
@@ -323,7 +309,7 @@ impl SettingsForm {
                 .show(ui);
             ui.add_space(spacing::LG);
         }
-        if self.tab == 4 {
+        if self.tab == 3 {
             Card::new()
                 .header(|ui| Card::title(ui, "Story tree"))
                 .content(|ui| {
@@ -349,7 +335,7 @@ impl SettingsForm {
                 .show(ui);
             ui.add_space(spacing::LG);
         }
-        if self.tab == 5 {
+        if self.tab == 4 {
             Card::new()
                 .header(|ui| {
                     Card::title(ui, "Token limit");
@@ -376,7 +362,6 @@ impl SettingsForm {
                 .show(ui);
             ui.add_space(spacing::LG);
         }
-        action
     }
 }
 
@@ -425,11 +410,11 @@ mod tests {
             form.tab = tab;
             let _ = ctx.run(Default::default(), |ctx| {
                 eframe::egui::CentralPanel::default().show(ctx, |ui| {
-                    form.show(false, ui);
+                    form.show(ui);
                 });
             });
         }
-        assert_eq!(TAB_NAMES.len(), 6);
+        assert_eq!(TAB_NAMES.len(), 5);
     }
 
     #[test]

@@ -85,7 +85,7 @@ MasqueRole sits between you and the language model provider you choose (xAI, Ope
   </tr>
   <tr>
     <td width="50%"><img src="assets/tutorial/03-characters.png" alt="The character editor"><br><sub><b>Characters</b> and <b>Worlds</b>, each with its own editor.</sub></td>
-    <td width="50%"><img src="assets/tutorial/02-provider.png" alt="Provider settings"><br><sub><b>Settings</b>: any OpenAI-compatible provider, or a local model.</sub></td>
+    <td width="50%"><img src="assets/tutorial/02-provider.png" alt="Provider page"><br><sub><b>Provider</b>: any OpenAI-compatible provider, or a local model.</sub></td>
   </tr>
 </table>
 
@@ -150,7 +150,7 @@ cargo packager --release --formats deb,appimage  # Linux
 ## Quick Start
 
 1. Launch MasqueRole. A short **tutorial** with screenshots opens the first time; reopen it any time with the question mark button next to Settings.
-2. Click the **Provider** icon (the plug) in the rail at the left, or **Settings** (top right), and choose a **provider** and paste your API key (not needed for local models).
+2. Click the **Provider** icon (the plug) in the rail at the left and choose a **provider** and paste your API key (not needed for local models).
 3. Open **Characters** (and, optionally, **Worlds**) with the icons in the rail at the left to create or edit them. Each section has its own list next to the rail, which the sidebar button at the bottom of the rail hides.
 4. Go to **Stories**, press the **+** button, and start writing. Press **Enter** to send and **Shift+Enter** for a new line. Type **/** to see the commands, and click one to use it. **Tree** shows the branches of the open story. Click a message to branch from it or copy it, and click the story title for its world and characters.
 
@@ -158,7 +158,7 @@ For development, you can also provide the key through the `IR_API_KEY` environme
 
 ## Configuration
 
-Most options are available in the **Settings** overlay (the gear at the top right), which has tabs for General, Provider, Generation, Memory, Story, and Limits. They are stored in `settings.toml` in the app's data directory:
+Most options are available in the **Settings** overlay (the gear at the top right), which has tabs for General, Generation, Memory, Story, and Limits. The provider has its own page: the plug icon in the rail. They are stored in `settings.toml` in the app's data directory:
 
 ```toml
 [api]

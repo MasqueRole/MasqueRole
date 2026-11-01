@@ -940,10 +940,9 @@ impl App {
         let Some(form) = &mut self.settings_form else {
             return;
         };
-        let key_available = self.key_available;
         let max_height = ctx.screen_rect().height() * SETTINGS_MAX_HEIGHT_SHARE;
         let min_height = SETTINGS_MIN_HEIGHT.min(max_height);
-        let (mut open, mut save, mut cancel, mut action) = (true, false, false, None);
+        let (mut open, mut save, mut cancel) = (true, false, false);
         Dialog::new("settings", "Settings")
             .width(SETTINGS_WIDTH)
             .show(ctx, &mut open, |ui| {
@@ -954,7 +953,7 @@ impl App {
                     .show(ui, |ui| {
                         // Keep the overlay the same height on every tab.
                         ui.set_min_height(min_height);
-                        action = form.show(key_available, ui);
+                        form.show(ui);
                     });
                 Dialog::actions(ui, |ui| {
                     save = ui.add(Button::new("Save")).clicked();
@@ -967,9 +966,6 @@ impl App {
         if form.theme != self.theme_mode {
             self.theme_mode = form.theme;
             Theme::set_mode(ctx, form.theme);
-        }
-        if action == Some(SettingsAction::RemoveKey) {
-            self.backend.send(Request::DeleteApiKey);
         }
         if save {
             self.save_settings();
