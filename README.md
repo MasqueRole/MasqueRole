@@ -73,7 +73,7 @@ MasqueRole sits between you and the language model provider you choose (xAI, Ope
 - **Local-first:** Sessions are stored in a local SQLite database. Your API key lives in the operating system's secure storage.
 - **Streaming:** Responses appear token by token.
 - **Multiple characters:** Group scenes with several characters and a narrator mode.
-- **Uniform design system:** Every screen is built from a shared component library (`ir-ui`), a shadcn-style set of themed components for egui, with light and dark themes.
+- **Uniform design system:** Every screen is built from a shared component library (`masquerole-ui`), a shadcn-style set of themed components for egui, with light and dark themes.
 - **Customizable prompts:** System prompt templates and style profiles (e.g. fantasy, noir, slice of life).
 
 ## Screenshots
@@ -135,8 +135,8 @@ Installers for Windows (`.exe`) and Linux (`.deb`, `.AppImage`) are built by the
 git clone https://github.com/MasqueRole/MasqueRole.git
 cd MasqueRole
 
-cargo run -p ir-app               # run in development mode
-cargo build --release -p ir-app   # optimized binary in target/release/
+cargo run -p masquerole-app               # run in development mode
+cargo build --release -p masquerole-app   # optimized binary in target/release/
 ```
 
 To build the installers yourself, install [`cargo-packager`](https://github.com/crabnebula-dev/cargo-packager) and run it after a release build (settings are in `Packager.toml`):
@@ -343,7 +343,7 @@ A Cargo workspace with a UI-independent core library, a UI component library, an
 MasqueRole/
 ├── Cargo.toml                  # Workspace manifest
 ├── crates/
-│   ├── ir-core/                # Core logic, no UI code
+│   ├── masquerole-core/                # Core logic, no UI code
 │   │   └── src/
 │   │       ├── lib.rs
 │   │       ├── client.rs       # Provider-agnostic LLM client (streaming)
@@ -355,8 +355,8 @@ MasqueRole/
 │   │       ├── db.rs           # SQLite schema and queries
 │   │       ├── redact.rs       # Keeps API keys out of logs
 │   │       └── settings.rs     # Settings and keychain access
-│   ├── ir-ui/                  # Design system: theme tokens + reusable components
-│   └── ir-app/                 # Desktop GUI (egui / eframe)
+│   ├── masquerole-ui/                  # Design system: theme tokens + reusable components
+│   └── masquerole-app/                 # Desktop GUI (egui / eframe)
 │       └── src/
 │           ├── main.rs
 │           ├── chat.rs
@@ -391,7 +391,7 @@ Contributions are welcome!
 3. Commit your changes
 4. Open a pull request against `main`; maintainers review and merge it
 
-Please describe your changes clearly, run `cargo fmt` and `cargo clippy` before submitting, and keep UI code out of `ir-core`, and build new screens from `ir-ui` components. AI coding agents should follow [`AGENTS.md`](AGENTS.md).
+Please describe your changes clearly, run `cargo fmt` and `cargo clippy` before submitting, and keep UI code out of `masquerole-core`, and build new screens from `masquerole-ui` components. AI coding agents should follow [`AGENTS.md`](AGENTS.md).
 
 ## Usage Notes
 

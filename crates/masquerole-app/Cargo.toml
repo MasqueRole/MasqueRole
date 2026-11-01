@@ -1,0 +1,29 @@
+[package]
+name = "masquerole-app"
+description = "MasqueRole desktop app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+# The installed program is masquerole(.exe).
+name = "masquerole"
+path = "src/main.rs"
+
+[dependencies]
+masquerole-core = { path = "../masquerole-core" }
+masquerole-ui = { path = "../masquerole-ui" }
+eframe.workspace = true
+anyhow.workspace = true
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "sync", "macros", "time"] }
+futures-util = "0.3.34"
+serde_yaml_ng = "0.10.0"
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", default-features = false, features = ["fmt", "std", "registry"] }
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp"] }
+rfd = "0.17.2"
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
