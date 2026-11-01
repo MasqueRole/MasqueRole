@@ -1,0 +1,13 @@
+[package]
+name = "masquerole-ui"
+description = "MasqueRole design system: theme tokens and egui components"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+egui.workspace = true
+
+[dev-dependencies]
+eframe.workspace = true

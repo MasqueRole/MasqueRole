@@ -2002,52 +2002,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "791930b43c0d5973160d90a8f3894509f2b273430f5c5c73b668636d0287c5c0"
 
 [[package]]
-name = "ir-app"
-version = "0.10.9"
-dependencies = [
- "anyhow",
- "chrono",
- "eframe",
- "futures-util",
- "image",
- "ir-core",
- "ir-ui",
- "rfd",
- "serde_yaml_ng",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "winresource",
-]
-
-[[package]]
-name = "ir-core"
-version = "0.10.9"
-dependencies = [
- "bytes",
- "directories",
- "futures-util",
- "keyring",
- "reqwest",
- "rusqlite",
- "serde",
- "serde_json",
- "serde_yaml_ng",
- "thiserror 2.0.21",
- "tokio",
- "toml",
- "tracing",
-]
-
-[[package]]
-name = "ir-ui"
-version = "0.10.9"
-dependencies = [
- "eframe",
- "egui",
-]
-
-[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2267,6 +2221,52 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "62bb907fe88d54d8d9ce32a3cceab4218ed2f6b7d35617cafe9adf84e43919cb"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "masquerole-app"
+version = "0.11.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "eframe",
+ "futures-util",
+ "image",
+ "masquerole-core",
+ "masquerole-ui",
+ "rfd",
+ "serde_yaml_ng",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "winresource",
+]
+
+[[package]]
+name = "masquerole-core"
+version = "0.11.0"
+dependencies = [
+ "bytes",
+ "directories",
+ "futures-util",
+ "keyring",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "serde_yaml_ng",
+ "thiserror 2.0.21",
+ "tokio",
+ "toml",
+ "tracing",
+]
+
+[[package]]
+name = "masquerole-ui"
+version = "0.11.0"
+dependencies = [
+ "eframe",
+ "egui",
 ]
 
 [[package]]

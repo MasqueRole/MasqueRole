@@ -5,9 +5,9 @@ This file tells an AI coding agent how to work on MasqueRole. Read it fully befo
 ## Ground Rules
 
 1. **Rust only.** One language, one toolchain, one binary. No JavaScript, no web views.
-2. **Provider-agnostic.** Never hard-code a single AI provider. All model access goes through the `LlmProvider` trait in `ir-core` (OpenAI-compatible API first, other adapters later). Provider names may appear only in presets and examples.
-3. **Core has no UI.** `ir-core` must not depend on `egui`, `eframe`, or `ir-ui`. The dependency direction is `ir-app → ir-ui → egui` and `ir-app → ir-core`.
-4. **Uniform styling.** Every visual element comes from the `ir-ui` design system (see [Design System](#design-system)). No ad-hoc colors, sizes, or fonts in `ir-app`.
+2. **Provider-agnostic.** Never hard-code a single AI provider. All model access goes through the `LlmProvider` trait in `masquerole-core` (OpenAI-compatible API first, other adapters later). Provider names may appear only in presets and examples.
+3. **Core has no UI.** `masquerole-core` must not depend on `egui`, `eframe`, or `masquerole-ui`. The dependency direction is `masquerole-app → masquerole-ui → egui` and `masquerole-app → masquerole-core`.
+4. **Uniform styling.** Every visual element comes from the `masquerole-ui` design system (see [Design System](#design-system)). No ad-hoc colors, sizes, or fonts in `masquerole-app`.
 5. **Secrets stay out of files.** API keys go in the OS keychain (`keyring`), never in `settings.toml`, logs, tests, or commits.
 6. **Small, verified changes.** Make a change compile, run the tests, commit, then continue.
 7. **Stay in scope.** Do not add features that were not asked for or are not in the README. Propose them instead.
@@ -31,7 +31,7 @@ This file tells an AI coding agent how to work on MasqueRole. Read it fully befo
 
 ## Tutorial Screenshots
 
-The first-run tutorial shows screenshots of the app (`assets/tutorial/`, one 1100x720 PNG per tutorial page, in `crates/ir-app/src/tutorial.rs`). **Whenever a change alters how the app looks, retake the screenshots** so they match, and adjust the tutorial text if it no longer fits. Take them from the running app with demo data (point `IR_DATA_DIR` at a demo folder), in the dark theme, with the window's inner size at 1100x720.
+The first-run tutorial shows screenshots of the app (`assets/tutorial/`, one 1100x720 PNG per tutorial page, in `crates/masquerole-app/src/tutorial.rs`). **Whenever a change alters how the app looks, retake the screenshots** so they match, and adjust the tutorial text if it no longer fits. Take them from the running app with demo data (point `IR_DATA_DIR` at a demo folder), in the dark theme, with the window's inner size at 1100x720.
 
 ## Definition of Done (for every change)
 
@@ -53,9 +53,9 @@ Then commit with a short, descriptive message (imperative mood, e.g. `Add story 
 MasqueRole/
 ├── Cargo.toml                  # Workspace manifest
 ├── crates/
-│   ├── ir-core/                # Logic only: provider client, memory, tree, db, settings
-│   ├── ir-ui/                  # Design system: theme tokens + reusable components (like shadcn/ui)
-│   └── ir-app/                 # Desktop app: screens composed from ir-ui components
+│   ├── masquerole-core/                # Logic only: provider client, memory, tree, db, settings
+│   ├── masquerole-ui/                  # Design system: theme tokens + reusable components (like shadcn/ui)
+│   └── masquerole-app/                 # Desktop app: screens composed from masquerole-ui components
 ├── characters/                 # Example character cards (YAML)
 ├── worlds/                     # Example lorebooks (YAML)
 ├── docs/                       # GitHub Pages site (empty for now)
@@ -64,9 +64,9 @@ MasqueRole/
 
 ## Design System
 
-`ir-ui` is the Rust equivalent of shadcn/ui for egui: small, composable, consistently styled components built on top of design tokens. Like shadcn, components are plain code in the repo that we own and edit, not an opaque dependency.
+`masquerole-ui` is the Rust equivalent of shadcn/ui for egui: small, composable, consistently styled components built on top of design tokens. Like shadcn, components are plain code in the repo that we own and edit, not an opaque dependency.
 
-### Tokens (`ir-ui/src/theme.rs`)
+### Tokens (`masquerole-ui/src/theme.rs`)
 
 Define a single `Theme` struct and apply it once at startup with `Theme::apply(&egui::Context)`. It sets `egui::Style` and `egui::Visuals` so even raw egui widgets match.
 
@@ -77,7 +77,7 @@ Define a single `Theme` struct and apply it once at startup with `Theme::apply(&
 - **Typography:** one UI font, one monospace font, and a fixed size scale (`text_xs`, `text_sm`, `text_base`, `text_lg`, `text_xl`, `text_2xl`).
 - Provide semantic colors for the story tree: `tree_current`, `tree_explored`, `tree_open`.
 
-### Components (`ir-ui/src/components/`)
+### Components (`masquerole-ui/src/components/`)
 
 One file per component. Each exposes a builder-style API and uses only theme tokens.
 
@@ -95,16 +95,16 @@ One file per component. Each exposes a builder-style API and uses only theme tok
 - No hard-coded colors or sizes; read them from `Theme` (via `ui.ctx()` or a `ThemeExt` trait).
 - Support hover, focus (use the `ring` color), active, and disabled states.
 - Every interactive component is keyboard accessible.
-- Add a `gallery` example (`cargo run -p ir-ui --example gallery`) that shows every component in every variant, in light and dark. Update it whenever a component changes.
+- Add a `gallery` example (`cargo run -p masquerole-ui --example gallery`) that shows every component in every variant, in light and dark. Update it whenever a component changes.
 
 ## Conventions
 
-- **Errors:** `thiserror` in libraries, `anyhow` only in `ir-app`'s `main`.
+- **Errors:** `thiserror` in libraries, `anyhow` only in `masquerole-app`'s `main`.
 - **Async:** `tokio`; never block the UI thread.
-- **Naming:** `snake_case` files and functions, `CamelCase` types, crate names prefixed `ir-`.
-- **Docs:** public items in `ir-core` and `ir-ui` get doc comments.
+- **Naming:** `snake_case` files and functions, `CamelCase` types, crate names prefixed `masquerole-`.
+- **Docs:** public items in `masquerole-core` and `masquerole-ui` get doc comments.
 - **Dependencies:** keep them minimal; justify any new crate in the commit message.
-- **Tests:** every `ir-core` module has unit tests. No test may require network access or a real API key.
+- **Tests:** every `masquerole-core` module has unit tests. No test may require network access or a real API key.
 
 ## When Unsure
 
