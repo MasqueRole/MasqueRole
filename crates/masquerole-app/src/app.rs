@@ -413,7 +413,11 @@ impl App {
                 self.notices.push(PlacedNotice { notice, after });
             }
             Event::Chunk(text) => self.chat.streaming.push_str(&text),
-            Event::Speaker(name) => self.chat.speaker = name,
+            Event::Speaker(name) => {
+                // A new answer starts: whatever was streamed so far belonged to the one before.
+                self.chat.speaker = name;
+                self.chat.streaming.clear();
+            }
             Event::Generating(on) => {
                 self.chat.generating = on;
                 if !on {
@@ -2323,5 +2327,21 @@ entries:
         rig.push(Event::Transcript(story));
         rig.frame();
         assert!(rig.sent().is_empty(), "drawing the page sends nothing");
+    }
+
+    #[test]
+    fn each_answer_streams_into_its_own_bubble() {
+        let mut rig = Rig::new();
+        rig.push(Event::Generating(true));
+        rig.push(Event::Speaker(Some("Mira".into())));
+        rig.push(Event::Chunk("Hello".into()));
+        rig.push(Event::Chunk(" there.".into()));
+        assert_eq!(rig.app.chat.streaming, "Hello there.");
+        // The next character starts: nothing of Mira's answer is left in the bubble.
+        rig.push(Event::Speaker(Some("Orrin".into())));
+        assert_eq!(rig.app.chat.streaming, "");
+        rig.push(Event::Chunk("Yes.".into()));
+        assert_eq!(rig.app.chat.streaming, "Yes.");
+        assert_eq!(rig.app.chat.speaker.as_deref(), Some("Orrin"));
     }
 }

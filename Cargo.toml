@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/masquerole-core", "crates/masquerole-ui", "crates/masquerole-app"]
 
 [workspace.package]
-version = "0.12.1"
+version = "0.12.2"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/MasqueRole/MasqueRole"
