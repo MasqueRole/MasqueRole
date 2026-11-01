@@ -3,8 +3,8 @@
 use std::hash::Hash;
 
 use egui::{
-    CentralPanel, Context, CornerRadius, Frame, Id, InnerResponse, Margin, SidePanel, Stroke,
-    StrokeKind, TopBottomPanel, Ui,
+    CentralPanel, Context, CornerRadius, Frame, Id, InnerResponse, Margin, Rect, SidePanel, Stroke,
+    StrokeKind, TopBottomPanel, Ui, Vec2,
 };
 
 use crate::theme::{spacing, ThemeExt, BORDER_WIDTH};
@@ -95,6 +95,12 @@ impl Panel {
         };
         let painter = ctx.layer_painter(egui::LayerId::background());
         let rect = ctx.available_rect();
+        // The rounded corner leaves the window behind it showing, which is black without this.
+        painter.rect_filled(
+            Rect::from_min_size(rect.min, Vec2::splat(f32::from(radius))),
+            CornerRadius::ZERO,
+            t.background,
+        );
         painter.rect(
             rect,
             corner,
