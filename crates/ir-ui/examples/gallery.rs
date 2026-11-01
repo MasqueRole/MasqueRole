@@ -583,10 +583,9 @@ impl Gallery {
             "Mira",
             "Ah, another one who got lost?",
         ));
-        let avatar = self.sample(&ctx).clone();
         ui.add(
-            ChatBubble::character("Mira", "With her picture beside the message.")
-                .avatar(Some(avatar), IconKind::User),
+            ChatBubble::character("Mira", "With an avatar beside the message.")
+                .avatar(None, IconKind::User),
         );
         ui.add(ChatBubble::user("I follow her toward the lighthouse."));
         ui.add(
