@@ -1,6 +1,6 @@
 //! The settings screen.
 
-use eframe::egui::Ui;
+use eframe::egui::{Color32, Ui};
 use ir_core::client::{is_paid_provider, PRESETS};
 use ir_core::settings::{NodeLabel, Settings};
 use ir_ui::components::{
@@ -139,9 +139,17 @@ impl SettingsForm {
                 .muted(),
         );
         let names = PRESETS.iter().map(|p| p.name);
+        let marks = PRESETS.iter().map(|p| {
+            let [_, r, g, b] = p.mark_color.to_be_bytes();
+            (p.mark, Color32::from_rgb(r, g, b))
+        });
         FormField::new("Provider").show(ui, |ui| {
             if ui
-                .add(Select::new("settings-provider", &mut self.provider, names).width(320.0))
+                .add(
+                    Select::new("settings-provider", &mut self.provider, names)
+                        .marks(marks)
+                        .width(320.0),
+                )
                 .changed()
             {
                 self.apply_provider();

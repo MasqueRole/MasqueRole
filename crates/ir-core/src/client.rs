@@ -138,6 +138,10 @@ pub struct ProviderPreset {
     pub base_url: &'static str,
     /// Whether the provider needs an API key.
     pub key_required: bool,
+    /// One or two letters that stand for the provider in lists.
+    pub mark: &'static str,
+    /// Background color of the mark, as `0xRRGGBB`.
+    pub mark_color: u32,
 }
 
 /// Built-in presets. Add new OpenAI-compatible providers here, not in code.
@@ -148,42 +152,56 @@ pub const PRESETS: &[ProviderPreset] = &[
         base_url: "",
         // Most custom endpoints are local servers; one that wants a key answers 401.
         key_required: false,
+        mark: "+",
+        mark_color: 0x71717A,
     },
     ProviderPreset {
         id: "xai",
         name: "xAI",
         base_url: "https://api.x.ai/v1",
         key_required: true,
+        mark: "X",
+        mark_color: 0x52525B,
     },
     ProviderPreset {
         id: "openai",
         name: "OpenAI",
         base_url: "https://api.openai.com/v1",
         key_required: true,
+        mark: "O",
+        mark_color: 0x10A37F,
     },
     ProviderPreset {
         id: "anthropic",
         name: "Anthropic (OpenAI compatibility endpoint)",
         base_url: "https://api.anthropic.com/v1",
         key_required: true,
+        mark: "A",
+        mark_color: 0xD97757,
     },
     ProviderPreset {
         id: "openrouter",
         name: "OpenRouter",
         base_url: "https://openrouter.ai/api/v1",
         key_required: true,
+        mark: "R",
+        mark_color: 0x6366F1,
     },
     ProviderPreset {
         id: "ollama",
         name: "Ollama (local)",
         base_url: "http://localhost:11434/v1",
         key_required: false,
+        mark: "Ol",
+        mark_color: 0x3F3F46,
     },
     ProviderPreset {
         id: "lmstudio",
         name: "LM Studio (local)",
         base_url: "http://localhost:1234/v1",
         key_required: false,
+        mark: "LM",
+        mark_color: 0x7C3AED,
     },
 ];
 

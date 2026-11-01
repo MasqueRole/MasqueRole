@@ -290,6 +290,11 @@ impl Gallery {
                 &mut self.provider,
                 ["OpenAI", "xAI", "Ollama (local)"],
             )
+            .marks([
+                ("O", egui::Color32::from_rgb(16, 163, 127)),
+                ("X", egui::Color32::from_rgb(82, 82, 91)),
+                ("Ol", egui::Color32::from_rgb(63, 63, 70)),
+            ])
             .width(220.0),
         );
         ui.add(
