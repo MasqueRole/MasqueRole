@@ -1,7 +1,8 @@
 //! Chat bubble: one message in the conversation.
 
+use egui::text::{LayoutJob, TextFormat};
 use egui::{
-    Align, Color32, Frame, Layout, Margin, Response, RichText, Sense, Stroke, TextStyle,
+    Align, Color32, FontId, Frame, Layout, Margin, Response, RichText, Sense, Stroke, TextStyle,
     TextWrapMode, Ui, Widget, WidgetText,
 };
 
@@ -15,9 +16,15 @@ const AVATAR_SIZE: f32 = 32.0;
 /// The widest a bubble grows, as a fraction of the space available.
 const MAX_WIDTH_FRACTION: f32 = 0.8;
 
-/// Shown after streaming text, like a text cursor. Plain ASCII, because the bundled fonts
-/// have no block-element glyphs (they draw as an empty box).
-const STREAMING_CURSOR: &str = "|";
+/// Shown in a bubble that is waiting for its first words. Plain ASCII dots, because the
+/// bundled fonts do not have every symbol.
+const THINKING: &str = "Thinking...";
+
+/// How many letters per second the shimmer travels.
+const SHIMMER_SPEED: f64 = 9.0;
+
+/// How many letters wide the bright part of the shimmer is on each side of its center.
+const SHIMMER_REACH: f64 = 3.5;
 
 /// Who a [`ChatBubble`] speaks for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -91,7 +98,8 @@ impl ChatBubble {
         Self::new(BubbleKind::Narrator, None, text)
     }
 
-    /// Show a cursor after the text while the response is still arriving.
+    /// Mark the response as still arriving. While no text has arrived the bubble says
+    /// "Thinking..." with a shimmer moving across the letters.
     pub fn streaming(mut self, streaming: bool) -> Self {
         self.streaming = streaming;
         self
@@ -142,6 +150,42 @@ impl Widget for ChatBubble {
     }
 }
 
+/// The text of a bubble with a bright band of letters travelling across it. Letters in the
+/// band have the full `color` and the others a dimmer one, so the text itself shimmers and the
+/// bubble stays as it is. Without `time` (reduced motion) the text is still and dim.
+fn shimmer_job(
+    text: &str,
+    color: Color32,
+    font_id: FontId,
+    italics: bool,
+    time: Option<f64>,
+) -> LayoutJob {
+    let dim = color.gamma_multiply(0.45);
+    let count = text.chars().count() as f64;
+    // The band starts before the first letter and leaves after the last one, so the text
+    // rests dim for a moment between passes.
+    let period = count + 2.0 * SHIMMER_REACH + 3.0;
+    let center = time.map(|t| (t * SHIMMER_SPEED) % period - SHIMMER_REACH);
+    let mut job = LayoutJob::default();
+    for (index, letter) in text.chars().enumerate() {
+        let strength = center.map_or(0.0, |c| {
+            let near = 1.0 - ((index as f64 - c).abs() / SHIMMER_REACH).min(1.0);
+            near * near * (3.0 - 2.0 * near)
+        });
+        job.append(
+            &letter.to_string(),
+            0.0,
+            TextFormat {
+                font_id: font_id.clone(),
+                color: dim.lerp_to_gamma(color, strength as f32),
+                italics,
+                ..TextFormat::default()
+            },
+        );
+    }
+    job
+}
+
 impl ChatBubble {
     /// Draw the bubble with its heading, without the avatar.
     fn body(self, ui: &mut Ui) -> Response {
@@ -154,10 +198,12 @@ impl ChatBubble {
             BubbleKind::Narrator => Align::Center,
         };
 
-        let mut text = self.text;
-        if self.streaming {
-            text.push_str(STREAMING_CURSOR);
-        }
+        let thinking = self.streaming && self.text.trim().is_empty();
+        let text = if thinking {
+            THINKING.to_string()
+        } else {
+            self.text
+        };
         let mut rich = RichText::new(text).size(t.text_base).color(text_color);
         if self.kind == BubbleKind::Narrator {
             rich = rich.italics();
@@ -196,7 +242,23 @@ impl ChatBubble {
                 .inner_margin(Margin::symmetric(spacing::MD as i8, spacing::SM as i8))
                 .show(ui, |ui| {
                     ui.set_width(content_width);
-                    ui.add(egui::Label::new(rich).wrap());
+                    if thinking {
+                        let reduced = crate::motion::reduced(ui.ctx());
+                        let time = ui.input(|i| i.time);
+                        if !reduced {
+                            ui.ctx().request_repaint();
+                        }
+                        let job = shimmer_job(
+                            THINKING,
+                            text_color,
+                            FontId::proportional(t.text_base),
+                            self.kind == BubbleKind::Narrator,
+                            (!reduced).then_some(time),
+                        );
+                        ui.add(egui::Label::new(job).wrap());
+                    } else {
+                        ui.add(egui::Label::new(rich).wrap());
+                    }
                 })
                 .response;
             // On top of the text, so a click anywhere on the bubble picks it. Dragging still
@@ -336,14 +398,55 @@ mod tests {
     }
 
     #[test]
-    fn streaming_adds_room_for_the_cursor() {
+    fn streaming_text_has_no_cursor() {
         let mut h = Harness::new();
         let plain = bubble_rect(&mut h, &ChatBubble::character("Mira", "Hello"));
         let streaming = bubble_rect(
             &mut h,
             &ChatBubble::character("Mira", "Hello").streaming(true),
         );
-        assert!(streaming.width() > plain.width());
+        assert_eq!(streaming.width(), plain.width());
+    }
+
+    #[test]
+    fn a_bubble_without_words_yet_says_thinking() {
+        let mut h = Harness::new();
+        let thinking = bubble_rect(&mut h, &ChatBubble::character("Mira", "").streaming(true));
+        let said = bubble_rect(&mut h, &ChatBubble::character("Mira", THINKING));
+        assert_eq!(thinking.width(), said.width());
+        assert!(thinking.width() > 40.0);
+        // Spaces alone are not words.
+        let blank = bubble_rect(&mut h, &ChatBubble::narrator("  ").streaming(true));
+        let narrated = bubble_rect(&mut h, &ChatBubble::narrator(THINKING));
+        assert_eq!(blank.width(), narrated.width());
+    }
+
+    #[test]
+    fn the_shimmer_moves_across_the_letters_and_rests_when_motion_is_reduced() {
+        let font = FontId::proportional(14.0);
+        let colors = |time: Option<f64>| -> Vec<Color32> {
+            shimmer_job(THINKING, Color32::WHITE, font.clone(), false, time)
+                .sections
+                .iter()
+                .map(|s| s.format.color)
+                .collect()
+        };
+        let early = colors(Some(0.5));
+        let later = colors(Some(1.0));
+        assert_eq!(early.len(), THINKING.chars().count());
+        assert_ne!(early, later, "the bright band moved");
+        let brightest = |c: &[Color32]| (0..c.len()).max_by_key(|&i| c[i].r()).unwrap();
+        assert!(brightest(&later) > brightest(&early), "to the right");
+        // Never brighter than the text color, never invisible.
+        assert!(early.iter().all(|c| c.a() > 80));
+        // Reduced motion: every letter the same dim color.
+        let still = colors(None);
+        assert!(still.iter().all(|c| *c == still[0]));
+        assert!(still[0].r() < 255);
+        // The text is the same at every moment.
+        let text = |time| shimmer_job(THINKING, Color32::WHITE, font.clone(), false, time).text;
+        assert_eq!(text(Some(2.0)), THINKING);
+        assert_eq!(text(None), THINKING);
     }
 
     #[test]
