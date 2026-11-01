@@ -148,10 +148,9 @@ impl Widget for Select<'_> {
                     for (i, option) in options.iter().enumerate() {
                         match mark_of(i) {
                             Some(mark) => {
-                                ui.horizontal(|ui| {
-                                    paint_mark(ui, mark);
-                                    ui.selectable_value(selected, i, option);
-                                });
+                                if option_row(ui, mark, option, *selected == i).clicked() {
+                                    *selected = i;
+                                }
                             }
                             None => {
                                 ui.selectable_value(selected, i, option);
@@ -178,10 +177,41 @@ impl Widget for Select<'_> {
     }
 }
 
-/// Allocate room for a mark and draw it.
-fn paint_mark(ui: &mut Ui, mark: &SelectMark) {
-    let (rect, _) = ui.allocate_exact_size(Vec2::splat(MARK_SIZE), Sense::hover());
-    draw_mark(ui, rect, mark);
+/// One option of the open list: the mark and the text on a button as wide as the list, so the
+/// whole row can be clicked.
+fn option_row(ui: &mut Ui, mark: &SelectMark, text: &str, selected: bool) -> Response {
+    let height = ui.spacing().interact_size.y;
+    let (rect, response) =
+        ui.allocate_exact_size(Vec2::new(ui.available_width(), height), Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, text)
+    });
+    if ui.is_rect_visible(rect) {
+        let visuals = ui.style().interact_selectable(&response, selected);
+        if selected || response.hovered() || response.has_focus() {
+            ui.painter().rect(
+                rect,
+                visuals.corner_radius,
+                visuals.weak_bg_fill,
+                visuals.bg_stroke,
+                egui::StrokeKind::Inside,
+            );
+        }
+        let pad = ui.spacing().button_padding.x;
+        let mark_rect = Rect::from_min_size(
+            egui::pos2(rect.left() + pad, rect.center().y - MARK_SIZE / 2.0),
+            Vec2::splat(MARK_SIZE),
+        );
+        draw_mark(ui, mark_rect, mark);
+        ui.painter().text(
+            egui::pos2(mark_rect.right() + MARK_GAP, rect.center().y),
+            Align2::LEFT_CENTER,
+            text,
+            FontId::proportional(ui.ir_theme().text_base),
+            visuals.text_color(),
+        );
+    }
+    response
 }
 
 /// Draw `mark` in `rect`.
@@ -250,6 +280,43 @@ mod tests {
             ui.add(Select::new("provider", &mut selected, OPTIONS).marks(marks.clone()));
         });
         assert_eq!(selected, 1);
+    }
+
+    #[test]
+    fn the_whole_row_with_a_mark_is_clickable_not_only_its_text() {
+        let mut h = Harness::new();
+        let mut selected = 0;
+        let marks = [
+            SelectMark::letters("O", Color32::GRAY),
+            SelectMark::letters("X", Color32::GRAY),
+            SelectMark::letters("L", Color32::GRAY),
+        ];
+        let mut closed = egui::Rect::NOTHING;
+        let draw = |ui: &mut Ui, selected: &mut usize| {
+            ui.add(
+                Select::new("provider", selected, OPTIONS)
+                    .marks(marks.clone())
+                    .width(200.0),
+            )
+            .rect
+        };
+        h.idle(&mut |ui: &mut Ui| closed = draw(ui, &mut selected));
+        h.click(closed.center(), &mut |ui: &mut Ui| {
+            draw(ui, &mut selected);
+        });
+        h.idle(&mut |ui: &mut Ui| {
+            draw(ui, &mut selected);
+        });
+        let style = h.ctx.style();
+        let row = style.spacing.interact_size.y;
+        let pitch = row + style.spacing.item_spacing.y;
+        let y = closed.bottom() + style.spacing.menu_margin.top as f32 + 2.0 * pitch + row / 2.0;
+        // The far right of the row, where there is neither mark nor text.
+        let blank = egui::Pos2::new(closed.right() - 30.0, y);
+        h.click(blank, &mut |ui: &mut Ui| {
+            draw(ui, &mut selected);
+        });
+        assert_eq!(selected, 2);
     }
 
     #[test]
