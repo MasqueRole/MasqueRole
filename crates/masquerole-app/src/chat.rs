@@ -161,8 +161,8 @@ fn notice_card(ui: &mut Ui, notice: &Notice) -> bool {
     let mut dismissed = false;
     Card::new()
         .content(|ui| {
-            ui.horizontal_top(|ui| {
-                let room = (ui.available_width() - 32.0 - spacing::SM).max(0.0);
+            ui.horizontal(|ui| {
+                let room = (ui.available_width() - 28.0 - spacing::SM).max(0.0);
                 ui.allocate_ui(egui::vec2(room, 0.0), |ui| {
                     let mut label = Label::new(&notice.text).small().muted();
                     if notice.monospace {
@@ -170,11 +170,11 @@ fn notice_card(ui: &mut Ui, notice: &Notice) -> bool {
                     }
                     ui.add(label);
                 });
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let close = Button::new("")
                         .icon(IconKind::Close)
                         .variant(ButtonVariant::Ghost)
-                        .size(ButtonSize::Icon);
+                        .size(ButtonSize::Sm);
                     dismissed = ui.add(close).ir_tooltip("Dismiss").clicked();
                 });
             });
