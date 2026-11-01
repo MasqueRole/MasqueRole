@@ -43,7 +43,7 @@ const PAGES: &[Page] = &[
     },
     Page {
         title: "Branch, copy, and look around",
-        text: "Click a message to branch from it or copy it. Every message has a tag such as #12 that works with /goto. Storylines of the open story are listed below it in the sidebar, and a click on the story title opens its world and characters. Their pictures show too: characters beside their messages, and the world next to the title, as the backdrop of its info page.",
+        text: "Click a message to branch from it or copy it. With several characters in a story, name the one you mean (for example @Mira) or just keep talking: the chips above the message box show who answers. Every message has a tag such as #12 that works with /goto. Storylines of the open story are listed below it in the sidebar, and a click on the story title opens its world and characters. Their pictures show too: characters beside their messages, and the world next to the title, as the backdrop of its info page.",
         screenshot: include_bytes!("../../../assets/tutorial/05-messages.png"),
     },
     Page {

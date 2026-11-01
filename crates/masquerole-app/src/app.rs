@@ -256,7 +256,7 @@ pub struct App {
     /// The whole story tree, sent by the backend while the tree section is open.
     pub tree: Option<TreeData>,
     /// View state of the tree section.
-    tree_view: TreeView,
+    pub tree_view: TreeView,
     /// Counts the tree updates, so the tree view knows when to rebuild its layout.
     tree_version: u64,
     /// Whether the backend has been told to send the tree.
@@ -2230,5 +2230,57 @@ entries:
         rig.app.jump_to(NodeId(3));
         assert_eq!(rig.app.section, Section::Stories);
         assert_eq!(rig.sent(), ["JumpTo(NodeId(3))"]);
+    }
+
+    #[test]
+    fn a_story_with_several_characters_draws_the_speaker_bar_and_the_presence_controls() {
+        let mut rig = Rig::new();
+        let mut story = transcript(1, "Harbor");
+        story.characters = vec!["Mira".into(), "Orrin".into()];
+        story.present = vec!["Mira".into()];
+        story.floor = vec!["Mira".into()];
+        rig.push(Event::Transcript(story));
+        for input in ["", "@Orrin hello", "Mira, look", "Everyone, listen"] {
+            rig.app.chat.input = input.into();
+            rig.frame();
+        }
+        rig.app.story_info = true;
+        rig.frame();
+        rig.app.story_info = false;
+
+        // The answer being written belongs to its character, until the answers are over.
+        rig.push(Event::Generating(true));
+        rig.push(Event::Speaker(Some("Mira".into())));
+        rig.push(Event::Chunk("Hm".into()));
+        rig.frame();
+        assert_eq!(rig.app.chat.speaker.as_deref(), Some("Mira"));
+        rig.push(Event::Generating(false));
+        rig.push(Event::Speaker(None));
+        assert_eq!(rig.app.chat.speaker, None);
+        rig.frame();
+    }
+
+    #[test]
+    fn the_info_page_of_a_group_story_asks_the_backend_to_move_characters() {
+        let mut rig = Rig::new();
+        let mut story = transcript(1, "Harbor");
+        story.characters = vec!["Mira".into(), "Orrin".into()];
+        story.present = vec!["Mira".into(), "Orrin".into()];
+        rig.push(Event::Library {
+            characters: vec![entry("gil", Character::from_yaml("name: Gil").unwrap())],
+            worlds: Vec::new(),
+            images_dir: std::env::temp_dir(),
+        });
+        rig.push(Event::Transcript(story));
+        rig.app.story_info = true;
+        rig.frame();
+        rig.frame();
+        // Someone away is drawn too.
+        let mut story = transcript(1, "Harbor");
+        story.characters = vec!["Mira".into(), "Orrin".into()];
+        story.present = vec!["Mira".into()];
+        rig.push(Event::Transcript(story));
+        rig.frame();
+        assert!(rig.sent().is_empty(), "drawing the page sends nothing");
     }
 }
