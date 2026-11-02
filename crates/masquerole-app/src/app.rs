@@ -192,6 +192,7 @@ enum FormAction {
     Save,
     Cancel,
     Delete,
+    Export,
 }
 
 /// A card telling the user what to do next in an empty main area. Returns whether its
@@ -625,6 +626,11 @@ impl App {
                     }
                 }
             }
+            (Section::Characters, FormAction::Export) => {
+                if let Some(path) = self.character_form.as_ref().and_then(|f| f.path.clone()) {
+                    self.backend.send(Request::ExportCharacter(path));
+                }
+            }
             (Section::Worlds, FormAction::Delete) => {
                 if let Some(form) = &self.world_form {
                     if let Some(path) = form.path.clone() {
@@ -648,7 +654,8 @@ impl App {
                     self.provider_form = Some(SettingsForm::new(&self.settings));
                 }
             }
-            (Section::Stories | Section::Tree | Section::Provider, _) => {}
+            (Section::Stories | Section::Tree | Section::Provider, _)
+            | (Section::Worlds, FormAction::Export) => {}
         }
     }
 
@@ -845,6 +852,7 @@ impl App {
             Section::Worlds => self.world_form.as_ref().is_some_and(|f| f.path.is_some()),
             Section::Stories | Section::Tree | Section::Provider => false,
         };
+        let can_export = can_delete && self.section == Section::Characters;
         // The provider page has nothing to cancel; its Save waits for a change.
         let provider = self.section == Section::Provider;
         let can_save = !provider || self.provider_changed();
@@ -866,6 +874,13 @@ impl App {
                     .clicked()
             {
                 action = Some(FormAction::Delete);
+            }
+            if can_export
+                && ui
+                    .add(Button::new("Export").variant(ButtonVariant::Outline))
+                    .clicked()
+            {
+                action = Some(FormAction::Export);
             }
         });
         if let Some(action) = action {
@@ -1787,6 +1802,26 @@ entries:
         assert!(sent[0].starts_with("SaveCharacter") && sent[0].contains("bo.yaml"));
         assert!(sent[1].starts_with("SaveWorld") && sent[1].contains("path: None"));
         assert!(rig.app.character_form.is_none() && rig.app.world_form.is_none());
+    }
+
+    #[test]
+    fn exporting_needs_a_saved_character_and_asks_the_backend_for_it() {
+        let mut rig = Rig::new();
+        rig.app.show_section(Section::Characters);
+        rig.app.character_form = Some(CharacterForm::new());
+        rig.app.form_action(FormAction::Export);
+        assert!(rig.sent().is_empty(), "an unsaved character has no file");
+
+        rig.app.character_form = Some(CharacterForm {
+            path: Some(PathBuf::from("bo.yaml")),
+            name: "Bo".into(),
+            ..CharacterForm::new()
+        });
+        rig.frame(); // the footer with the Export button is drawn
+        rig.app.form_action(FormAction::Export);
+        let sent = rig.sent();
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].starts_with("ExportCharacter") && sent[0].contains("bo.yaml"));
     }
 
     #[test]

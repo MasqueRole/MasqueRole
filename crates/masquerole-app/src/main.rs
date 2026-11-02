@@ -32,7 +32,9 @@ use masquerole_core::APP_NAME;
 use masquerole_ui::Theme;
 
 use crate::app::App;
-use crate::backend::{default_image_picker, default_provider_factory, Request, Services};
+use crate::backend::{
+    default_card_files, default_image_picker, default_provider_factory, Request, Services,
+};
 use crate::library::Library;
 
 fn main() {
@@ -84,6 +86,7 @@ fn run() -> anyhow::Result<()> {
                 secrets: Arc::new(KeychainStore),
                 provider: default_provider_factory(),
                 picker: default_image_picker(),
+                cards: default_card_files(),
                 update_url: Some(masquerole_core::update::LATEST_RELEASE_URL.to_owned()),
                 wake: Arc::new(move || ctx.request_repaint()),
             };
