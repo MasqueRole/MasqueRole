@@ -68,7 +68,7 @@ MasqueRole sits between you and the language model provider you choose (xAI, Ope
 - **Native desktop app:** Windows and Linux. Ships as a single small binary with fast startup. No browser, no web runtime, no server to run.
 - **Endless sessions:** Automatic summarization of older messages keeps the context lean without losing the plot.
 - **Story Tree:** Branch your story into parallel storylines, visualized as a skill tree. Jump back to any node and continue from there.
-- **Character cards:** Personality, speaking style, background, and example dialogue per character in a simple file.
+- **Character cards:** Personality, speaking style, background, and example dialogue per character in a simple file. Import and export the common card formats (PNG, JSON).
 - **World knowledge (lorebook):** Entries are injected only when matching keywords appear in the conversation.
 - **Layered memory:** Short-term, summary, and fact memory.
 - **Local-first:** Sessions are stored in a local SQLite database. Your API key lives in the operating system's secure storage.
@@ -217,7 +217,7 @@ logging = false           # write masquerole.log next to settings.toml (after a 
 
 ## Character Cards
 
-Characters are YAML files that you can create in the app or import from disk:
+Characters are YAML files that you can create in the app or import from disk (see [Import and export](#import-and-export)):
 
 ```yaml
 name: "Mira Valen"
@@ -237,6 +237,18 @@ example_dialogue:
     character: "Wherever the map runs out. That's where it gets interesting."
 image: "1a2b3c.png"   # optional; set with "Add picture" in the editor
 ```
+
+### Import and export
+
+The folder button above the character list imports a card; the *Export* button in the editor saves one. The formats are the ones other roleplay tools use:
+
+| Format | Import | Export |
+|--------|--------|--------|
+| Character Card V2 in a PNG picture (`.png`) | yes (V3 too) | yes |
+| Character Card V2 / V1 (`.json`) | yes | V2 |
+| MasqueRole YAML (`.yaml`, `.yml`) | yes | yes |
+
+Export picks the format from the file extension; a name without one becomes a PNG. Other tools' lorebooks, alternate greetings and system prompts are not imported, and you are told when something was left out.
 
 Pictures (PNG, JPEG, or WebP) are shrunk to at most 512 pixels, stored as PNG in the library's `images` folder, and removed again when the character is deleted. In a story, a character's picture shows beside its messages. A world's picture shows next to the story title and as the backdrop of the story's info page, fading into the background.
 

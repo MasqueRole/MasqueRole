@@ -38,6 +38,16 @@ pub fn prepare(bytes: &[u8]) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
+/// The picture an exported card gets when its character has none: a plain dark panel.
+pub fn placeholder() -> Result<Vec<u8>, String> {
+    let image = image::RgbaImage::from_pixel(400, 600, image::Rgba([38, 38, 46, 255]));
+    let mut out = Vec::new();
+    image::DynamicImage::ImageRgba8(image)
+        .write_to(&mut Cursor::new(&mut out), ImageFormat::Png)
+        .map_err(|e| format!("Could not make a picture: {e}"))?;
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use image::{DynamicImage, RgbaImage};

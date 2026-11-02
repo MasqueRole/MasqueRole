@@ -2,7 +2,7 @@
 
 use eframe::egui::{Align, Layout, Ui};
 use masquerole_ui::components::{
-    Button, ButtonSize, IconKind, Label, ListItem, MenuItem, ScrollArea, TooltipExt,
+    Button, ButtonSize, ButtonVariant, IconKind, Label, ListItem, MenuItem, ScrollArea, TooltipExt,
 };
 use masquerole_ui::spacing;
 
@@ -26,17 +26,35 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 /// A list heading with a round button at its right edge that creates a new item. Returns
 /// whether the button was clicked.
 fn heading(ui: &mut Ui, text: &str, new_item: &str) -> bool {
-    let mut clicked = false;
+    heading_with_import(ui, text, new_item, None).0
+}
+
+/// Like [`heading`], with a second button left of the first when `import` names its tooltip.
+/// Returns `(new clicked, import clicked)`.
+fn heading_with_import(
+    ui: &mut Ui,
+    text: &str,
+    new_item: &str,
+    import: Option<&str>,
+) -> (bool, bool) {
+    let (mut new, mut imported) = (false, false);
     ui.add_space(spacing::XS);
     ui.horizontal(|ui| {
         ui.add(Label::new(text).small().muted());
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let button = Button::new("").icon(IconKind::Plus).size(ButtonSize::Icon);
-            clicked = ui.add(button).ir_tooltip(new_item).clicked();
+            new = ui.add(button).ir_tooltip(new_item).clicked();
+            if let Some(tooltip) = import {
+                let button = Button::new("")
+                    .icon(IconKind::Folder)
+                    .size(ButtonSize::Icon)
+                    .variant(ButtonVariant::Ghost);
+                imported = ui.add(button).ir_tooltip(tooltip).clicked();
+            }
         });
     });
     ui.add_space(spacing::XS);
-    clicked
+    (new, imported)
 }
 
 fn empty(ui: &mut Ui, text: &str) {
@@ -117,8 +135,17 @@ fn sub_chats(app: &mut App, ui: &mut Ui) {
 }
 
 fn characters(app: &mut App, ui: &mut Ui) {
-    if heading(ui, "CHARACTERS", "New character") {
+    let (new, import) = heading_with_import(
+        ui,
+        "CHARACTERS",
+        "New character",
+        Some("Import a character (PNG, JSON, or YAML)"),
+    );
+    if new {
         app.character_form = Some(CharacterForm::new());
+    }
+    if import {
+        app.backend.send(Request::ImportCharacter);
     }
     if app.characters.is_empty() {
         empty(ui, "No characters yet.");

@@ -8,6 +8,7 @@ pub mod client;
 pub mod commands;
 pub mod context;
 pub mod db;
+pub mod exchange;
 pub mod lorebook;
 pub mod memory;
 pub mod redact;
