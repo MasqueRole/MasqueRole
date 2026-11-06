@@ -425,10 +425,16 @@ mod tests {
     fn the_shimmer_moves_across_the_letters_and_rests_when_motion_is_reduced() {
         let font = FontId::proportional(14.0);
         let colors = |time: Option<f64>| -> Vec<Color32> {
-            shimmer_job(THINKING, Color32::WHITE, font.clone(), false, time)
-                .sections
+            // Letters of one color are merged into one section, so count per letter.
+            let job = shimmer_job(THINKING, Color32::WHITE, font.clone(), false, time);
+            job.sections
                 .iter()
-                .map(|s| s.format.color)
+                .flat_map(|s| {
+                    let letters = job.text[s.byte_range.start.0..s.byte_range.end.0]
+                        .chars()
+                        .count();
+                    std::iter::repeat_n(s.format.color, letters)
+                })
                 .collect()
         };
         let early = colors(Some(0.5));

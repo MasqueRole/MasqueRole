@@ -64,7 +64,7 @@ fn empty(ui: &mut Ui, text: &str) {
 
 /// A list row whose three-dots menu holds a red delete item. Returns `(row clicked, delete
 /// chosen)`.
-fn row(ui: &mut Ui, id: impl std::hash::Hash, text: &str, selected: bool) -> (bool, bool) {
+fn row(ui: &mut Ui, id: impl eframe::egui::AsIdSalt, text: &str, selected: bool) -> (bool, bool) {
     let out = ListItem::new(id, text).selected(selected).show(ui, |ui| {
         ui.add(
             MenuItem::new("Delete")

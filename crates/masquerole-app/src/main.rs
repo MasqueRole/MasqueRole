@@ -88,6 +88,8 @@ fn run() -> anyhow::Result<()> {
                 picker: default_image_picker(),
                 cards: default_card_files(),
                 update_url: Some(masquerole_core::update::LATEST_RELEASE_URL.to_owned()),
+                data_dir: Some(data_dir.clone()),
+                embedder: None,
                 wake: Arc::new(move || ctx.request_repaint()),
             };
             let (backend, events) = backend::spawn(runtime.handle(), services);
@@ -103,7 +105,7 @@ fn run() -> anyhow::Result<()> {
 struct Shell(App);
 
 impl eframe::App for Shell {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.0.ui(ctx);
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.0.ui(ui);
     }
 }

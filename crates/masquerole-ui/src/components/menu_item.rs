@@ -47,8 +47,7 @@ impl Widget for MenuItem {
         let t = ui.ir_theme();
         let (rect, response) =
             ui.allocate_exact_size(Vec2::new(ui.available_width(), HEIGHT), Sense::click());
-        response
-            .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &self.text));
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &self.text));
         let accent = if self.destructive {
             t.destructive
         } else {
@@ -81,7 +80,7 @@ impl Widget for MenuItem {
         ui.painter().galley(pos, galley, accent);
         if response.clicked() {
             // A chosen item ends the menu it is in.
-            ui.memory_mut(|m| m.close_popup());
+            egui::Popup::close_all(ui.ctx());
         }
         response.on_hover_cursor(CursorIcon::PointingHand)
     }

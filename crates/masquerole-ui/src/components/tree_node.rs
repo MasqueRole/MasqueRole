@@ -2,8 +2,8 @@
 
 use egui::text::LayoutJob;
 use egui::{
-    Color32, CornerRadius, CursorIcon, FontId, Pos2, Rect, Response, RichText, Sense, Stroke,
-    StrokeKind, Ui, Vec2, Widget, WidgetInfo, WidgetType,
+    Color32, CornerRadius, CursorIcon, FontId, Pos2, Rect, Response, RichText, Role, Sense, Stroke,
+    StrokeKind, Ui, Vec2, Widget, WidgetInfo,
 };
 
 use super::common::transition;
@@ -180,7 +180,7 @@ impl Widget for TreeNode {
 
         let (rect, response) =
             ui.allocate_exact_size(Vec2::new(WIDTH, HEIGHT), Sense::click_and_drag());
-        response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, &title));
+        response.widget_info(|| WidgetInfo::labeled(Role::Button, true, &title));
 
         let mut colors = Self::colors(self.state, response.hovered(), &t);
         colors.fill = transition(ui, response.id.with("fill"), colors.fill);
@@ -383,11 +383,16 @@ mod tests {
             let input = egui::RawInput {
                 screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0))),
                 time: Some(f64::from(frame) * 0.1),
-                events: pointer.map(egui::Event::PointerMoved).into_iter().collect(),
+                // The pointer moves once and then rests, as a tooltip needs.
+                events: pointer
+                    .filter(|_| frame == 1)
+                    .map(egui::Event::PointerMoved)
+                    .into_iter()
+                    .collect(),
                 ..Default::default()
             };
-            let output = ctx.run(input, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            let mut output = ctx.run_ui(input, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
                     rect = ui
                         .add(
                             TreeNode::new(title)
@@ -397,6 +402,7 @@ mod tests {
                         .rect;
                 });
             });
+            output.textures_delta.clear();
             pointer = Some(rect.center());
             drawn = format!("{:?}", output.shapes);
         }

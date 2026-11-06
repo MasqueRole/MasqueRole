@@ -8,14 +8,17 @@ pub mod client;
 pub mod commands;
 pub mod context;
 pub mod db;
+pub mod embed;
 pub mod exchange;
 pub mod lorebook;
 pub mod memory;
+pub mod recall;
 pub mod redact;
 pub mod scene;
 pub mod settings;
 pub mod tree;
 pub mod update;
+pub mod vector;
 
 pub use client::{LlmError, LlmProvider};
 pub use settings::{Settings, SettingsError};

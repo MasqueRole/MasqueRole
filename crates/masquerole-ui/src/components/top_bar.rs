@@ -1,11 +1,8 @@
 //! The application's top bar: a left, a centered, and a right group.
 
-use std::hash::Hash;
+use egui::AsIdSalt;
 
-use egui::{
-    Align, Context, Frame, Id, Layout, Margin, Pos2, Rect, Sense, TopBottomPanel, Ui, UiBuilder,
-    Vec2,
-};
+use egui::{Align, Frame, Id, Layout, Margin, Pos2, Rect, Sense, Ui, UiBuilder, Vec2};
 
 use crate::theme::{spacing, ThemeExt};
 
@@ -33,9 +30,9 @@ pub struct TopBar {
 
 impl TopBar {
     /// A top bar. `id_salt` must be unique among panels.
-    pub fn new(id_salt: impl Hash) -> Self {
+    pub fn new(id_salt: impl AsIdSalt) -> Self {
         Self {
-            id: Id::new(id_salt),
+            id: Id::unique(id_salt),
         }
     }
 
@@ -43,11 +40,12 @@ impl TopBar {
     /// right to left, so its first widget is the rightmost.
     pub fn show(
         self,
-        ctx: &Context,
+        ui: &mut Ui,
         left: impl FnOnce(&mut Ui),
         center: impl FnOnce(&mut Ui),
         right: impl FnOnce(&mut Ui),
     ) -> BarResponse {
+        let ctx = ui.ctx().clone();
         let t = ctx.ir_theme();
         let frame = Frame::new()
             .fill(t.background)
@@ -57,10 +55,10 @@ impl TopBar {
         let width_id = self.id.with("center-width");
         let known: f32 = ctx.data(|d| d.get_temp(width_id)).unwrap_or(0.0);
         let mut bar = BarResponse::default();
-        TopBottomPanel::top(self.id)
+        egui::Panel::top(self.id)
             .frame(frame)
             .show_separator_line(false)
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 let (row, background) = ui.allocate_exact_size(
                     Vec2::new(ui.available_width(), ROW_HEIGHT),
                     Sense::click_and_drag(),
@@ -104,13 +102,13 @@ mod tests {
     use super::*;
     use crate::components::testing::Harness;
 
-    fn draw(ctx: &Context, left: &mut Rect, center: &mut Rect, right: &mut Rect) {
+    fn draw(ui: &mut Ui, left: &mut Rect, center: &mut Rect, right: &mut Rect) {
         let size = Vec2::new(80.0, 24.0);
         let place = |ui: &mut Ui, out: &mut Rect| {
             *out = ui.allocate_exact_size(size, Sense::hover()).0;
         };
         TopBar::new("bar").show(
-            ctx,
+            ui,
             |ui| place(ui, left),
             |ui| place(ui, center),
             |ui| place(ui, right),
@@ -122,7 +120,7 @@ mod tests {
         let mut h = Harness::new();
         let (mut l, mut c, mut r) = (Rect::NOTHING, Rect::NOTHING, Rect::NOTHING);
         for _ in 0..2 {
-            h.ctx_frame(vec![], &mut |ctx| draw(ctx, &mut l, &mut c, &mut r));
+            h.root_frame(vec![], &mut |ui| draw(ui, &mut l, &mut c, &mut r));
         }
         assert!(l.min.x < 40.0, "left group at the left edge: {l:?}");
         assert!(r.max.x > 760.0, "right group at the right edge: {r:?}");
@@ -139,10 +137,10 @@ mod tests {
         let mut left = Rect::NOTHING;
         let mut dragged = false;
         let mut run = |h: &mut Harness, events: Vec<Event>| {
-            h.ctx_frame(events, &mut |ctx| {
+            h.root_frame(events, &mut |root| {
                 let size = Vec2::new(80.0, 24.0);
                 let bar = TopBar::new("bar").show(
-                    ctx,
+                    root,
                     |ui| left = ui.allocate_exact_size(size, Sense::click()).0,
                     |_| {},
                     |_| {},
@@ -172,9 +170,9 @@ mod tests {
     fn the_bar_reserves_space_at_the_top() {
         let mut h = Harness::new();
         let mut top = 0.0;
-        h.ctx_frame(vec![], &mut |ctx| {
-            TopBar::new("bar").show(ctx, |_| {}, |_| {}, |_| {});
-            top = ctx.available_rect().min.y;
+        h.root_frame(vec![], &mut |root| {
+            TopBar::new("bar").show(root, |_| {}, |_| {}, |_| {});
+            top = root.available_rect_before_wrap().min.y;
         });
         assert!(top >= ROW_HEIGHT, "the page starts below the bar: {top}");
     }

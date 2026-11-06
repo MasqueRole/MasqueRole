@@ -1,6 +1,6 @@
 //! Chip input: type keywords, and each one turns into a bean you can delete.
 
-use std::hash::Hash;
+use egui::AsIdSalt;
 
 use egui::text::LayoutJob;
 use egui::{
@@ -82,7 +82,7 @@ impl<'a> ChipInput<'a> {
             chips,
             pending,
             placeholder: String::new(),
-            id_salt: Id::new("chip-input"),
+            id_salt: Id::unique("chip-input"),
         }
     }
 
@@ -93,8 +93,8 @@ impl<'a> ChipInput<'a> {
     }
 
     /// Give the field a stable identity.
-    pub fn id_salt(mut self, id_salt: impl Hash) -> Self {
-        self.id_salt = Id::new(id_salt);
+    pub fn id_salt(mut self, id_salt: impl AsIdSalt) -> Self {
+        self.id_salt = Id::unique(id_salt);
         self
     }
 }
@@ -149,7 +149,7 @@ fn chip(ui: &mut Ui, text: &str, id: Id) -> bool {
         },
         IconKind::Close,
     );
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, text));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, text));
     delete.on_hover_cursor(CursorIcon::PointingHand).clicked()
 }
 
@@ -199,7 +199,7 @@ impl Widget for ChipInput<'_> {
                 };
                 let edit = TextEdit::singleline(pending)
                     .id(edit_id)
-                    .frame(false)
+                    .frame(egui::Frame::NONE)
                     .hint_text(hint)
                     .desired_width(room.max(MIN_TYPING_WIDTH));
                 let r = ui.add(edit);

@@ -16,8 +16,9 @@ struct ErrorWindow {
 }
 
 impl eframe::App for ErrorWindow {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        Panel::central().show(ctx, |_| {});
+    fn ui(&mut self, root: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = &root.ctx().clone();
+        Panel::central().show(root, |_| {});
         let mut close = false;
         Dialog::new("startup-error", "Something went wrong")
             .description(description(&self.error))

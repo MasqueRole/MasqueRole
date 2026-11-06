@@ -115,7 +115,7 @@ fn message_actions(
     picked: bool,
     action: &mut MessageAction,
 ) {
-    let id = egui::Id::new(("message-actions", node.id.0));
+    let id = egui::Id::unique(("message-actions", node.id.0));
     let shown = motion::eased(ui.ctx(), id, picked, ACTIONS_FADE, ACTIONS_FADE);
     if shown <= 0.0 {
         return;

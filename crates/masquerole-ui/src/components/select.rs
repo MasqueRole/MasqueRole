@@ -1,6 +1,6 @@
 //! Drop-down select.
 
-use std::hash::Hash;
+use egui::AsIdSalt;
 
 use egui::text::LayoutJob;
 use egui::{
@@ -61,12 +61,12 @@ const MARK_GAP: f32 = 8.0;
 impl<'a> Select<'a> {
     /// A select with these options. `id_salt` keeps its open state apart from other selects.
     pub fn new(
-        id_salt: impl Hash,
+        id_salt: impl AsIdSalt,
         selected: &'a mut usize,
         options: impl IntoIterator<Item = impl Into<String>>,
     ) -> Self {
         Self {
-            id_salt: Id::new(id_salt),
+            id_salt: Id::unique(id_salt),
             selected,
             options: options.into_iter().map(Into::into).collect(),
             marks: Vec::new(),
@@ -183,9 +183,7 @@ fn option_row(ui: &mut Ui, mark: &SelectMark, text: &str, selected: bool) -> Res
     let height = ui.spacing().interact_size.y;
     let (rect, response) =
         ui.allocate_exact_size(Vec2::new(ui.available_width(), height), Sense::click());
-    response.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, text)
-    });
+    response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, selected, text));
     if ui.is_rect_visible(rect) {
         let visuals = ui.style().interact_selectable(&response, selected);
         if selected || response.hovered() || response.has_focus() {
@@ -307,7 +305,7 @@ mod tests {
         h.idle(&mut |ui: &mut Ui| {
             draw(ui, &mut selected);
         });
-        let style = h.ctx.style();
+        let style = h.ctx.global_style();
         let row = style.spacing.interact_size.y;
         let pitch = row + style.spacing.item_spacing.y;
         let y = closed.bottom() + style.spacing.menu_margin.top as f32 + 2.0 * pitch + row / 2.0;
@@ -350,7 +348,7 @@ mod tests {
 
         // The options are listed below the closed select, one row each, inside the menu
         // margin. Click the middle of the third row.
-        let style = h.ctx.style();
+        let style = h.ctx.global_style();
         let row = style.spacing.interact_size.y;
         let pitch = row + style.spacing.item_spacing.y;
         let third_center = style.spacing.menu_margin.top as f32 + 2.0 * pitch + row / 2.0;
@@ -378,6 +376,6 @@ mod tests {
         h.click(closed.center(), &mut |ui: &mut Ui| {
             ui.add(Select::new("provider", &mut selected, OPTIONS).enabled(false));
         });
-        assert!(!h.ctx.memory(|m| m.any_popup_open()));
+        assert!(!egui::Popup::is_any_open(&h.ctx));
     }
 }

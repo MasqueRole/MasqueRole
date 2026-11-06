@@ -132,13 +132,13 @@ mod tests {
         let ctx = egui::Context::default();
         crate::Theme::apply(&ctx);
         let mut sizes = Vec::new();
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 let long = "Aleksandra Wi\u{15b}niewska-Kowalczyk and the lighthouse at the end of the world";
                 sizes.push(ui.add(Label::new(long).heading().max_width(200.0)).rect.size());
                 sizes.push(ui.add(Label::new("Jo").heading().max_width(200.0)).rect.size());
             });
-        });
+        }).drop_without_applying_deltas();
         assert!(sizes[0].x <= 201.0, "{sizes:?}");
         assert!(
             (sizes[0].y - sizes[1].y).abs() < 1.0,

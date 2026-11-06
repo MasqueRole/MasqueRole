@@ -881,12 +881,13 @@ example_dialogue:
                 world.edit_entry(Some(0));
                 character.edit_example(Some(0));
             }
-            let _ = ctx.run(Default::default(), |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            ctx.run_ui(Default::default(), |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
                     world.show(ui, None);
                     character.show(ui, None);
                 });
-            });
+            })
+            .drop_without_applying_deltas();
         }
     }
 }

@@ -456,10 +456,12 @@ mod tests {
         let ctx = Context::default();
         Theme::apply(&ctx);
         Theme::set_mode(&ctx, ThemeMode::Dark);
-        let _ = ctx.run(Default::default(), |_| {});
+        ctx.run_pass(Default::default(), |_| {})
+            .drop_without_applying_deltas();
         assert!(ctx.ir_theme().is_dark);
         Theme::set_mode(&ctx, ThemeMode::Light);
-        let _ = ctx.run(Default::default(), |_| {});
+        ctx.run_pass(Default::default(), |_| {})
+            .drop_without_applying_deltas();
         assert!(!ctx.ir_theme().is_dark);
     }
 }

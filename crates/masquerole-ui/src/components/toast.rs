@@ -205,14 +205,14 @@ impl Toasts {
 
         let t = ctx.ir_theme();
         let mut dismissed = Vec::new();
-        Area::new(Id::new("masquerole-ui-toasts"))
+        Area::new(Id::unique("masquerole-ui-toasts"))
             .anchor(Align2::RIGHT_BOTTOM, egui::vec2(-spacing::LG, -spacing::LG))
             .order(Order::Foreground)
             .show(ctx, |ui| {
                 ui.spacing_mut().item_spacing.y = spacing::SM;
                 for entry in &self.entries {
                     // A toast slides up and fades in, and leaves the way it came, only faster.
-                    let key = Id::new(("masquerole-ui-toast", entry.id));
+                    let key = Id::unique(("masquerole-ui-toast", entry.id));
                     let live = entry.is_live();
                     let shown = motion::fade(
                         ctx,
@@ -281,7 +281,7 @@ impl Toasts {
                                     ui.spacing_mut().item_spacing.y = spacing::XS;
                                     if entry.toast.description.is_none() {
                                         // One line: center it next to the round badge.
-                                        let line = ui.fonts(|f| {
+                                        let line = ui.fonts_mut(|f| {
                                             f.row_height(&FontId::proportional(t.text_sm))
                                         });
                                         ui.add_space(((BADGE_SIZE - line) / 2.0).max(0.0));
@@ -404,7 +404,7 @@ mod tests {
         h.ctx_frame(vec![], &mut |ctx| toasts.show(ctx));
 
         // The close button is at the right edge of the toast, in the bottom-right corner.
-        let spacing = h.ctx.style().spacing.interact_size.y;
+        let spacing = h.ctx.global_style().spacing.interact_size.y;
         let pos = egui::pos2(
             800.0 - spacing::LG - spacing::LG - spacing / 2.0,
             600.0 - spacing::LG - spacing::LG - spacing / 2.0,

@@ -7,7 +7,8 @@
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::sync::{mpsc, Arc};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc, Mutex};
 
 use futures_util::future::BoxFuture;
 use futures_util::StreamExt;
@@ -18,9 +19,11 @@ use masquerole_core::client::{
 use masquerole_core::commands::{self, CommandContext, CommandOutput};
 use masquerole_core::context::{self, ContextInput};
 use masquerole_core::db::{Db, NewNode, Node, NodeId, NodeKind, NodeScene, Session, SessionId};
+use masquerole_core::embed::{self, Embedder, MiniLm};
 use masquerole_core::exchange::{self, ExportFormat};
 use masquerole_core::lorebook::{LoreEntry, Lorebook};
 use masquerole_core::memory::{self, NewFact, SceneCast};
+use masquerole_core::recall;
 use masquerole_core::scene::{self, Scenes};
 use masquerole_core::settings::{self, SecretStore, Settings};
 use masquerole_core::tree::{Branch, StoryTree, Turn};
@@ -397,9 +400,16 @@ pub struct Services {
     pub cards: CardFiles,
     /// The address of the newest-release description. `None` turns update checks off.
     pub update_url: Option<String>,
+    /// Where the model for semantic memory is kept. `None` turns semantic memory off.
+    pub data_dir: Option<PathBuf>,
+    /// A ready embedder, used instead of the downloaded model (for tests).
+    pub embedder: Option<Arc<dyn Embedder>>,
     /// Redraws the UI.
     pub wake: Wake,
 }
+
+/// The embedding model, once it is loaded. Filled by a background task.
+type SharedEmbedder = Arc<Mutex<Option<Arc<dyn Embedder>>>>;
 
 /// Start the backend on `runtime`. Returns the handle and the receiver for its events.
 pub fn spawn(
@@ -417,6 +427,9 @@ pub fn spawn(
         picker: services.picker,
         cards: services.cards,
         update_url: services.update_url,
+        data_dir: services.data_dir,
+        embedder: Arc::new(Mutex::new(services.embedder)),
+        loading_embedder: Arc::new(AtomicBool::new(false)),
         wake: services.wake,
         settings: Settings::default(),
         session: None,
@@ -441,6 +454,10 @@ struct Actor {
     picker: ImagePicker,
     cards: CardFiles,
     update_url: Option<String>,
+    data_dir: Option<PathBuf>,
+    embedder: SharedEmbedder,
+    /// Set while the model of semantic memory is being downloaded or loaded.
+    loading_embedder: Arc<AtomicBool>,
     wake: Wake,
     settings: Settings,
     session: Option<SessionId>,
@@ -722,6 +739,7 @@ impl Actor {
         self.reload_library();
         self.remove_unused_images();
         self.emit_settings();
+        self.prepare_semantic_memory();
         self.emit_sessions();
         let latest = self
             .db
@@ -763,7 +781,52 @@ impl Actor {
         self.settings = settings;
         self.persist_settings();
         self.emit_settings();
+        self.prepare_semantic_memory();
         self.emit(Event::Info("Settings saved.".into()));
+    }
+
+    /// When semantic memory is on and its model is not loaded, download it if needed and load
+    /// it in the background. Stories work without it in the meantime.
+    fn prepare_semantic_memory(&self) {
+        let memory = &self.settings.memory;
+        let Some(data_dir) = self.data_dir.clone() else {
+            return;
+        };
+        if !(memory.enabled && memory.semantic)
+            || self.embedder.lock().expect("embedder lock").is_some()
+            || self.loading_embedder.swap(true, Ordering::SeqCst)
+        {
+            return;
+        }
+        let (events, wake) = (self.events.clone(), self.wake.clone());
+        let (slot, loading) = (self.embedder.clone(), self.loading_embedder.clone());
+        let tell = move |event: Event| {
+            let _ = events.send(event);
+            wake();
+        };
+        tokio::spawn(async move {
+            let dir = embed::model_dir(&data_dir);
+            if !embed::model_present(&dir) {
+                tell(Event::Info(
+                    "Downloading the model for semantic memory (about 90 MB, only once)...".into(),
+                ));
+                if let Err(e) = embed::download_model(&dir).await {
+                    tracing::warn!(error = %e, "semantic memory model download failed");
+                    tell(Event::Error(e.to_string()));
+                    loading.store(false, Ordering::SeqCst);
+                    return;
+                }
+            }
+            match tokio::task::spawn_blocking(move || MiniLm::load(&dir)).await {
+                Ok(Ok(model)) => {
+                    *slot.lock().expect("embedder lock") = Some(Arc::new(model));
+                    tell(Event::Info("Semantic memory is ready.".into()));
+                }
+                Ok(Err(e)) => tell(Event::Error(e.to_string())),
+                Err(e) => tell(Event::Error(e.to_string())),
+            }
+            loading.store(false, Ordering::SeqCst);
+        });
     }
 
     fn delete_item(&mut self, path: &std::path::Path, image: Option<String>) {
@@ -1533,7 +1596,7 @@ impl Actor {
             .into_iter()
             .filter(|entry| view.is_none_or(|(_, name)| entry.is_known_by(name)))
             .collect();
-        let facts: Vec<String> = self
+        let known: Vec<masquerole_core::db::Fact> = self
             .db
             .facts_at(current)
             .map_err(db_err)?
@@ -1542,7 +1605,48 @@ impl Actor {
                 (Some((_, name)), Some(known_by)) => known_by.iter().any(|n| n == name),
                 _ => true,
             })
-            .map(|f| f.text)
+            .collect();
+        // Semantic memory: what fits the newest message goes last in the facts, where
+        // trimming drops it last, and older messages that fit are brought back.
+        let embedder = self
+            .embedder
+            .lock()
+            .expect("embedder lock")
+            .clone()
+            .filter(|_| self.settings.memory.enabled && self.settings.memory.semantic);
+        let mut recalled = recall::Recall::default();
+        if let Some(embedder) = embedder {
+            let seen: Vec<&Node> = path
+                .iter()
+                .filter(|n| match view {
+                    Some((group, name)) => scene::witnessed(group.scenes.get(&n.id), name),
+                    None => true,
+                })
+                .collect();
+            let older = &seen[..seen.len().saturating_sub(window)];
+            let query = path
+                .iter()
+                .rev()
+                .find(|n| n.kind == NodeKind::User)
+                .or(path.last())
+                .map_or("", |n| n.content.as_str());
+            match recall::recall(
+                &self.db,
+                embedder.as_ref(),
+                session_id,
+                query,
+                &known,
+                older,
+            ) {
+                Ok(found) => recalled = found,
+                Err(e) => tracing::warn!(error = %e, "semantic memory failed"),
+            }
+        }
+        let facts: Vec<String> = known
+            .iter()
+            .filter(|f| !recalled.facts.contains(&f.text))
+            .map(|f| f.text.clone())
+            .chain(recalled.facts.iter().cloned())
             .collect();
         let summary = match view {
             Some((_, name)) => self.db.summary_for(current, Some(name)).map_err(db_err)?,
@@ -1562,6 +1666,7 @@ impl Actor {
                 world_setting: world.map_or("", |w| w.setting.as_str()),
                 lore: &lore,
                 facts: &facts,
+                recalled: &recalled.messages,
                 summary: summary.as_deref(),
                 messages: &messages,
             },
@@ -2202,6 +2307,18 @@ entries:
             picker: ImagePicker,
             cards: CardFiles,
         ) -> Self {
+            Self::start_embedding(name, mock, with_key, settings_file, picker, cards, None)
+        }
+
+        fn start_embedding(
+            name: &str,
+            mock: Arc<Mock>,
+            with_key: bool,
+            settings_file: bool,
+            picker: ImagePicker,
+            cards: CardFiles,
+            embedder: Option<Arc<dyn Embedder>>,
+        ) -> Self {
             let dir = TempDir::new(name);
             let library = Library::new(dir.0.join("library"));
             library
@@ -2224,6 +2341,8 @@ entries:
                 picker,
                 cards,
                 update_url: None,
+                data_dir: None,
+                embedder,
                 wake: Arc::new(|| {}),
             };
             let (backend, events) = spawn(&tokio::runtime::Handle::current(), services);
@@ -3443,5 +3562,80 @@ entries:
         rig.backend
             .send(Request::ExportCharacter(PathBuf::from("nobody.yaml")));
         rig.wait_for(|e| matches!(e, Event::Error(m) if m.contains("no longer")).then_some(()));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn semantic_memory_brings_back_an_old_message_that_fits_the_new_one() {
+        let rig = Rig::start_embedding(
+            "semantic",
+            Mock::new(&["Yes."]),
+            true,
+            false,
+            picks(&small_png()),
+            no_cards(),
+            Some(Arc::new(masquerole_core::embed::HashEmbedder)),
+        );
+        let mut settings = Settings::default();
+        settings.context.recent_messages = 2;
+        settings.memory.semantic = true;
+        rig.backend.send(Request::SaveSettings {
+            settings,
+            api_key: None,
+        });
+        rig.start_story();
+        rig.chat("I ask where the silver key is hidden.");
+        rig.chat("We eat bread by the fire.");
+        rig.chat("The rain stops at dawn.");
+        rig.chat("Where is the silver key again?");
+        let last = rig
+            .mock
+            .seen
+            .lock()
+            .unwrap()
+            .iter()
+            .rfind(|m| m[0].content.contains("## Characters"))
+            .cloned()
+            .unwrap();
+        let system = &last[0].content;
+        assert!(system.contains("## Remembered from earlier"), "{system}");
+        assert!(
+            system.contains("Player: I ask where the silver key is hidden."),
+            "{system}"
+        );
+        assert!(!system.contains("bread"), "{system}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn without_the_setting_nothing_is_recalled() {
+        let rig = Rig::start_embedding(
+            "semantic-off",
+            Mock::new(&["Yes."]),
+            true,
+            false,
+            picks(&small_png()),
+            no_cards(),
+            Some(Arc::new(masquerole_core::embed::HashEmbedder)),
+        );
+        let mut settings = Settings::default();
+        settings.context.recent_messages = 2;
+        rig.backend.send(Request::SaveSettings {
+            settings,
+            api_key: None,
+        });
+        rig.start_story();
+        rig.chat("I ask where the silver key is hidden.");
+        rig.chat("We eat bread by the fire.");
+        rig.chat("The rain stops at dawn.");
+        rig.chat("Where is the silver key again?");
+        let last = rig
+            .mock
+            .seen
+            .lock()
+            .unwrap()
+            .iter()
+            .rfind(|m| m[0].content.contains("## Characters"))
+            .cloned()
+            .unwrap();
+        assert!(!last[0].content.contains("Remembered from earlier"));
     }
 }

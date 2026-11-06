@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/masquerole-core", "crates/masquerole-ui", "crates/masquerole-app"]
 
 [workspace.package]
-version = "0.14.0"
+version = "0.15.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/MasqueRole/MasqueRole"
@@ -14,6 +14,6 @@ codegen-units = 1
 strip = true
 
 [workspace.dependencies]
-eframe = "0.31"
-egui = "0.31"
+eframe = "0.37"
+egui = "0.37"
 anyhow = "1"

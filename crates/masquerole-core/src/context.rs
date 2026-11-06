@@ -144,6 +144,9 @@ pub struct ContextInput<'a> {
     pub lore: &'a [&'a LoreEntry],
     /// Known facts, oldest first.
     pub facts: &'a [String],
+    /// Older messages that fit what is being said now, least relevant first, as
+    /// `Speaker: text`. Empty without semantic memory.
+    pub recalled: &'a [String],
     /// The rolling summary of events older than `messages`.
     pub summary: Option<&'a str>,
     /// The conversation, oldest first.
@@ -162,6 +165,8 @@ pub struct BuiltContext {
     pub omitted_messages: usize,
     /// Facts left out, oldest first.
     pub omitted_facts: usize,
+    /// Recalled messages left out, least relevant first.
+    pub omitted_recalled: usize,
     /// Lore entries left out, last first.
     pub omitted_lore: usize,
     /// Whether the summary was left out.
@@ -180,7 +185,8 @@ pub struct BuiltContext {
 ///    run ending at the newest message;
 /// 2. the summary, all or nothing;
 /// 3. facts, newest first, stopping at the first that does not fit;
-/// 4. lore entries, in the given order, stopping at the first that does not fit.
+/// 4. recalled messages, most relevant first, stopping at the first that does not fit;
+/// 5. lore entries, in the given order, stopping at the first that does not fit.
 pub fn build(input: &ContextInput<'_>, settings: &ContextSettings) -> BuiltContext {
     let budget = settings.max_context_tokens as usize;
     let total = input.messages.len();
@@ -199,7 +205,7 @@ pub fn build(input: &ContextInput<'_>, settings: &ContextSettings) -> BuiltConte
     let first_mandatory = total.saturating_sub(MIN_KEPT_MESSAGES);
     let mut first = first_mandatory;
     let mut message_cost: usize = input.messages[first..].iter().map(message_tokens).sum();
-    let fixed_cost = system_tokens(&render_system(&base, None, &[], &[]));
+    let fixed_cost = system_tokens(&render_system(&base, None, &[], &[], &[]));
     while first > window_start {
         let cost = message_tokens(&input.messages[first - 1]);
         if fixed_cost + message_cost + cost > budget {
@@ -209,38 +215,49 @@ pub fn build(input: &ContextInput<'_>, settings: &ContextSettings) -> BuiltConte
         first -= 1;
     }
 
-    let total_cost = |summary: Option<&str>, facts: &[&str], lore: &[&str]| {
-        system_tokens(&render_system(&base, summary, facts, lore)) + message_cost
+    let total_cost = |summary: Option<&str>, facts: &[&str], recalled: &[&str], lore: &[&str]| {
+        system_tokens(&render_system(&base, summary, facts, recalled, lore)) + message_cost
     };
 
     let summary = input
         .summary
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .filter(|s| total_cost(Some(s), &[], &[]) <= budget);
+        .filter(|s| total_cost(Some(s), &[], &[], &[]) <= budget);
     let summary_omitted = input.summary.is_some_and(|s| !s.trim().is_empty()) && summary.is_none();
 
     let mut facts: Vec<&str> = Vec::new(); // newest first while building
     for fact in input.facts.iter().rev() {
         facts.push(fact);
         let oldest_first: Vec<&str> = facts.iter().rev().copied().collect();
-        if total_cost(summary, &oldest_first, &[]) > budget {
+        if total_cost(summary, &oldest_first, &[], &[]) > budget {
             facts.pop();
             break;
         }
     }
     facts.reverse();
 
+    let mut recalled: Vec<&str> = Vec::new(); // most relevant first while building
+    for message in input.recalled.iter().rev() {
+        recalled.push(message);
+        let oldest_first: Vec<&str> = recalled.iter().rev().copied().collect();
+        if total_cost(summary, &facts, &oldest_first, &[]) > budget {
+            recalled.pop();
+            break;
+        }
+    }
+    recalled.reverse();
+
     let mut lore: Vec<&str> = Vec::new();
     for entry in input.lore {
         lore.push(&entry.content);
-        if total_cost(summary, &facts, &lore) > budget {
+        if total_cost(summary, &facts, &recalled, &lore) > budget {
             lore.pop();
             break;
         }
     }
 
-    let system = render_system(&base, summary, &facts, &lore);
+    let system = render_system(&base, summary, &facts, &recalled, &lore);
     let mut messages = Vec::with_capacity(total - first + 1);
     if !system.is_empty() {
         messages.push(ChatMessage::system(system));
@@ -253,6 +270,7 @@ pub fn build(input: &ContextInput<'_>, settings: &ContextSettings) -> BuiltConte
         tokens,
         omitted_messages: first,
         omitted_facts: input.facts.len() - facts.len(),
+        omitted_recalled: input.recalled.len() - recalled.len(),
         omitted_lore: input.lore.len() - lore.len(),
         summary_omitted,
         over_budget: tokens > budget,
@@ -275,7 +293,13 @@ fn system_tokens(system: &str) -> usize {
     }
 }
 
-fn render_system(base: &Base<'_>, summary: Option<&str>, facts: &[&str], lore: &[&str]) -> String {
+fn render_system(
+    base: &Base<'_>,
+    summary: Option<&str>,
+    facts: &[&str],
+    recalled: &[&str],
+    lore: &[&str],
+) -> String {
     let mut sections: Vec<String> = Vec::new();
     if !base.prompt.trim().is_empty() {
         sections.push(base.prompt.trim().to_string());
@@ -306,6 +330,15 @@ fn render_system(base: &Base<'_>, summary: Option<&str>, facts: &[&str], lore: &
     }
     if !facts.is_empty() {
         sections.push(format!("## Known facts\n\n{}", bullets(facts)));
+    }
+    if !recalled.is_empty() {
+        sections.push(format!(
+            "## Remembered from earlier
+
+Older moments that may matter now:
+{}",
+            bullets(recalled)
+        ));
     }
     if let Some(summary) = summary {
         sections.push(format!("## Story so far\n\n{summary}"));
@@ -444,6 +477,7 @@ mod tests {
                     world_setting: "A foggy coast.",
                     lore: &lore,
                     facts: &self.facts,
+                    recalled: &[],
                     summary: self.summary.as_deref(),
                     messages: &self.messages,
                 },
@@ -523,6 +557,7 @@ mod tests {
                 world_setting: "  ",
                 lore: &[],
                 facts: &[],
+                recalled: &[],
                 summary: Some("  "),
                 messages: &[ChatMessage::user("hi")],
             },
@@ -542,6 +577,7 @@ mod tests {
                 world_setting: "",
                 lore: &[],
                 facts: &[],
+                recalled: &[],
                 summary: None,
                 messages: &[ChatMessage::user("hi")],
             },
@@ -836,6 +872,7 @@ mod tests {
                 world_setting: "",
                 lore: &[],
                 facts: &[],
+                recalled: &[],
                 summary: None,
                 messages: &[ChatMessage::user("hi")],
             },

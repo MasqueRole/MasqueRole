@@ -63,8 +63,8 @@ impl<'a> Textarea<'a> {
     }
 
     /// Give the field a stable identity.
-    pub fn id_salt(mut self, id_salt: impl std::hash::Hash) -> Self {
-        self.id_salt = Some(Id::new(id_salt));
+    pub fn id_salt(mut self, id_salt: impl egui::AsIdSalt) -> Self {
+        self.id_salt = Some(Id::unique(id_salt));
         self
     }
 }
@@ -76,7 +76,8 @@ impl Widget for Textarea<'_> {
         let (text, rows, id_salt) = (self.text, self.rows, self.id_salt);
         if self.bare {
             let mut edit = TextEdit::multiline(text)
-                .frame(false)
+                .interactive(ui.is_enabled())
+                .frame(egui::Frame::NONE)
                 .margin(Margin::symmetric(spacing::SM as i8, spacing::SM as i8))
                 .hint_text(hint)
                 .desired_rows(rows)
@@ -95,7 +96,8 @@ impl Widget for Textarea<'_> {
         }
         text_field(ui, self.enabled, |ui| {
             let mut edit = TextEdit::multiline(text)
-                .frame(false)
+                .interactive(ui.is_enabled())
+                .frame(egui::Frame::NONE)
                 .hint_text(hint)
                 .desired_rows(rows)
                 .desired_width(ui.available_width());

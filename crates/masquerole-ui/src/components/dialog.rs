@@ -1,6 +1,6 @@
 //! Modal dialog.
 
-use std::hash::Hash;
+use egui::AsIdSalt;
 
 use egui::{Align, Context, Frame, Id, Layout, Margin, Modal, RichText, Stroke, Ui};
 
@@ -23,9 +23,9 @@ pub struct Dialog {
 
 impl Dialog {
     /// A dialog with this title. `id_salt` must be unique among dialogs.
-    pub fn new(id_salt: impl Hash, title: impl Into<String>) -> Self {
+    pub fn new(id_salt: impl AsIdSalt, title: impl Into<String>) -> Self {
         Self {
-            id: Id::new(id_salt),
+            id: Id::unique(id_salt),
             title: title.into(),
             description: None,
             width: DIALOG_WIDTH,

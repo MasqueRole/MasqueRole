@@ -30,7 +30,7 @@ const EASE_OUT: (f32, f32, f32, f32) = (0.23, 1.0, 0.32, 1.0);
 
 /// Where the "reduce motion" flag lives in the context.
 fn flag_id() -> Id {
-    Id::new("masquerole-ui-reduce-motion")
+    Id::unique("masquerole-ui-reduce-motion")
 }
 
 /// Turn reduced motion on or off for the whole interface. Call once per frame.
@@ -122,9 +122,9 @@ mod tests {
         let ctx = Context::default();
         set_reduced(&ctx, true);
         assert!(reduced(&ctx));
-        assert_eq!(eased(&ctx, Id::new("a"), true, 0.2, 0.1), 1.0);
-        assert_eq!(eased(&ctx, Id::new("a"), false, 0.2, 0.1), 0.0);
-        assert_eq!(press_scale(&ctx, Id::new("b"), true), 1.0);
+        assert_eq!(eased(&ctx, Id::unique("a"), true, 0.2, 0.1), 1.0);
+        assert_eq!(eased(&ctx, Id::unique("a"), false, 0.2, 0.1), 0.0);
+        assert_eq!(press_scale(&ctx, Id::unique("b"), true), 1.0);
         set_reduced(&ctx, false);
         assert!(!reduced(&ctx));
     }
@@ -132,8 +132,8 @@ mod tests {
     #[test]
     fn a_press_shrinks_a_little_and_never_below_the_limit() {
         let ctx = Context::default();
-        assert_eq!(press_scale(&ctx, Id::new("p"), false), 1.0);
-        let pressed = press_scale(&ctx, Id::new("p"), true);
+        assert_eq!(press_scale(&ctx, Id::unique("p"), false), 1.0);
+        let pressed = press_scale(&ctx, Id::unique("p"), true);
         assert!((PRESS_SCALE..=1.0).contains(&pressed), "{pressed}");
     }
 }

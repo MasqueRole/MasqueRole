@@ -1,6 +1,6 @@
 //! A floating list of suggestions above a text field, such as matching commands.
 
-use std::hash::Hash;
+use egui::AsIdSalt;
 
 use egui::{
     Align2, Area, Color32, Context, FontId, Frame, Id, Margin, Order, Pos2, Rect, Sense, Shadow,
@@ -54,9 +54,9 @@ pub struct Suggestions<'a> {
 
 impl<'a> Suggestions<'a> {
     /// A list of `items` above `anchor`. `id_salt` must be unique among areas.
-    pub fn new(id_salt: impl Hash, anchor: Rect, items: &'a [Suggestion]) -> Self {
+    pub fn new(id_salt: impl AsIdSalt, anchor: Rect, items: &'a [Suggestion]) -> Self {
         Self {
-            id: Id::new(id_salt),
+            id: Id::unique(id_salt),
             items,
             anchor,
         }
@@ -108,7 +108,7 @@ fn row(ui: &mut egui::Ui, item: &Suggestion) -> bool {
     let t = ui.ir_theme();
     let (rect, response) =
         ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW_HEIGHT), Sense::click());
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &item.title));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &item.title));
     let fill = if response.hovered() || response.has_focus() {
         t.accent
     } else {
@@ -198,7 +198,7 @@ mod tests {
                 Suggestions::new("s", anchor(), &list).show(ctx);
             });
         }
-        let id = Id::new("s");
+        let id = Id::unique("s");
         let rect = h.ctx.memory(|m| m.area_rect(id)).expect("the area exists");
         assert!(
             rect.bottom() <= anchor().top(),
@@ -218,7 +218,7 @@ mod tests {
                 out = Suggestions::new("s", anchor(), &list).show(ctx);
             });
         }
-        let rect = h.ctx.memory(|m| m.area_rect(Id::new("s"))).unwrap();
+        let rect = h.ctx.memory(|m| m.area_rect(Id::unique("s"))).unwrap();
         // The last row sits at the bottom of the list.
         let target = Pos2::new(
             rect.center().x,

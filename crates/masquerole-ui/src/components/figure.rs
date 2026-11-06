@@ -58,7 +58,7 @@ mod tests {
     fn texture(h: &Harness, width: usize, height: usize) -> TextureHandle {
         h.ctx.load_texture(
             "figure-test",
-            ColorImage::new([width, height], Color32::WHITE),
+            ColorImage::filled([width, height], Color32::WHITE),
             TextureOptions::LINEAR,
         )
     }

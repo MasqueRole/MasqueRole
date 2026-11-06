@@ -1,6 +1,6 @@
 //! A bar that floats above the content at the bottom of the window.
 
-use std::hash::Hash;
+use egui::AsIdSalt;
 
 use egui::{Align2, Area, Context, Frame, Id, Margin, Order, Rect, Shadow, Stroke, Ui};
 
@@ -24,9 +24,9 @@ pub struct FloatingBar {
 
 impl FloatingBar {
     /// A bar. `id_salt` must be unique.
-    pub fn new(id_salt: impl Hash) -> Self {
+    pub fn new(id_salt: impl AsIdSalt) -> Self {
         Self {
-            id: Id::new(id_salt),
+            id: Id::unique(id_salt),
         }
     }
 

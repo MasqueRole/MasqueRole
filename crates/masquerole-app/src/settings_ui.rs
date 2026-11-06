@@ -305,6 +305,15 @@ impl SettingsForm {
                             .label("Extract facts automatically")
                             .enabled(self.settings.memory.enabled),
                     );
+                    ui.add(
+                        Switch::new(&mut self.settings.memory.semantic)
+                            .label("Search the story by meaning")
+                            .enabled(self.settings.memory.enabled),
+                    );
+                    Card::description(
+                        ui,
+                        "Brings back facts and older messages that fit what is said now. Downloads a small model (about 90 MB) once and runs it on this computer.",
+                    );
                 })
                 .show(ui);
             ui.add_space(spacing::LG);
@@ -427,11 +436,12 @@ mod tests {
         let mut form = SettingsForm::new(&Settings::default());
         for tab in 0..TAB_NAMES.len() {
             form.tab = tab;
-            let _ = ctx.run(Default::default(), |ctx| {
-                eframe::egui::CentralPanel::default().show(ctx, |ui| {
+            ctx.run_ui(Default::default(), |root| {
+                eframe::egui::CentralPanel::default().show(root, |ui| {
                     form.show(ui);
                 });
-            });
+            })
+            .drop_without_applying_deltas();
         }
         assert_eq!(TAB_NAMES.len(), 5);
     }

@@ -1,8 +1,8 @@
 //! On/off switch.
 
 use egui::{
-    Color32, CornerRadius, CursorIcon, FontId, Pos2, Rect, Response, Sense, Ui, Widget, WidgetInfo,
-    WidgetType,
+    Color32, CornerRadius, CursorIcon, FontId, Pos2, Rect, Response, Role, Sense, Ui, Widget,
+    WidgetInfo,
 };
 
 use super::common::{dim, focus_ring};
@@ -71,8 +71,7 @@ impl Widget for Switch<'_> {
             response.mark_changed();
         }
         let on = *self.on;
-        response
-            .widget_info(|| WidgetInfo::selected(WidgetType::Checkbox, enabled, on, &self.label));
+        response.widget_info(|| WidgetInfo::selected(Role::CheckBox, enabled, on, &self.label));
 
         // 0.0 is off, 1.0 is on; eased between toggles.
         let progress = ui.ctx().animate_bool_responsive(response.id, on);
