@@ -61,11 +61,12 @@ mod tests {
                 time: Some(frame as f64 * 0.05),
                 ..Default::default()
             };
-            let _ = ctx.run(input, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
-                    seen.push(transition(ui, Id::new("t"), target));
+            ctx.run_ui(input, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
+                    seen.push(transition(ui, Id::unique("t"), target));
                 });
-            });
+            })
+            .drop_without_applying_deltas();
         }
         // The first frame draws the target at once; the change then takes several frames.
         assert_eq!(seen[0], from);

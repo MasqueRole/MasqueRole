@@ -1,10 +1,10 @@
 //! Panels: the themed regions of an application window.
 
-use std::hash::Hash;
+use egui::AsIdSalt;
 
 use egui::{
-    CentralPanel, Context, CornerRadius, Frame, Id, InnerResponse, Margin, Rect, SidePanel, Stroke,
-    StrokeKind, TopBottomPanel, Ui, Vec2,
+    CentralPanel, Context, CornerRadius, Frame, Id, InnerResponse, Margin, Rect, Stroke,
+    StrokeKind, Ui, Vec2,
 };
 
 use crate::theme::{spacing, ThemeExt, BORDER_WIDTH};
@@ -31,35 +31,35 @@ pub struct Panel {
 
 impl Panel {
     /// A sidebar on the left, `width` logical pixels wide. `id_salt` must be unique.
-    pub fn side(id_salt: impl Hash, width: f32) -> Self {
+    pub fn side(id_salt: impl AsIdSalt, width: f32) -> Self {
         Self {
             kind: Kind::Side(width),
-            id: Id::new(id_salt),
+            id: Id::unique(id_salt),
         }
     }
 
     /// A narrow column on the left for icon-only navigation, `width` logical pixels wide
     /// (see [`RAIL_WIDTH`](super::rail::RAIL_WIDTH)). Add it before the sidebar.
-    pub fn rail(id_salt: impl Hash, width: f32) -> Self {
+    pub fn rail(id_salt: impl AsIdSalt, width: f32) -> Self {
         Self {
             kind: Kind::Rail(width),
-            id: Id::new(id_salt),
+            id: Id::unique(id_salt),
         }
     }
 
     /// A bar across the top.
-    pub fn top(id_salt: impl Hash) -> Self {
+    pub fn top(id_salt: impl AsIdSalt) -> Self {
         Self {
             kind: Kind::Top,
-            id: Id::new(id_salt),
+            id: Id::unique(id_salt),
         }
     }
 
     /// A bar across the bottom.
-    pub fn bottom(id_salt: impl Hash) -> Self {
+    pub fn bottom(id_salt: impl AsIdSalt) -> Self {
         Self {
             kind: Kind::Bottom,
-            id: Id::new(id_salt),
+            id: Id::unique(id_salt),
         }
     }
 
@@ -86,7 +86,8 @@ impl Panel {
     ///
     /// Call it after the side and top panels and before the bottom and [`content`](Self::content)
     /// panels, which are transparent and draw on it.
-    pub fn surface(ctx: &Context) {
+    pub fn surface(ui: &Ui) {
+        let ctx = ui.ctx();
         let t = ctx.ir_theme();
         let radius = t.radius_lg;
         let corner = CornerRadius {
@@ -94,7 +95,7 @@ impl Panel {
             ..CornerRadius::ZERO
         };
         let painter = ctx.layer_painter(egui::LayerId::background());
-        let rect = ctx.available_rect();
+        let rect = ui.available_rect_before_wrap();
         // The rounded corner leaves the window behind it showing, which is black without this.
         painter.rect_filled(
             Rect::from_min_size(rect.min, Vec2::splat(f32::from(radius))),
@@ -108,47 +109,47 @@ impl Panel {
             Stroke::new(BORDER_WIDTH, t.border),
             StrokeKind::Inside,
         );
-        ctx.data_mut(|d| d.insert_temp(Id::new("ir-surface-rect"), rect));
+        ctx.data_mut(|d| d.insert_temp(Id::unique("ir-surface-rect"), rect));
     }
 
     /// The rectangle of the sheet painted by [`surface`](Self::surface) in this frame, edge to
     /// edge. Falls back to the space available when no surface was painted.
     pub fn surface_rect(ctx: &Context) -> Rect {
-        ctx.data(|d| d.get_temp(Id::new("ir-surface-rect")))
-            .unwrap_or_else(|| ctx.available_rect())
+        ctx.data(|d| d.get_temp(Id::unique("ir-surface-rect")))
+            .unwrap_or_else(|| ctx.content_rect())
     }
 
     /// Draw the panel with `add` as its content.
-    pub fn show<R>(self, ctx: &Context, add: impl FnOnce(&mut Ui) -> R) -> InnerResponse<R> {
-        let t = ctx.ir_theme();
+    pub fn show<R>(self, ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> InnerResponse<R> {
+        let t = ui.ir_theme();
         let bar = |margin: Margin| Frame::new().fill(t.background).inner_margin(margin);
         let clear = |margin: Margin| Frame::new().inner_margin(margin);
         let page = Margin::same(spacing::LG as i8);
         match self.kind {
-            Kind::Side(width) => SidePanel::left(self.id)
-                .exact_width(width)
+            Kind::Side(width) => egui::Panel::left(self.id)
+                .exact_size(width)
                 .resizable(false)
                 .frame(bar(page))
                 .show_separator_line(false)
-                .show(ctx, add),
-            Kind::Rail(width) => SidePanel::left(self.id)
-                .exact_width(width)
+                .show(ui, add),
+            Kind::Rail(width) => egui::Panel::left(self.id)
+                .exact_size(width)
                 .resizable(false)
                 .frame(bar(Margin::symmetric(spacing::SM as i8, spacing::SM as i8)))
                 .show_separator_line(false)
-                .show(ctx, add),
-            Kind::Top => TopBottomPanel::top(self.id)
+                .show(ui, add),
+            Kind::Top => egui::Panel::top(self.id)
                 .frame(bar(Margin::symmetric(spacing::LG as i8, spacing::SM as i8)))
                 .show_separator_line(false)
-                .show(ctx, add),
-            Kind::Bottom => TopBottomPanel::bottom(self.id)
+                .show(ui, add),
+            Kind::Bottom => egui::Panel::bottom(self.id)
                 .frame(clear(page))
                 .show_separator_line(false)
-                .show(ctx, add),
-            Kind::Content => CentralPanel::default().frame(clear(page)).show(ctx, add),
+                .show(ui, add),
+            Kind::Content => CentralPanel::default().frame(clear(page)).show(ui, add),
             Kind::Central => CentralPanel::default()
                 .frame(Frame::new().fill(t.background).inner_margin(page))
-                .show(ctx, add),
+                .show(ui, add),
         }
     }
 }
@@ -162,7 +163,7 @@ mod tests {
     fn all_panels_draw_and_return_their_content() {
         let mut h = Harness::new();
         let mut results = Vec::new();
-        h.ctx_frame(vec![], &mut |ctx| {
+        h.root_frame(vec![], &mut |ctx| {
             results.clear();
             results.push(Panel::side("side", 200.0).show(ctx, |_| 1).inner);
             results.push(Panel::top("top").show(ctx, |_| 2).inner);
@@ -176,7 +177,7 @@ mod tests {
     fn the_sidebar_has_the_requested_width_and_the_rest_goes_to_the_center() {
         let mut h = Harness::new();
         let (mut side, mut center) = (0.0, 0.0);
-        h.ctx_frame(vec![], &mut |ctx| {
+        h.root_frame(vec![], &mut |ctx| {
             side = Panel::side("side", 240.0)
                 .show(ctx, |ui| ui.min_rect().width())
                 .response
@@ -192,7 +193,7 @@ mod tests {
     fn the_top_and_bottom_bars_leave_the_middle() {
         let mut h = Harness::new();
         let mut rects = Vec::new();
-        h.ctx_frame(vec![], &mut |ctx| {
+        h.root_frame(vec![], &mut |ctx| {
             rects.clear();
             for panel in [Panel::top("top"), Panel::bottom("bottom"), Panel::central()] {
                 rects.push(panel.show(ctx, |ui| ui.label("content")).response.rect);

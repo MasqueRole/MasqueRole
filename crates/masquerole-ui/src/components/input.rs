@@ -48,8 +48,8 @@ impl<'a> Input<'a> {
 
     /// Give the field a stable identity, needed when several fields share a position
     /// over time.
-    pub fn id_salt(mut self, id_salt: impl std::hash::Hash) -> Self {
-        self.id_salt = Some(Id::new(id_salt));
+    pub fn id_salt(mut self, id_salt: impl egui::AsIdSalt) -> Self {
+        self.id_salt = Some(Id::unique(id_salt));
         self
     }
 }
@@ -61,7 +61,8 @@ impl Widget for Input<'_> {
         let (text, password, id_salt) = (self.text, self.password, self.id_salt);
         text_field(ui, self.enabled, |ui| {
             let mut edit = TextEdit::singleline(text)
-                .frame(false)
+                .interactive(ui.is_enabled())
+                .frame(egui::Frame::NONE)
                 .password(password)
                 .hint_text(hint)
                 .desired_width(ui.available_width());

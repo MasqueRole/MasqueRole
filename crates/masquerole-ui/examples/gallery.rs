@@ -107,10 +107,7 @@ impl Gallery {
                     egui::Color32::from_rgb(x.saturating_mul(2), 90 + y, 200_u8.saturating_sub(x))
                 })
                 .collect();
-            let image = egui::ColorImage {
-                size: [w, h],
-                pixels,
-            };
+            let image = egui::ColorImage::new([w, h], pixels);
             ctx.load_texture("sample", image, egui::TextureOptions::LINEAR)
         })
     }
@@ -656,11 +653,12 @@ impl Gallery {
 }
 
 impl eframe::App for Gallery {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, root: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = &root.ctx().clone();
         // The header is the TopBar example: left, centered, and right groups.
         let mut mode = self.mode;
         TopBar::new("top").show(
-            ctx,
+            root,
             |ui| {
                 ui.add(Label::new("masquerole-ui gallery").heading());
             },
@@ -705,8 +703,8 @@ impl eframe::App for Gallery {
             Theme::set_mode(ctx, mode);
         }
 
-        Panel::surface(ctx);
-        Panel::content().show(ctx, |ui| {
+        Panel::surface(root);
+        Panel::content().show(root, |ui| {
             let mut scroll = egui::ScrollArea::vertical();
             if let Some(offset) = self.initial_scroll.take() {
                 scroll = scroll.vertical_scroll_offset(offset);

@@ -1,9 +1,8 @@
 //! Popover: a floating panel opened from a trigger.
 
-use std::hash::Hash;
+use egui::AsIdSalt;
 
-use egui::popup::{popup_below_widget, PopupCloseBehavior};
-use egui::{Id, Response, Ui};
+use egui::{Id, Popup, PopupCloseBehavior, Response, Ui};
 
 /// Default minimum width of the panel, in logical pixels.
 const MIN_WIDTH: f32 = 240.0;
@@ -25,9 +24,9 @@ pub struct Popover {
 
 impl Popover {
     /// A popover identified by `id_salt`, unique within the current UI.
-    pub fn new(id_salt: impl Hash) -> Self {
+    pub fn new(id_salt: impl AsIdSalt) -> Self {
         Self {
-            id: Id::new(id_salt),
+            id: Id::unique(id_salt),
             min_width: MIN_WIDTH,
         }
     }
@@ -48,23 +47,22 @@ impl Popover {
     ) -> Option<R> {
         let popup_id = ui.make_persistent_id(self.id);
         if trigger.clicked() {
-            ui.memory_mut(|m| m.toggle_popup(popup_id));
+            Popup::toggle_id(ui.ctx(), popup_id);
         }
-        popup_below_widget(
-            ui,
-            popup_id,
-            trigger,
-            PopupCloseBehavior::CloseOnClickOutside,
-            |ui| {
+        Popup::from_response(trigger)
+            .id(popup_id)
+            .open_memory(None)
+            .close_behavior(PopupCloseBehavior::CloseOnClickOutside)
+            .show(|ui| {
                 ui.set_min_width(self.min_width);
                 content(ui)
-            },
-        )
+            })
+            .map(|shown| shown.inner)
     }
 
     /// Whether the panel is currently open.
     pub fn is_open(self, ui: &Ui) -> bool {
-        ui.memory(|m| m.is_popup_open(ui.make_persistent_id(self.id)))
+        Popup::is_id_open(ui.ctx(), ui.make_persistent_id(self.id))
     }
 }
 

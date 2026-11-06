@@ -39,7 +39,10 @@ impl TooltipExt for Response {
 
 #[cfg(test)]
 mod tests {
-    use egui::popup::was_tooltip_open_last_frame;
+    fn was_tooltip_open_last_frame(ctx: &egui::Context, id: egui::Id) -> bool {
+        egui::Tooltip::was_tooltip_open_last_frame(ctx, id)
+    }
+
     use egui::{Sense, Ui};
 
     use super::*;

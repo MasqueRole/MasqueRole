@@ -1,8 +1,8 @@
 //! Checkbox.
 
 use egui::{
-    Color32, CursorIcon, FontId, Pos2, Rect, Response, Sense, Shape, Stroke, StrokeKind, Ui,
-    Widget, WidgetInfo, WidgetType,
+    Color32, CursorIcon, FontId, Pos2, Rect, Response, Role, Sense, Shape, Stroke, StrokeKind, Ui,
+    Widget, WidgetInfo,
 };
 
 use super::common::{dim, focus_ring};
@@ -64,9 +64,8 @@ impl Widget for Checkbox<'_> {
             response.mark_changed();
         }
         let checked = *self.checked;
-        response.widget_info(|| {
-            WidgetInfo::selected(WidgetType::Checkbox, enabled, checked, &self.label)
-        });
+        response
+            .widget_info(|| WidgetInfo::selected(Role::CheckBox, enabled, checked, &self.label));
 
         let box_rect = Rect::from_min_size(
             Pos2::new(rect.left(), rect.center().y - BOX_SIZE / 2.0),

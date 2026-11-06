@@ -130,11 +130,12 @@ mod tests {
         let painted = |selected: bool| {
             let ctx = egui::Context::default();
             crate::Theme::apply(&ctx);
-            let output = ctx.run(Default::default(), |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            let mut output = ctx.run_ui(Default::default(), |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
                     ui.add(RailButton::new(IconKind::Chat).selected(selected));
                 });
             });
+            output.textures_delta.clear();
             format!("{:?}", output.shapes)
         };
         assert_ne!(painted(true), painted(false));

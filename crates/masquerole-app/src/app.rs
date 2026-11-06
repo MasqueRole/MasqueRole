@@ -662,7 +662,8 @@ impl App {
     // ---- drawing ----
 
     /// Draw one frame. Everything the backend has sent since the last frame is applied first.
-    pub fn ui(&mut self, ctx: &Context) {
+    pub fn ui(&mut self, root: &mut Ui) {
+        let ctx = &root.ctx().clone();
         self.poll();
         masquerole_ui::motion::set_reduced(ctx, self.settings.ui.reduce_motion);
         if self.logo.is_none() && !self.logo_tried {
@@ -683,16 +684,16 @@ impl App {
         if self.quit {
             ctx.send_viewport_cmd(ViewportCommand::Close);
         }
-        self.top_bar(ctx);
-        Panel::rail("rail", RAIL_WIDTH).show(ctx, |ui| self.rail(ui));
+        self.top_bar(root);
+        Panel::rail("rail", RAIL_WIDTH).show(root, |ui| self.rail(ui));
         if self.sidebar_open && self.section.has_list() {
-            Panel::side("sidebar", SIDEBAR_WIDTH).show(ctx, |ui| sidebar::show(self, ui));
+            Panel::side("sidebar", SIDEBAR_WIDTH).show(root, |ui| sidebar::show(self, ui));
         }
-        Panel::surface(ctx);
+        Panel::surface(root);
         if self.has_footer() {
-            Panel::bottom("footer").show(ctx, |ui| self.footer(ui));
+            Panel::bottom("footer").show(root, |ui| self.footer(ui));
         }
-        Panel::content().show(ctx, |ui| self.body(ui));
+        Panel::content().show(root, |ui| self.body(ui));
 
         self.dialogs(ctx);
         self.toasts.show(ctx);
@@ -742,7 +743,8 @@ impl App {
     /// from left to right: the tutorial and settings buttons, the "Update now" button when
     /// there is an update, and the window buttons. The window has no system title bar, so
     /// dragging the bar moves it.
-    fn top_bar(&mut self, ctx: &Context) {
+    fn top_bar(&mut self, root: &mut Ui) {
+        let ctx = root.ctx().clone();
         let (mut settings, mut help, mut update_now) = (false, false, false);
         let mut window_action = None;
         let fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
@@ -750,7 +752,7 @@ impl App {
         let update = self.update.as_ref().map(|r| r.version.clone());
         let updating = self.updating;
         let bar = TopBar::new("top-bar").show(
-            ctx,
+            root,
             |ui| {
                 if let Some(logo) = &logo {
                     ui.add(Logo::new(logo).width(LOGO_WIDTH));
@@ -1020,7 +1022,7 @@ impl App {
         let Some(form) = &mut self.settings_form else {
             return;
         };
-        let max_height = ctx.screen_rect().height() * SETTINGS_MAX_HEIGHT_SHARE;
+        let max_height = ctx.content_rect().height() * SETTINGS_MAX_HEIGHT_SHARE;
         let min_height = SETTINGS_MIN_HEIGHT.min(max_height);
         let (mut open, mut save, mut cancel) = (true, false, false);
         Dialog::new("settings", "Settings")
@@ -1182,28 +1184,31 @@ mod tests {
                 ..Default::default()
             };
             let app = &mut self.app;
-            let _ = self.ctx.run(input, |ctx| app.ui(ctx));
+            self.ctx
+                .run_ui(input, |ui| app.ui(ui))
+                .drop_without_applying_deltas();
         }
 
-        fn frame_with(&mut self, events: Vec<egui::Event>) {
+        fn frame_with(&mut self, mut events: Vec<egui::Event>) {
+            // A real keyboard reports the held modifiers on their own before the key.
+            if let Some(modifiers) = events.iter().find_map(|e| match e {
+                egui::Event::Key { modifiers, .. } => Some(*modifiers),
+                _ => None,
+            }) {
+                events.insert(0, egui::Event::ModifiersChanged(modifiers));
+            }
             let input = egui::RawInput {
                 screen_rect: Some(egui::Rect::from_min_size(
                     egui::Pos2::ZERO,
                     egui::vec2(1100.0, 720.0),
                 )),
-                // A real keyboard reports held modifiers on the input itself too.
-                modifiers: events
-                    .iter()
-                    .find_map(|e| match e {
-                        egui::Event::Key { modifiers, .. } => Some(*modifiers),
-                        _ => None,
-                    })
-                    .unwrap_or_default(),
                 events,
                 ..Default::default()
             };
             let app = &mut self.app;
-            let _ = self.ctx.run(input, |ctx| app.ui(ctx));
+            self.ctx
+                .run_ui(input, |ui| app.ui(ui))
+                .drop_without_applying_deltas();
         }
 
         fn push(&mut self, event: Event) {
@@ -1447,7 +1452,8 @@ mod tests {
         let mut rig = Rig::new();
         rig.events.send(Event::Quit).unwrap();
         let app = &mut rig.app;
-        let output = rig.ctx.run(Default::default(), |ctx| app.ui(ctx));
+        let mut output = rig.ctx.run_ui(Default::default(), |ui| app.ui(ui));
+        output.textures_delta.clear();
         let closes = output.viewport_output.values().any(|v| {
             v.commands
                 .iter()
@@ -1916,7 +1922,7 @@ entries:
         }
         rig.frame();
         assert_eq!(rig.app.theme_mode, ThemeMode::Dark);
-        assert!(rig.ctx.style().visuals.dark_mode);
+        assert!(rig.ctx.global_style().visuals.dark_mode);
         rig.app.open_settings();
         assert_eq!(
             rig.app.settings_form.as_ref().map(|f| f.theme),
@@ -1997,7 +2003,7 @@ entries:
         rig.app.chat.input = "/br".into();
         rig.frame();
         rig.frame();
-        let id = egui::Id::new("command-suggestions");
+        let id = egui::Id::unique("command-suggestions");
         let list = rig
             .ctx
             .memory(|m| m.area_rect(id))
@@ -2018,7 +2024,7 @@ entries:
         rig.app.chat.input = "I wave".into();
         rig.frame();
         rig.frame();
-        let id = egui::Id::new("command-suggestions");
+        let id = egui::Id::unique("command-suggestions");
         assert!(rig.ctx.memory(|m| m.area_rect(id)).is_none());
     }
 

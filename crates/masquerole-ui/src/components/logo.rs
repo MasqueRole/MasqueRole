@@ -44,7 +44,7 @@ mod tests {
     use crate::components::testing::Harness;
 
     fn texture(h: &Harness, width: usize, height: usize) -> TextureHandle {
-        let image = ColorImage::new([width, height], Color32::WHITE);
+        let image = ColorImage::filled([width, height], Color32::WHITE);
         h.ctx
             .load_texture("logo-test", image, TextureOptions::LINEAR)
     }

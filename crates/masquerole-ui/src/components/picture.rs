@@ -142,7 +142,7 @@ mod tests {
         let mut h = Harness::new();
         let texture = h.ctx.load_texture(
             "picture-test",
-            ColorImage::new([40, 10], Color32::WHITE),
+            ColorImage::filled([40, 10], Color32::WHITE),
             TextureOptions::LINEAR,
         );
         let mut sizes = Vec::new();

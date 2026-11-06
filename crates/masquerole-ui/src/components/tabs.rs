@@ -2,7 +2,7 @@
 
 use egui::{
     Color32, CornerRadius, CursorIcon, EventFilter, FontId, Frame, Key, Margin, Modifiers,
-    Response, Sense, Ui, Widget, WidgetInfo, WidgetType,
+    Response, Role, Sense, Ui, Widget, WidgetInfo,
 };
 
 use super::common::{focus_ring, transition};
@@ -99,9 +99,7 @@ impl Widget for Tabs<'_> {
                         let pad = if self.pills { spacing::LG } else { spacing::MD };
                         let size = egui::vec2(galley.size().x + icon_width + 2.0 * pad, height);
                         let (rect, r) = ui.allocate_exact_size(size, Sense::click());
-                        r.widget_info(|| {
-                            WidgetInfo::selected(WidgetType::SelectableLabel, true, active, label)
-                        });
+                        r.widget_info(|| WidgetInfo::selected(Role::Button, true, active, label));
                         if r.clicked() {
                             selected = i;
                         }

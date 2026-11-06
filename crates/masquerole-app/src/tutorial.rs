@@ -111,7 +111,7 @@ impl Tutorial {
         let page = &PAGES[self.page];
         let texture = self.texture(ctx, self.page);
         let last = self.page + 1 == PAGES.len();
-        let max_height = (ctx.screen_rect().height() - CHROME_HEIGHT).max(MIN_IMAGE_HEIGHT);
+        let max_height = (ctx.content_rect().height() - CHROME_HEIGHT).max(MIN_IMAGE_HEIGHT);
         let (mut open, mut next, mut back, mut skip) = (true, false, false, false);
 
         Dialog::new("tutorial", page.title)
@@ -217,7 +217,8 @@ mod tests {
         let mut tour = Tutorial::new();
         for _ in 0..PAGES.len() {
             let mut open = false;
-            let _ = ctx.run(Default::default(), |ctx| open = tour.show(ctx));
+            ctx.run_pass(Default::default(), |ctx| open = tour.show(ctx))
+                .drop_without_applying_deltas();
             assert!(open, "drawing alone does not close the tutorial");
             tour.next();
         }

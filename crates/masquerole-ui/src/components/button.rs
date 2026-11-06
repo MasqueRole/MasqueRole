@@ -160,9 +160,7 @@ impl Widget for Button {
             Sense::hover()
         };
         let (rect, response) = ui.allocate_exact_size(desired, sense);
-        response.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, &self.text)
-        });
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, &self.text));
 
         let hovered = enabled && response.hovered();
         let pressed = enabled && response.is_pointer_button_down_on();
@@ -309,8 +307,8 @@ mod tests {
         let ctx = egui::Context::default();
         crate::Theme::apply(&ctx);
         let (mut plain, mut with_icon, mut icon_only) = (0.0, 0.0, egui::Vec2::ZERO);
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 plain = ui.add(Button::new("New")).rect.width();
                 with_icon = ui.add(Button::new("New").icon(IconKind::Plus)).rect.width();
                 icon_only = ui
@@ -322,7 +320,8 @@ mod tests {
                     .rect
                     .size();
             });
-        });
+        })
+        .drop_without_applying_deltas();
         assert!(with_icon > plain + 10.0, "{plain} vs {with_icon}");
         assert_eq!(icon_only.x, icon_only.y);
     }
@@ -339,8 +338,8 @@ mod tests {
     fn every_variant_and_size_renders() {
         let ctx = egui::Context::default();
         crate::Theme::apply(&ctx);
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 for variant in [
                     ButtonVariant::Default,
                     ButtonVariant::Secondary,
@@ -360,7 +359,8 @@ mod tests {
                     }
                 }
             });
-        });
+        })
+        .drop_without_applying_deltas();
     }
 
     #[test]
@@ -390,11 +390,12 @@ mod tests {
                     events,
                     ..Default::default()
                 };
-                let output = ctx.run(input, |ctx| {
-                    egui::CentralPanel::default().show(ctx, |ui| {
+                let mut output = ctx.run_ui(input, |ui| {
+                    egui::CentralPanel::default().show(ui, |ui| {
                         rect = ui.add(Button::new("Press me")).rect;
                     });
                 });
+                output.textures_delta.clear();
                 painted.push(format!("{:?}", output.shapes));
             }
             painted

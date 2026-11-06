@@ -105,7 +105,7 @@ fn run() -> anyhow::Result<()> {
 struct Shell(App);
 
 impl eframe::App for Shell {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.0.ui(ctx);
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.0.ui(ui);
     }
 }

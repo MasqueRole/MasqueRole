@@ -55,8 +55,7 @@ impl Widget for Alert {
                 });
             })
             .response;
-        response
-            .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &self.title));
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, &self.title));
         response
     }
 }

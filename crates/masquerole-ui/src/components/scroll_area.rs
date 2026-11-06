@@ -1,6 +1,6 @@
 //! Scroll area.
 
-use std::hash::Hash;
+use egui::AsIdSalt;
 
 use egui::scroll_area::ScrollAreaOutput;
 use egui::Ui;
@@ -56,7 +56,7 @@ impl ScrollArea {
     }
 
     /// Give the area a stable identity, so its scroll position survives layout changes.
-    pub fn id_salt(mut self, id_salt: impl Hash) -> Self {
+    pub fn id_salt(mut self, id_salt: impl AsIdSalt) -> Self {
         self.inner = self.inner.id_salt(id_salt);
         self
     }
@@ -104,7 +104,7 @@ mod tests {
                     .stick_to_bottom(true)
                     .show(ui, tall_content)
                     .state
-                    .offset
+                    .clamped_offset()
                     .y;
             });
         }
@@ -121,7 +121,7 @@ mod tests {
                     .max_height(100.0)
                     .show(ui, tall_content)
                     .state
-                    .offset
+                    .clamped_offset()
                     .y;
             });
         }

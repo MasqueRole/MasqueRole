@@ -71,7 +71,7 @@ impl Widget for Badge {
         let size = galley.size() + egui::vec2(2.0 * spacing::SM, 2.0 * spacing::XS);
         let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
         response.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::Label, ui.is_enabled(), &self.text)
+            egui::WidgetInfo::labeled(egui::Role::Label, ui.is_enabled(), &self.text)
         });
 
         let (bg, fg, stroke) = match self.variant {
@@ -110,14 +110,15 @@ mod tests {
         let ctx = egui::Context::default();
         crate::Theme::apply(&ctx);
         let mut widths = Vec::new();
-        let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(Default::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 let long = "The Very Long Name Of A World That Goes On And On Forever";
                 widths.push(ui.add(Badge::new(long).max_width(120.0)).rect.width());
                 widths.push(ui.add(Badge::new("Jo").max_width(120.0)).rect.width());
                 widths.push(ui.add(Badge::new(long)).rect.width());
             });
-        });
+        })
+        .drop_without_applying_deltas();
         assert!(widths[0] <= 121.0, "{widths:?}");
         assert!(widths[1] < 60.0, "{widths:?}");
         assert!(

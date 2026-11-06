@@ -390,7 +390,7 @@ impl TreeView {
         }
         let opened = motion::eased(
             ui.ctx(),
-            Id::new("tree-card"),
+            Id::unique("tree-card"),
             self.selected.is_some(),
             motion::ENTER_SECONDS,
             motion::EXIT_SECONDS,
@@ -476,7 +476,7 @@ impl TreeView {
                             .clicked()
                         {
                             jump = Some(placed.id);
-                            ui.close_menu();
+                            ui.close();
                         }
                         if placed.has_children {
                             let text = if placed.hidden > 0 {
@@ -493,7 +493,7 @@ impl TreeView {
                                 .clicked()
                             {
                                 toggled = Some(placed.id);
-                                ui.close_menu();
+                                ui.close();
                             }
                         }
                     });
@@ -601,7 +601,7 @@ impl TreeView {
             StrokeKind::Inside,
         );
         // Clicks on the card stay on the card instead of reaching the node underneath.
-        ui.interact(rect, Id::new("tree-card-body"), Sense::click_and_drag());
+        ui.interact(rect, Id::unique("tree-card-body"), Sense::click_and_drag());
 
         if opened < CARD_CONTENT_FROM {
             return action;
@@ -937,12 +937,13 @@ mod tests {
 
     // ---- drawing ----
 
-    fn frame(ctx: &egui::Context, add: &mut dyn FnMut(&egui::Context)) {
+    fn frame(ctx: &egui::Context, add: &mut dyn FnMut(&mut egui::Ui)) {
         let input = egui::RawInput {
             screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1000.0, 700.0))),
             ..Default::default()
         };
-        let _ = ctx.run(input, |ctx| add(ctx));
+        ctx.run_ui(input, |ui| add(ui))
+            .drop_without_applying_deltas();
     }
 
     #[test]
@@ -958,8 +959,8 @@ mod tests {
             view.toggle_collapse(NodeId(3));
             view.sync(Some(&data), 2);
             for _ in 0..2 {
-                frame(&ctx, &mut |ctx| {
-                    egui::CentralPanel::default().show(ctx, |ui| {
+                frame(&ctx, &mut |root| {
+                    egui::CentralPanel::default().show(root, |ui| {
                         assert_eq!(view.body(ui, Some(&data)), None);
                     });
                 });
@@ -981,11 +982,12 @@ mod tests {
                 events,
                 ..Default::default()
             };
-            let _ = ctx.run(input, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            ctx.run_ui(input, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
                     view.body(ui, Some(&data));
                 });
-            });
+            })
+            .drop_without_applying_deltas();
         };
         run(&mut view, vec![]);
         assert_eq!(view.shown, None, "no card before a click");
@@ -1057,11 +1059,12 @@ mod tests {
             events,
             ..Default::default()
         };
-        let _ = ctx.run(input, |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
+        ctx.run_ui(input, |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 view.body(ui, Some(data));
             });
-        });
+        })
+        .drop_without_applying_deltas();
     }
 
     #[test]
@@ -1143,8 +1146,8 @@ mod tests {
         };
         for data in [None, Some(&empty)] {
             view.sync(data, 1);
-            frame(&ctx, &mut |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            frame(&ctx, &mut |root| {
+                egui::CentralPanel::default().show(root, |ui| {
                     assert_eq!(view.body(ui, data), None);
                 });
             });
@@ -1180,8 +1183,8 @@ mod tests {
         view.sync(Some(&data), 1);
         let started = std::time::Instant::now();
         for _ in 0..3 {
-            frame(&ctx, &mut |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            frame(&ctx, &mut |root| {
+                egui::CentralPanel::default().show(root, |ui| {
                     view.body(ui, Some(&data));
                 });
             });

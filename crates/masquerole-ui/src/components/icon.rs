@@ -544,12 +544,13 @@ mod tests {
     fn painting_adds_shapes_for_every_icon() {
         let ctx = egui::Context::default();
         for kind in IconKind::ALL {
-            let output = ctx.run(Default::default(), |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            let mut output = ctx.run_ui(Default::default(), |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
                     let rect = Rect::from_min_size(Pos2::ZERO, Vec2::splat(24.0));
                     paint(ui.painter(), rect, Color32::WHITE, kind);
                 });
             });
+            output.textures_delta.clear();
             let icon_shapes = output
                 .shapes
                 .iter()

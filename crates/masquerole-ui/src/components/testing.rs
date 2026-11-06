@@ -21,22 +21,37 @@ impl Harness {
 
     /// Run one frame with `events`, building the UI with `add`.
     pub fn frame(&mut self, events: Vec<Event>, add: &mut dyn FnMut(&mut Ui)) {
-        self.ctx_frame(events, &mut |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| add(ui));
+        self.root_frame(events, &mut |root| {
+            egui::CentralPanel::default().show(root, |ui| add(ui));
         });
+    }
+
+    /// Run one frame with `events`, calling `add` with the root `Ui` itself, for panels and
+    /// bars, which are added to the root.
+    pub fn root_frame(&mut self, events: Vec<Event>, add: &mut dyn FnMut(&mut Ui)) {
+        let input = self.input(events);
+        self.ctx
+            .run_ui(input, |ui| add(ui))
+            .drop_without_applying_deltas();
     }
 
     /// Run one frame with `events`, calling `add` with the context itself, for components
     /// such as dialogs and toasts that draw above the page.
     pub fn ctx_frame(&mut self, events: Vec<Event>, add: &mut dyn FnMut(&Context)) {
+        let input = self.input(events);
+        self.ctx
+            .run_pass(input, |ctx| add(ctx))
+            .drop_without_applying_deltas();
+    }
+
+    fn input(&mut self, events: Vec<Event>) -> RawInput {
         self.time += 0.1;
-        let input = RawInput {
+        RawInput {
             screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0))),
             time: Some(self.time),
             events,
             ..Default::default()
-        };
-        let _ = self.ctx.run(input, |ctx| add(ctx));
+        }
     }
 
     /// Run a frame with no input.

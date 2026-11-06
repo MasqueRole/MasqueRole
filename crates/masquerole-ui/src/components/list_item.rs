@@ -1,6 +1,6 @@
 //! A row in a list, with a menu behind a three-dots button.
 
-use std::hash::Hash;
+use egui::AsIdSalt;
 
 use egui::text::LayoutJob;
 use egui::{Color32, CornerRadius, CursorIcon, FontId, Id, Pos2, Rect, Sense, Ui, Vec2};
@@ -38,12 +38,12 @@ pub struct ListItem<'a> {
 
 impl<'a> ListItem<'a> {
     /// A row with this label. `id_salt` must be unique among the rows of a list.
-    pub fn new(id_salt: impl Hash, label: &'a str) -> Self {
+    pub fn new(id_salt: impl AsIdSalt, label: &'a str) -> Self {
         Self {
             label,
             selected: false,
             menu: true,
-            id: Id::new(id_salt),
+            id: Id::unique(id_salt),
         }
     }
 
@@ -66,7 +66,7 @@ impl<'a> ListItem<'a> {
         let t = ui.ir_theme();
         let (rect, row) =
             ui.allocate_exact_size(Vec2::new(ui.available_width(), HEIGHT), Sense::click());
-        row.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, self.label));
+        row.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, self.label));
 
         let dots_rect = Rect::from_center_size(
             Pos2::new(
