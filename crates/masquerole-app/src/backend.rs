@@ -3587,7 +3587,15 @@ entries:
         rig.chat("We eat bread by the fire.");
         rig.chat("The rain stops at dawn.");
         rig.chat("Where is the silver key again?");
-        let last = rig.mock.seen.lock().unwrap().last().cloned().unwrap();
+        let last = rig
+            .mock
+            .seen
+            .lock()
+            .unwrap()
+            .iter()
+            .rfind(|m| m[0].content.contains("## Characters"))
+            .cloned()
+            .unwrap();
         let system = &last[0].content;
         assert!(system.contains("## Remembered from earlier"), "{system}");
         assert!(
@@ -3619,7 +3627,15 @@ entries:
         rig.chat("We eat bread by the fire.");
         rig.chat("The rain stops at dawn.");
         rig.chat("Where is the silver key again?");
-        let last = rig.mock.seen.lock().unwrap().last().cloned().unwrap();
+        let last = rig
+            .mock
+            .seen
+            .lock()
+            .unwrap()
+            .iter()
+            .rfind(|m| m[0].content.contains("## Characters"))
+            .cloned()
+            .unwrap();
         assert!(!last[0].content.contains("Remembered from earlier"));
     }
 }
