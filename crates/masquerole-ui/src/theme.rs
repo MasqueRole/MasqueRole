@@ -128,20 +128,20 @@ impl Theme {
             is_dark: false,
             background: rgb(0xffffff),
             foreground: rgb(0x09090b),
-            card: rgb(0xffffff),
+            card: rgb(0xfafafa),
             card_foreground: rgb(0x09090b),
             popover: rgb(0xffffff),
             primary: rgb(0x18181b),
             primary_foreground: rgb(0xfafafa),
-            secondary: rgb(0xf4f4f5),
+            secondary: rgb(0xf0f0f2),
             secondary_foreground: rgb(0x18181b),
-            muted: rgb(0xf4f4f5),
+            muted: rgb(0xf0f0f2),
             muted_foreground: rgb(0x71717a),
             accent: rgb(0xf4f4f5),
             accent_foreground: rgb(0x18181b),
             destructive: rgb(0xdc2626),
             destructive_foreground: rgb(0xfafafa),
-            border: rgb(0xe4e4e7),
+            border: rgb(0xeaeaed),
             input: rgb(0xe4e4e7),
             ring: rgb(0xa1a1aa),
             scrim: Color32::from_black_alpha(110),
@@ -159,21 +159,21 @@ impl Theme {
             is_dark: true,
             background: rgb(0x09090b),
             foreground: rgb(0xfafafa),
-            card: rgb(0x0f0f12),
+            card: rgb(0x131316),
             card_foreground: rgb(0xfafafa),
             popover: rgb(0x18181b),
             primary: rgb(0xfafafa),
             primary_foreground: rgb(0x18181b),
-            secondary: rgb(0x27272a),
+            secondary: rgb(0x232327),
             secondary_foreground: rgb(0xfafafa),
-            muted: rgb(0x27272a),
+            muted: rgb(0x1c1c20),
             muted_foreground: rgb(0xa1a1aa),
             accent: rgb(0x27272a),
             accent_foreground: rgb(0xfafafa),
             destructive: rgb(0xdc2626),
             destructive_foreground: rgb(0xfafafa),
-            border: rgb(0x27272a),
-            input: rgb(0x3f3f46),
+            border: rgb(0x212125),
+            input: rgb(0x2e2e33),
             ring: rgb(0xd4d4d8),
             scrim: Color32::from_black_alpha(170),
             tree_current: rgb(0xf5c542),
@@ -211,9 +211,9 @@ impl Theme {
             tree_explored: Color32::PLACEHOLDER,
             tree_open: Color32::PLACEHOLDER,
             tree_path: Color32::PLACEHOLDER,
-            radius_sm: 8,
-            radius_md: 12,
-            radius_lg: 16,
+            radius_sm: 10,
+            radius_md: 16,
+            radius_lg: 24,
             text_xs: 11.0,
             text_sm: 13.0,
             text_base: 14.0,
@@ -278,12 +278,12 @@ impl Theme {
             ..Default::default()
         };
 
-        style.spacing.item_spacing = egui::vec2(spacing::SM, spacing::SM);
-        style.spacing.window_margin = egui::Margin::same(spacing::LG as i8);
-        style.spacing.button_padding = egui::vec2(spacing::LG, spacing::SM);
+        style.spacing.item_spacing = egui::vec2(spacing::SM, spacing::MD);
+        style.spacing.window_margin = egui::Margin::same(spacing::XL as i8);
+        style.spacing.button_padding = egui::vec2(spacing::XL, spacing::SM);
         style.spacing.menu_margin = egui::Margin::same(spacing::SM as i8);
         style.spacing.indent = spacing::LG;
-        style.spacing.interact_size.y = 32.0;
+        style.spacing.interact_size.y = 36.0;
 
         let proportional = |size| FontId::new(size, FontFamily::Proportional);
         style.text_styles = [

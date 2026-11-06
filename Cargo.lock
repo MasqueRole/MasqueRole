@@ -2225,7 +2225,7 @@ dependencies = [
 
 [[package]]
 name = "masquerole-app"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2244,7 +2244,7 @@ dependencies = [
 
 [[package]]
 name = "masquerole-core"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "base64",
  "bytes",
@@ -2265,7 +2265,7 @@ dependencies = [
 
 [[package]]
 name = "masquerole-ui"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "eframe",
  "egui",
