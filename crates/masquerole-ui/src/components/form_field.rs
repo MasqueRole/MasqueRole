@@ -1,6 +1,6 @@
 //! A label, a control, and help or error text, stacked.
 
-use egui::{InnerResponse, RichText, Ui};
+use egui::{Align, InnerResponse, Layout, RichText, Ui};
 
 use crate::theme::{spacing, ThemeExt};
 
@@ -52,6 +52,17 @@ impl FormField {
 
     /// Draw the label, the control from `add`, and the help or error text.
     pub fn show<R>(self, ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> InnerResponse<R> {
+        self.show_with_action(ui, |_| {}, add)
+    }
+
+    /// Like [`show`](Self::show), with `action` at the right end of the label row, for a small
+    /// icon button that works on the field.
+    pub fn show_with_action<R>(
+        self,
+        ui: &mut Ui,
+        action: impl FnOnce(&mut Ui),
+        add: impl FnOnce(&mut Ui) -> R,
+    ) -> InnerResponse<R> {
         let t = ui.ir_theme();
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = spacing::XS;
@@ -59,7 +70,10 @@ impl FormField {
             if self.required {
                 label.push_str(" *");
             }
-            ui.label(RichText::new(label).size(t.text_sm).color(t.foreground));
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(label).size(t.text_sm).color(t.foreground));
+                ui.with_layout(Layout::right_to_left(Align::Center), action);
+            });
             let result = add(ui);
             match (&self.error, &self.help) {
                 (Some(error), _) => {
@@ -92,6 +106,35 @@ mod tests {
             result = Some(FormField::new("Model").help("Name").show(ui, |_| 42).inner);
         });
         assert_eq!(result, Some(42));
+    }
+
+    #[test]
+    fn the_action_sits_in_the_label_row_above_the_control() {
+        let mut h = Harness::new();
+        let (mut action, mut control) = (egui::Rect::NOTHING, egui::Rect::NOTHING);
+        h.idle(&mut |ui: &mut Ui| {
+            FormField::new("Greeting").show_with_action(
+                ui,
+                |ui| {
+                    action = ui
+                        .allocate_exact_size(egui::vec2(28.0, 28.0), egui::Sense::hover())
+                        .0
+                },
+                |ui| {
+                    control = ui
+                        .allocate_exact_size(egui::vec2(100.0, 20.0), egui::Sense::hover())
+                        .0
+                },
+            );
+        });
+        assert!(
+            action.max.y <= control.min.y + 1.0,
+            "{action:?} {control:?}"
+        );
+        assert!(
+            action.min.x > control.min.x + 100.0,
+            "the action is at the right end"
+        );
     }
 
     #[test]

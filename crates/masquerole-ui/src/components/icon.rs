@@ -86,11 +86,13 @@ pub enum IconKind {
     Warning,
     /// A plug: the connection to a provider.
     Plug,
+    /// Two sparkles: let the AI write.
+    Sparkles,
 }
 
 impl IconKind {
     /// Every icon, for galleries and tests.
-    pub const ALL: [IconKind; 35] = [
+    pub const ALL: [IconKind; 36] = [
         IconKind::Settings,
         IconKind::Trash,
         IconKind::More,
@@ -126,6 +128,7 @@ impl IconKind {
         IconKind::Compress,
         IconKind::Warning,
         IconKind::Plug,
+        IconKind::Sparkles,
     ];
 }
 
@@ -377,6 +380,27 @@ fn drawing(kind: IconKind) -> Drawing {
                 (6.0, 12.0),
             ])
             .open(&[(12.0, 17.0), (12.0, 21.0)]),
+        IconKind::Sparkles => d
+            .closed(&[
+                (10.0, 5.0),
+                (11.5, 11.5),
+                (18.0, 13.0),
+                (11.5, 14.5),
+                (10.0, 21.0),
+                (8.5, 14.5),
+                (2.0, 13.0),
+                (8.5, 11.5),
+            ])
+            .closed(&[
+                (19.0, 2.0),
+                (19.8, 4.2),
+                (22.0, 5.0),
+                (19.8, 5.8),
+                (19.0, 8.0),
+                (18.2, 5.8),
+                (16.0, 5.0),
+                (18.2, 4.2),
+            ]),
         IconKind::Warning => d
             .closed(&[(12.0, 3.0), (22.0, 20.0), (2.0, 20.0)])
             .open(&[(12.0, 9.5), (12.0, 14.0)])

@@ -21,6 +21,7 @@ use masquerole_core::context::{self, ContextInput};
 use masquerole_core::db::{Db, NewNode, Node, NodeId, NodeKind, NodeScene, Session, SessionId};
 use masquerole_core::embed::{self, Embedder, MiniLm};
 use masquerole_core::exchange::{self, ExportFormat};
+use masquerole_core::improve;
 use masquerole_core::lorebook::{LoreEntry, Lorebook};
 use masquerole_core::memory::{self, NewFact, SceneCast};
 use masquerole_core::recall;
@@ -228,6 +229,14 @@ pub enum Request {
     },
     /// Delete a character file.
     DeleteCharacter(PathBuf),
+    /// Have the model write or improve one text of a character card. The answer arrives as
+    /// [`Event::Improved`].
+    ImproveCharacter {
+        /// The text to write.
+        field: improve::Field,
+        /// The card as it is in the editor, unsaved changes included.
+        character: Character,
+    },
     /// Let the user choose a character card (PNG, JSON, or YAML) and add it to the library.
     ImportCharacter,
     /// Let the user choose where to save the character in `PathBuf` as a PNG, JSON, or YAML
@@ -333,6 +342,13 @@ pub enum Event {
         target: ImageTarget,
         /// The stored file name, to put in the card.
         name: String,
+    },
+    /// The model finished a text asked for with [`Request::ImproveCharacter`].
+    Improved {
+        /// The text that was asked for.
+        field: improve::Field,
+        /// The new text, or `None` when it failed (an error is shown too).
+        text: Option<String>,
     },
     /// The active story changed.
     Transcript(Transcript),
@@ -660,6 +676,7 @@ impl Actor {
                 let image = Lorebook::load(&path).ok().and_then(|w| w.image);
                 self.delete_item(&path, image);
             }
+            Request::ImproveCharacter { field, character } => self.improve(field, character),
             Request::ImportCharacter => self.import_character(),
             Request::ImportedCharacter { character, skipped } => {
                 self.store_imported(character, &skipped)
@@ -1148,6 +1165,35 @@ impl Actor {
             }
             Err(e) => self.error(e),
         }
+    }
+
+    /// Have the model write `field` of `character`. Always answers with [`Event::Improved`],
+    /// so the editor can stop waiting.
+    fn improve(&self, field: improve::Field, character: Character) {
+        let fail = |message: String| {
+            self.emit(Event::Improved { field, text: None });
+            self.error(message);
+        };
+        let provider = match self.provider() {
+            Ok(provider) => provider,
+            Err(e) => return fail(e),
+        };
+        let (events, wake) = (self.events.clone(), self.wake.clone());
+        tokio::spawn(async move {
+            let text = match improve::improve(provider.as_ref(), field, &character).await {
+                Ok(text) => Some(text),
+                Err(e) => {
+                    tracing::warn!(error = %e, "improving a character text failed");
+                    let _ = events.send(Event::Error(format!(
+                        "Could not write the {}: {e}",
+                        field.label()
+                    )));
+                    None
+                }
+            };
+            let _ = events.send(Event::Improved { field, text });
+            wake();
+        });
     }
 
     /// `/compact`: summarize everything before the newest two messages. The summary arrives
@@ -3122,6 +3168,68 @@ entries:
             _ => None,
         });
         assert!(notice.contains("Mira likes maps"));
+    }
+
+    fn bo() -> Character {
+        Character {
+            name: "Bo".into(),
+            personality: vec!["shy".into()],
+            ..Character::default()
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn improving_a_text_answers_with_the_tidied_reply() {
+        let mock = Mock::with_reply(
+            &["unused"],
+            "- brave
+- kind",
+        );
+        let rig = Rig::start("improve", mock, true, false);
+        rig.backend.send(Request::ImproveCharacter {
+            field: improve::Field::Personality,
+            character: bo(),
+        });
+        let (field, text) = rig.wait_for(|e| match e {
+            Event::Improved { field, text } => Some((*field, text.clone())),
+            _ => None,
+        });
+        assert_eq!(field, improve::Field::Personality);
+        assert_eq!(
+            text.as_deref(),
+            Some(
+                "brave
+kind"
+            )
+        );
+        let seen = rig.mock.seen.lock().unwrap();
+        assert!(seen.last().unwrap()[1].content.contains("Name: Bo"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn improving_without_a_key_says_so_and_still_answers() {
+        let rig = Rig::start("improve-no-key", Mock::new(&["unused"]), false, false);
+        let mut settings = Settings::default();
+        settings.api.provider = "xai".into();
+        rig.backend.send(Request::SaveSettings {
+            settings,
+            api_key: None,
+        });
+        rig.backend.send(Request::ImproveCharacter {
+            field: improve::Field::Greeting,
+            character: bo(),
+        });
+        let text = rig.wait_for(|e| match e {
+            Event::Improved { text, .. } => Some(text.clone()),
+            _ => None,
+        });
+        assert_eq!(text, None, "the editor stops waiting");
+        let error = rig.wait_for(|e| match e {
+            Event::Error(m) => Some(m.clone()),
+            _ => None,
+        });
+        assert!(error.contains("No API key"), "{error}");
+        assert!(rig.mock.seen.lock().unwrap().is_empty());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

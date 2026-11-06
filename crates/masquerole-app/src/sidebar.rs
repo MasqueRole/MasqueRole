@@ -46,7 +46,7 @@ fn heading_with_import(
             new = ui.add(button).ir_tooltip(new_item).clicked();
             if let Some(tooltip) = import {
                 let button = Button::new("")
-                    .icon(IconKind::Folder)
+                    .icon(IconKind::Download)
                     .size(ButtonSize::Icon)
                     .variant(ButtonVariant::Ghost);
                 imported = ui.add(button).ir_tooltip(tooltip).clicked();

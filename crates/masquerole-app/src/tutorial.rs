@@ -33,7 +33,7 @@ const PAGES: &[Page] = &[
     },
     Page {
         title: "Create characters and worlds",
-        text: "Open Characters or Worlds and press the + button. Give a character a personality and a greeting, and a world lore entries that are added only when their keywords come up. Both can have a picture.",
+        text: "Open Characters or Worlds and press the + button. Give a character a personality and a greeting (the sparkle button beside a text has the AI write or improve it), and a world lore entries that are added only when their keywords come up. Both can have a picture.",
         screenshot: include_bytes!("../../../assets/tutorial/03-characters.png"),
     },
     Page {
