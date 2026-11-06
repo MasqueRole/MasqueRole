@@ -112,10 +112,10 @@ impl Widget for Button {
         let is_link = self.variant == ButtonVariant::Link;
 
         let (font_size, pad_x, height) = match self.size {
-            ButtonSize::Sm => (t.text_xs, spacing::MD, 28.0),
-            ButtonSize::Md => (t.text_sm, spacing::LG, 32.0),
-            ButtonSize::Lg => (t.text_base, spacing::XL, 40.0),
-            ButtonSize::Icon => (t.text_base, 0.0, 32.0),
+            ButtonSize::Sm => (t.text_xs, spacing::LG, 28.0),
+            ButtonSize::Md => (t.text_sm, spacing::XL, 36.0),
+            ButtonSize::Lg => (t.text_base, spacing::XL, 44.0),
+            ButtonSize::Icon => (t.text_base, 0.0, 36.0),
         };
         let available = ui.available_width();
         let has_text = !self.text.is_empty();
@@ -230,12 +230,8 @@ impl Widget for Button {
         fg = transition(ui, response.id.with("fg"), fg);
         stroke.color = transition(ui, response.id.with("stroke"), stroke.color);
 
-        // Square icon buttons are round.
-        let radius = if self.size == ButtonSize::Icon {
-            egui::CornerRadius::same(u8::MAX)
-        } else {
-            t.corner_md()
-        };
+        // Buttons are pills, and square icon buttons are round.
+        let radius = egui::CornerRadius::same(u8::MAX);
         let painter = ui.painter();
         painter.rect(rect, radius, bg, stroke, StrokeKind::Inside);
         let content_width = icon_px + gap + galley.size().x;

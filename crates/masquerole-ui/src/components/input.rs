@@ -82,15 +82,15 @@ pub(crate) fn text_field(
 ) -> Response {
     let t = ui.ir_theme();
     let frame = Frame::new()
-        .fill(t.background)
+        .fill(t.muted)
         .corner_radius(t.corner_md())
-        .inner_margin(Margin::symmetric(spacing::MD as i8, spacing::SM as i8))
-        .stroke(Stroke::new(BORDER_WIDTH, t.input));
+        .inner_margin(Margin::symmetric(spacing::LG as i8, spacing::SM as i8 + 1))
+        .stroke(Stroke::new(BORDER_WIDTH, t.muted));
 
     let mut prepared = frame.begin(ui);
     if !enabled {
         prepared.content_ui.disable();
-        prepared.frame.fill = t.muted;
+        prepared.frame.fill = t.card;
     }
     let response = add(&mut prepared.content_ui);
     if response.has_focus() {
