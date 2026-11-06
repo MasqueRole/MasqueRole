@@ -178,6 +178,7 @@ summarize_after = 30
 [memory]
 enabled = true
 fact_extraction = true
+semantic = false          # also search the story by meaning (downloads a small model once)
 
 [style]
 profile = "default"
@@ -205,6 +206,7 @@ logging = false           # write masquerole.log next to settings.toml (after a 
 | `context.recent_messages`  | Number of messages kept verbatim                               |
 | `context.summarize_after`  | Older messages are condensed beyond this point                 |
 | `memory.fact_extraction`   | Automatically remember important facts                         |
+| `memory.semantic`          | Search facts and older messages by meaning, see [Memory System](#memory-system) |
 | `style.max_responders`     | Most characters that answer one message in a scene with several. Each answer is another request |
 | `tree.auto_checkpoint`     | Create a story-tree node after every turn                      |
 | `tree.node_label`          | `auto` = short AI-generated label, `manual` = ask every time   |
@@ -277,6 +279,8 @@ MasqueRole uses three layers:
 3. **Fact store:** persistent facts (names, relationships, places, items) that are re-injected when relevant.
 
 This way, even after hundreds of messages, the story remembers who promised what to whom.
+
+**Semantic memory (optional):** turn on *Search the story by meaning* in the settings (or `memory.semantic`) and every message and fact also gets a vector, made by a small sentence model (`all-MiniLM-L6-v2`) that runs on your computer. The model, about 90 MB, is downloaded once into the data folder when you switch the setting on. For every new message, the facts and older messages that fit best, even in other words, are brought into the prompt: the best facts are the last ones to be dropped when the prompt is trimmed, and up to three older messages that no longer fit in the recent window come back under *Remembered from earlier*. The vectors live in the story database. Characters only recall what they themselves witnessed or know.
 
 With several characters in a story, the layers are kept per character: see [Several Characters](#several-characters).
 
@@ -421,7 +425,7 @@ MasqueRole/
 
 - [x] Multiple characters in one scene
 - [ ] Merge facts between branches
-- [ ] Vector-based memory search
+- [x] Vector-based memory search
 - [ ] Import of character cards from common formats
 - [ ] Image support for scenes
 - [ ] Additional native provider adapters beyond OpenAI-compatible APIs

@@ -206,6 +206,9 @@ pub struct MemorySettings {
     pub enabled: bool,
     /// Automatically remember important facts.
     pub fact_extraction: bool,
+    /// Also search the story by meaning: facts and older messages that fit what is being said
+    /// are brought back into the prompt. Needs a small model that is downloaded once.
+    pub semantic: bool,
 }
 
 impl Default for MemorySettings {
@@ -213,6 +216,7 @@ impl Default for MemorySettings {
         Self {
             enabled: true,
             fact_extraction: true,
+            semantic: false,
         }
     }
 }

@@ -94,6 +94,19 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE facts ADD COLUMN known_by TEXT;
     ALTER TABLE summaries ADD COLUMN character TEXT;
 "#,
+    // Vectors for searching messages and facts by meaning. `kind` is "node" or "fact", and
+    // `ref_id` the id in that table. Vectors from another `model` are ignored.
+    r#"
+    CREATE TABLE embeddings (
+        kind       TEXT NOT NULL,
+        ref_id     INTEGER NOT NULL,
+        session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        model      TEXT NOT NULL,
+        vector     BLOB NOT NULL,
+        PRIMARY KEY (kind, ref_id)
+    );
+    CREATE INDEX embeddings_session ON embeddings(session_id);
+"#,
 ];
 
 /// The schema version this build writes.
@@ -826,6 +839,47 @@ impl Db {
         ))?;
         let rows = stmt.query_map([node], fact_from_row)?;
         Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Store the vector of a message (`kind` "node") or a fact (`kind` "fact"), replacing an
+    /// older one.
+    pub fn put_embedding(
+        &self,
+        session: SessionId,
+        kind: &str,
+        ref_id: i64,
+        model: &str,
+        vector: &[f32],
+    ) -> Result<(), DbError> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO embeddings (kind, ref_id, session_id, model, vector)              VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![kind, ref_id, session.0, model, crate::vector::to_bytes(vector)],
+        )?;
+        Ok(())
+    }
+
+    /// Every stored vector of a kind in a session that `model` made, as (id, vector).
+    pub fn embeddings(
+        &self,
+        session: SessionId,
+        kind: &str,
+        model: &str,
+    ) -> Result<Vec<(i64, Vec<f32>)>, DbError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT ref_id, vector FROM embeddings              WHERE session_id = ?1 AND kind = ?2 AND model = ?3 ORDER BY ref_id",
+        )?;
+        let rows = stmt.query_map(params![session.0, kind, model], |r| {
+            let bytes: Vec<u8> = r.get(1)?;
+            Ok((r.get::<_, i64>(0)?, crate::vector::from_bytes(&bytes)))
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Delete every vector of a session, for example before the model changes.
+    pub fn clear_embeddings(&self, session: SessionId) -> Result<(), DbError> {
+        self.conn
+            .execute("DELETE FROM embeddings WHERE session_id = ?1", [session.0])?;
+        Ok(())
     }
 
     /// Every fact of a session, regardless of branch.

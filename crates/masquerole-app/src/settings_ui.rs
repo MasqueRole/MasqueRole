@@ -305,6 +305,15 @@ impl SettingsForm {
                             .label("Extract facts automatically")
                             .enabled(self.settings.memory.enabled),
                     );
+                    ui.add(
+                        Switch::new(&mut self.settings.memory.semantic)
+                            .label("Search the story by meaning")
+                            .enabled(self.settings.memory.enabled),
+                    );
+                    Card::description(
+                        ui,
+                        "Brings back facts and older messages that fit what is said now. Downloads a small model (about 90 MB) once and runs it on this computer.",
+                    );
                 })
                 .show(ui);
             ui.add_space(spacing::LG);
