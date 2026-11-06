@@ -10,6 +10,7 @@ pub mod context;
 pub mod db;
 pub mod embed;
 pub mod exchange;
+pub mod improve;
 pub mod lorebook;
 pub mod memory;
 pub mod recall;

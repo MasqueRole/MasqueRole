@@ -139,6 +139,7 @@ impl Gallery {
                     ("Medium", ButtonSize::Md),
                     ("Large", ButtonSize::Lg),
                     ("+", ButtonSize::Icon),
+                    ("+", ButtonSize::IconSm),
                 ] {
                     ui.add(Button::new(text).variant(variant).size(size));
                 }

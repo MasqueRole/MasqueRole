@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 
 use masquerole_core::character::{Character, ExampleDialogue};
+use masquerole_core::improve::Field;
 use masquerole_core::lorebook::{LoreEntry, Lorebook};
 use masquerole_ui::components::{
     commit_pending, Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, ChipInput, Dialog,
@@ -123,6 +124,23 @@ fn picture_row(
     choose
 }
 
+/// The small sparkle button that has the AI write or improve `field`. Returns whether it was
+/// clicked. It waits while the AI is busy with a text.
+fn improve_button(ui: &mut Ui, field: Field, improving: Option<Field>) -> bool {
+    let busy = improving.is_some();
+    let tip = if improving == Some(field) {
+        format!("The AI is writing the {}...", field.label())
+    } else {
+        format!("Write or improve the {} with AI", field.label())
+    };
+    let button = Button::new("")
+        .icon(IconKind::Sparkles)
+        .variant(ButtonVariant::Ghost)
+        .size(ButtonSize::IconSm)
+        .enabled(!busy);
+    ui.add(button).ir_tooltip(tip).clicked()
+}
+
 /// The editable text of a character card.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct CharacterForm {
@@ -145,6 +163,10 @@ pub struct CharacterForm {
     pub image: Option<String>,
     /// Why the last save was refused.
     pub error: Option<String>,
+    /// The text the AI is writing right now, if any.
+    pub improving: Option<Field>,
+    /// The text the user just asked the AI to write. The app takes it and sends the request.
+    pub asked: Option<Field>,
 }
 
 /// An example dialogue being edited in the overlay.
@@ -181,6 +203,18 @@ impl CharacterForm {
             editing_example: None,
             image: character.image.clone(),
             error: None,
+            improving: None,
+            asked: None,
+        }
+    }
+
+    /// Put the text the AI wrote into `field`.
+    pub fn apply(&mut self, field: Field, text: String) {
+        match field {
+            Field::Personality => self.personality = text,
+            Field::SpeakingStyle => self.speaking_style = text,
+            Field::Background => self.background = text,
+            Field::Greeting => self.greeting = text,
         }
     }
 
@@ -288,34 +322,66 @@ impl CharacterForm {
                     .id_salt("char-description"),
             )
         });
-        FormField::new("Personality")
-            .help("One trait per line.")
-            .show(ui, |ui| {
+        let mut asked = None;
+        let improving = self.improving;
+        let mut ai = |ui: &mut Ui, field: Field, form: FormField, add: &mut dyn FnMut(&mut Ui)| {
+            form.show_with_action(
+                ui,
+                |ui| {
+                    if improve_button(ui, field, improving) {
+                        asked = Some(field);
+                    }
+                },
+                |ui| add(ui),
+            );
+        };
+        ai(
+            ui,
+            Field::Personality,
+            FormField::new("Personality").help("One trait per line."),
+            &mut |ui| {
                 ui.add(
                     Textarea::new(&mut self.personality)
                         .rows(3)
                         .id_salt("char-personality"),
-                )
-            });
-        FormField::new("Speaking style").show(ui, |ui| {
-            ui.add(Input::new(&mut self.speaking_style).id_salt("char-style"))
-        });
-        FormField::new("Background").show(ui, |ui| {
-            ui.add(
-                Textarea::new(&mut self.background)
-                    .rows(4)
-                    .id_salt("char-background"),
-            )
-        });
-        FormField::new("Greeting")
-            .help("The first message of a new session.")
-            .show(ui, |ui| {
+                );
+            },
+        );
+        ai(
+            ui,
+            Field::SpeakingStyle,
+            FormField::new("Speaking style"),
+            &mut |ui| {
+                ui.add(Input::new(&mut self.speaking_style).id_salt("char-style"));
+            },
+        );
+        ai(
+            ui,
+            Field::Background,
+            FormField::new("Background"),
+            &mut |ui| {
+                ui.add(
+                    Textarea::new(&mut self.background)
+                        .rows(4)
+                        .id_salt("char-background"),
+                );
+            },
+        );
+        ai(
+            ui,
+            Field::Greeting,
+            FormField::new("Greeting").help("The first message of a new session."),
+            &mut |ui| {
                 ui.add(
                     Textarea::new(&mut self.greeting)
                         .rows(2)
                         .id_salt("char-greeting"),
-                )
-            });
+                );
+            },
+        );
+        if let Some(field) = asked {
+            self.ask_ai(field);
+        }
 
         ui.add(Label::new("Example dialogue").tone(LabelTone::Default));
         ui.add(
@@ -357,6 +423,21 @@ impl CharacterForm {
 }
 
 impl CharacterForm {
+    /// The user asked the AI to write `field`. It needs a name to go on; without one the name
+    /// field says so.
+    pub fn ask_ai(&mut self, field: Field) {
+        if self.improving.is_some() {
+            return;
+        }
+        if self.name.trim().is_empty() {
+            self.error = Some("Give the character a name first.".into());
+            return;
+        }
+        self.error = None;
+        self.improving = Some(field);
+        self.asked = Some(field);
+    }
+
     /// The overlay for the example being edited, if one is open.
     fn example_overlay(&mut self, ui: &mut Ui) {
         let Some(draft) = self.editing_example.as_mut() else {

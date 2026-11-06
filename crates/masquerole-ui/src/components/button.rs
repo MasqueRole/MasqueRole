@@ -37,6 +37,8 @@ pub enum ButtonSize {
     Lg,
     /// Square, for a single glyph.
     Icon,
+    /// A smaller square, for a glyph beside a label.
+    IconSm,
 }
 
 /// A clickable button. Keyboard accessible: Tab to focus, Enter or Space to press.
@@ -116,6 +118,7 @@ impl Widget for Button {
             ButtonSize::Md => (t.text_sm, spacing::XL, 36.0),
             ButtonSize::Lg => (t.text_base, spacing::XL, 44.0),
             ButtonSize::Icon => (t.text_base, 0.0, 36.0),
+            ButtonSize::IconSm => (t.text_sm, 0.0, 28.0),
         };
         let available = ui.available_width();
         let has_text = !self.text.is_empty();
@@ -149,7 +152,7 @@ impl Widget for Button {
             galley.size()
         } else if self.fill_width {
             egui::vec2(available, height)
-        } else if self.size == ButtonSize::Icon {
+        } else if matches!(self.size, ButtonSize::Icon | ButtonSize::IconSm) {
             egui::vec2(height, height)
         } else {
             egui::vec2(galley.size().x + icon_px + gap + 2.0 * pad_x, height)

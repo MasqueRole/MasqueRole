@@ -89,6 +89,9 @@ pub(crate) fn text_field(
         .stroke(Stroke::new(BORDER_WIDTH, t.muted));
 
     let mut prepared = frame.begin(ui);
+    // The frame's padding sets the height. egui 0.37 also stretches a text edit to the
+    // minimum interactive height, which would add the padding on top of it.
+    prepared.content_ui.spacing_mut().interact_size.y = 0.0;
     if !enabled {
         prepared.content_ui.disable();
         prepared.frame.fill = t.card;

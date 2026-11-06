@@ -388,6 +388,18 @@ impl App {
                     }
                 }
             },
+            Event::Improved { field, text } => {
+                if let Some(form) = &mut self.character_form {
+                    // Only the form that asked takes the answer; another character may be open
+                    // by now.
+                    if form.improving == Some(field) {
+                        form.improving = None;
+                        if let Some(text) = text {
+                            form.apply(field, text);
+                        }
+                    }
+                }
+            }
             Event::Transcript(transcript) => {
                 let same = self
                     .transcript
@@ -879,7 +891,7 @@ impl App {
             }
             if can_export
                 && ui
-                    .add(Button::new("Export").variant(ButtonVariant::Outline))
+                    .add(Button::new("Export").variant(ButtonVariant::Secondary))
                     .clicked()
             {
                 action = Some(FormAction::Export);
@@ -944,6 +956,12 @@ impl App {
                     if choose {
                         self.backend
                             .send(Request::PickImage(ImageTarget::Character));
+                    }
+                    if let Some(field) = form.asked.take() {
+                        self.backend.send(Request::ImproveCharacter {
+                            field,
+                            character: form.to_character(),
+                        });
                     }
                 } else if empty_state(
                     ui,
@@ -1828,6 +1846,78 @@ entries:
         let sent = rig.sent();
         assert_eq!(sent.len(), 1);
         assert!(sent[0].starts_with("ExportCharacter") && sent[0].contains("bo.yaml"));
+    }
+
+    #[test]
+    fn asking_the_ai_sends_the_card_as_edited_and_the_answer_fills_the_field() {
+        use masquerole_core::improve::Field;
+        let mut rig = Rig::new();
+        rig.app.show_section(Section::Characters);
+        rig.app.character_form = Some(CharacterForm {
+            name: "Bo".into(),
+            greeting: "hi".into(),
+            ..CharacterForm::new()
+        });
+        let form = rig.app.character_form.as_mut().unwrap();
+        form.ask_ai(Field::Greeting);
+        assert_eq!(form.improving, Some(Field::Greeting));
+        rig.frame();
+        let sent = rig.sent();
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].starts_with("ImproveCharacter") && sent[0].contains("greeting: \"hi\""));
+
+        // A second ask waits for the first.
+        let form = rig.app.character_form.as_mut().unwrap();
+        form.ask_ai(Field::Background);
+        assert_eq!(form.improving, Some(Field::Greeting));
+
+        rig.push(Event::Improved {
+            field: Field::Greeting,
+            text: Some("Well met.".into()),
+        });
+        let form = rig.app.character_form.as_ref().unwrap();
+        assert_eq!(
+            (form.greeting.as_str(), form.improving),
+            ("Well met.", None)
+        );
+    }
+
+    #[test]
+    fn an_answer_for_a_form_that_is_gone_is_dropped_and_a_failure_keeps_the_text() {
+        use masquerole_core::improve::Field;
+        let mut rig = Rig::new();
+        rig.app.show_section(Section::Characters);
+        rig.app.character_form = Some(CharacterForm {
+            name: "Bo".into(),
+            background: "old".into(),
+            improving: Some(Field::Background),
+            ..CharacterForm::new()
+        });
+        rig.push(Event::Improved {
+            field: Field::Background,
+            text: None,
+        });
+        let form = rig.app.character_form.as_ref().unwrap();
+        assert_eq!((form.background.as_str(), form.improving), ("old", None));
+
+        // Another character is open now; it never asked.
+        rig.push(Event::Improved {
+            field: Field::Background,
+            text: Some("new".into()),
+        });
+        assert_eq!(rig.app.character_form.as_ref().unwrap().background, "old");
+    }
+
+    #[test]
+    fn the_ai_needs_a_name_to_go_on() {
+        use masquerole_core::improve::Field;
+        let mut form = CharacterForm::new();
+        form.ask_ai(Field::Personality);
+        assert!(form.asked.is_none() && form.improving.is_none());
+        assert_eq!(
+            form.error.as_deref(),
+            Some("Give the character a name first.")
+        );
     }
 
     #[test]

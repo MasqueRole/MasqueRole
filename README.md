@@ -68,7 +68,7 @@ MasqueRole sits between you and the language model provider you choose (xAI, Ope
 - **Native desktop app:** Windows and Linux. Ships as a single small binary with fast startup. No browser, no web runtime, no server to run.
 - **Endless sessions:** Automatic summarization of older messages keeps the context lean without losing the plot.
 - **Story Tree:** Branch your story into parallel storylines, visualized as a skill tree. Jump back to any node and continue from there.
-- **Character cards:** Personality, speaking style, background, and example dialogue per character in a simple file. Import and export the common card formats (PNG, JSON).
+- **Character cards:** Personality, speaking style, background, and example dialogue per character in a simple file. Import and export the common card formats (PNG, JSON). A sparkle button beside the personality, speaking style, background, and greeting has the AI write or improve that text.
 - **World knowledge (lorebook):** Entries are injected only when matching keywords appear in the conversation.
 - **Layered memory:** Short-term, summary, and fact memory.
 - **Local-first:** Sessions are stored in a local SQLite database. Your API key lives in the operating system's secure storage.
@@ -242,7 +242,7 @@ image: "1a2b3c.png"   # optional; set with "Add picture" in the editor
 
 ### Import and export
 
-The folder button above the character list imports a card; the *Export* button in the editor saves one. The formats are the ones other roleplay tools use:
+The download button above the character list imports a card; the *Export* button in the editor saves one. The formats are the ones other roleplay tools use:
 
 | Format | Import | Export |
 |--------|--------|--------|
