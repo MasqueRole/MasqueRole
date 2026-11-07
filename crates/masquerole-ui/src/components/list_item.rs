@@ -77,7 +77,7 @@ impl<'a> ListItem<'a> {
         );
         // Added after the row, so it is on top and takes the clicks inside its rect.
         let dots = ui.interact(dots_rect, self.id.with("dots"), Sense::click());
-        let popover = Popover::new(self.id.with("menu")).min_width(MENU_WIDTH);
+        let popover = Popover::new(self.id.with("menu")).width(MENU_WIDTH);
         let menu_open = self.menu && popover.is_open(ui);
 
         let hovered = row.hovered() || (self.menu && dots.hovered());
