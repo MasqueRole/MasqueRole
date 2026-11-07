@@ -4,8 +4,8 @@ use egui::AsIdSalt;
 
 use egui::{Id, Popup, PopupCloseBehavior, Response, Ui};
 
-/// Default minimum width of the panel, in logical pixels.
-const MIN_WIDTH: f32 = 240.0;
+/// Default width of the panel, in logical pixels.
+const WIDTH: f32 = 240.0;
 
 /// A panel that opens below a trigger widget when it is clicked, and closes on a click
 /// outside it or on Escape.
@@ -19,7 +19,7 @@ const MIN_WIDTH: f32 = 240.0;
 #[derive(Clone, Copy, Debug)]
 pub struct Popover {
     id: Id,
-    min_width: f32,
+    width: f32,
 }
 
 impl Popover {
@@ -27,13 +27,14 @@ impl Popover {
     pub fn new(id_salt: impl AsIdSalt) -> Self {
         Self {
             id: Id::unique(id_salt),
-            min_width: MIN_WIDTH,
+            width: WIDTH,
         }
     }
 
-    /// Minimum width of the panel, in logical pixels.
-    pub fn min_width(mut self, width: f32) -> Self {
-        self.min_width = width;
+    /// Width of the panel, in logical pixels. Rows that fill the width (like menu items) fill
+    /// exactly this much, instead of the whole window.
+    pub fn width(mut self, width: f32) -> Self {
+        self.width = width;
         self
     }
 
@@ -54,7 +55,7 @@ impl Popover {
             .open_memory(None)
             .close_behavior(PopupCloseBehavior::CloseOnClickOutside)
             .show(|ui| {
-                ui.set_min_width(self.min_width);
+                ui.set_width(self.width);
                 content(ui)
             })
             .map(|shown| shown.inner)
@@ -105,6 +106,25 @@ mod tests {
         });
         h.idle(&mut |ui: &mut Ui| open = draw(ui, &mut ran, &mut rect));
         assert!(!open);
+    }
+
+    #[test]
+    fn a_row_that_fills_the_width_stays_as_wide_as_the_panel() {
+        let mut h = Harness::new();
+        let (mut rect, mut width) = (egui::Rect::NOTHING, 0.0);
+        let run = |ui: &mut Ui, rect: &mut egui::Rect, width: &mut f32| {
+            let (r, trigger) = ui.allocate_exact_size(egui::vec2(100.0, 32.0), Sense::click());
+            *rect = r;
+            Popover::new("menu").width(160.0).show(ui, &trigger, |ui| {
+                *width = ui.available_width();
+            });
+        };
+        h.idle(&mut |ui: &mut Ui| run(ui, &mut rect, &mut width));
+        h.click(rect.center(), &mut |ui: &mut Ui| {
+            run(ui, &mut rect, &mut width)
+        });
+        h.idle(&mut |ui: &mut Ui| run(ui, &mut rect, &mut width));
+        assert!((width - 160.0).abs() < 1.0, "{width}");
     }
 
     #[test]
