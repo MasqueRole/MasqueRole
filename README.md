@@ -7,6 +7,7 @@
 <p align="center">
   <strong>A native desktop app for endless, consistent, and persistent AI roleplay.<br>
   Bring your own model. Written in Rust.</strong>
+  <span>Built with AI</span>
 </p>
 
 <p align="center">
