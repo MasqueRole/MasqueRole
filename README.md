@@ -12,8 +12,6 @@
 <p align="center">
   <a href="https://github.com/MasqueRole/MasqueRole/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/MasqueRole/MasqueRole/ci.yml?branch=main&amp;label=CI&amp;logo=github" alt="CI status"></a>
   <a href="https://github.com/MasqueRole/MasqueRole/releases/latest"><img src="https://img.shields.io/github/v/release/MasqueRole/MasqueRole?label=release&amp;logo=github" alt="Latest release"></a>
-  <a href="https://github.com/MasqueRole/MasqueRole/releases"><img src="https://img.shields.io/github/downloads/MasqueRole/MasqueRole/total?label=downloads" alt="Downloads"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/MasqueRole/MasqueRole" alt="License: MIT"></a>
 </p>
 
 <p align="center">
